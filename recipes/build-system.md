@@ -25,3 +25,7 @@ Executing commands from a build script is often intended behavior. Treat command
 - Recursive expansion resource exhaustion
 - Temporary file race or symlink issues
 - Parser crashes on malformed project files
+
+## Recommended evidence
+
+Every candidate must be grounded in real source path, function, line range, source-to-sink reasoning, and validation or a clear statement of missing validation.
