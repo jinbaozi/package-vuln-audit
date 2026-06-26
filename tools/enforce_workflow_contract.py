@@ -5,14 +5,46 @@ import argparse, json, pathlib, re, sys
 
 REQUIRED_DIRS = ['workflows', 'tools', 'schemas', 'templates', 'agents', 'adapters']
 REQUIRED_TOOLS = [
-    'verify_environment.py', 'generate_install_plan.py', 'install_assistant.py', 'context_budget.py',
-    'make_ai_packets.py', 'correlate_public_vulns.py', 'publish_bilingual_reports.py',
-    'validate_report_completeness.py', 'check_offline_db_freshness.py'
+    'verify_environment.py',
+    'generate_install_plan.py',
+    'install_assistant.py',
+    'context_budget.py',
+    'make_ai_packets.py',
+    'correlate_public_vulns.py',
+    'publish_bilingual_reports.py',
+    'validate_report_completeness.py',
+    'check_offline_db_freshness.py',
+    'enforced_audit_driver.py',
+    'enforce_workflow_contract.py',
+    'normalize_results.py',
+    'rank_candidates.py',
+    'generate_poc_testcase.py',
+    'validate_poc_artifacts.py',
+    'validate_language_outputs.py',
+    'generate_final_report.py',
+    'fetch_public_vuln_sources.py',
+    'normalize_public_vuln_records.py',
+    'summarize_artifacts.py',
+    'tool_catalog.py',
 ]
 REQUIRED_SCHEMAS = [
-    'environment-check.schema.json', 'tool-install-plan.schema.json', 'install-assistant-summary.schema.json',
-    'install-assistant-decision.schema.json', 'context-budget.schema.json', 'public-vuln-correlation.schema.json',
-    'report.schema.json', 'bilingual-output.schema.json', 'poc-testcase.schema.json'
+    'bilingual-output.schema.json',
+    'candidate.schema.json',
+    'context-budget.schema.json',
+    'cvss.schema.json',
+    'environment-check.schema.json',
+    'finding.schema.json',
+    'hypothesis.schema.json',
+    'install-assistant-decision.schema.json',
+    'install-assistant-summary.schema.json',
+    'package-profile.schema.json',
+    'poc-testcase.schema.json',
+    'public-vuln-correlation.schema.json',
+    'public-vuln-record.schema.json',
+    'report.schema.json',
+    'tool-install-plan.schema.json',
+    'tool-summary.schema.json',
+    'validation-result.schema.json',
 ]
 REQUIRED_TEMPLATES = ['tool-install-plan.md', 'finding.md', 'internal-report.md']
 REQUIRED_WORKFLOW_TERMS = ['Purpose', 'Inputs', 'Outputs']
