@@ -62,6 +62,8 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
 
 ## Report content requirements
 
+最终汇总报告默认简体中文，必须分别展示 `Validated Findings` 和 `Needs Manual Review`。`Validated` 必须引用已通过执行校验的 PoC 包；`Needs Manual Review` 必须引用人工验证计划。报告不得把人工复核项描述为已验证漏洞。
+
 Every report must include for each Validated finding:
 1. **Disclosure status** (publicly_disclosed / not_found_in_configured_sources / possibly_public / unknown)
 2. **Public vulnerability references** (source, id, url, match_level)

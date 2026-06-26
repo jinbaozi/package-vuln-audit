@@ -24,10 +24,15 @@ Validate Likely candidates using safe local tests, sanitizer output, fuzz reprod
 
 - audit-output/04-validation/VAL-*.json
 - audit-output/04-validation/poc-tests/FINDING-*/
+- audit-output/04-validation/poc-tests/FINDING-*/poc-run-result.json
+- audit-output/04-validation/manual-review/MANUAL-*/manual-validation-plan.md
+- audit-output/04-validation/manual-review/MANUAL-*/manual-validation-plan.json
 
 ## Failure behavior
 
 If validation cannot be performed, mark Needs Manual Review with missing prerequisites.
+
+无法稳定自动复现的问题不得进入 `Validated`；应输出为 `Needs Manual Review`，并生成中文优先的人工验证计划和测试方法。
 
 ## Post-validation steps
 

@@ -21,3 +21,5 @@ Traditional tools are capability enhancers. Missing tools must be visible to the
 4. Containerized or approved build environment for heavy fuzzing/toolchain workflows.
 5. System package manager only as a documented fallback.
 6. Source compilation only when necessary.
+
+For complete audits, `semgrep` is mandatory regardless of environment profile. Missing or failed semgrep execution blocks the complete audit unless the run is explicitly labeled partial.
