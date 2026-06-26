@@ -113,6 +113,13 @@ def main() -> int:
     if schema_rc != 0:
         return schema_rc
 
+    manual_out = out / '04-validation' / 'manual-review'
+    run([sys.executable, 'tools/generate_manual_validation_plan.py',
+         '--findings', args.findings,
+         '--out', str(manual_out)], allow_fail=False)
+    write_step(out, '07-manual-validation-plans', 'completed', 'continue',
+               inputs=[args.findings], outputs=[str(manual_out)])
+
     poc_out = out / '04-validation' / 'poc-tests'
     poc_cmd = [sys.executable, 'tools/generate_poc_testcase.py', '--findings', args.findings, '--generate-from-finding', '--out', str(poc_out)]
     run(poc_cmd, allow_fail=True)
