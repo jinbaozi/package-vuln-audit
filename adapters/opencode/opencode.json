@@ -73,6 +73,102 @@
         "read": true,
         "write": "audit-output"
       }
+    },
+    "scope-selector": {
+      "description": "Subagent: maps package profile to recipes and bounded scan scope.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "write": "audit-output"
+      }
+    },
+    "result-normalizer": {
+      "description": "Subagent: normalizes tool outputs and AI hypotheses into candidate records.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output"
+      }
+    },
+    "patch-advisor": {
+      "description": "Subagent: suggests source-level fixes and regression tests for validated findings.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "write": "audit-output"
+      }
+    },
+    "disclosure-coordinator": {
+      "description": "Subagent: generates progressive disclosure materials (D0-D4).",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output"
+      }
+    },
+    "disclosure-status-reviewer": {
+      "description": "Subagent: reviews disclosure status and public vulnerability correlation.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true
+      }
+    },
+    "poc-safety-reviewer": {
+      "description": "Subagent: safety gate for PoC/testcase artifact proposals.",
+      "mode": "subagent",
+      "tools": {
+        "read": true
+      }
+    },
+    "poc-testcase-generator": {
+      "description": "Subagent: generates local-only PoC testcases for Validated findings.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output",
+        "bash": "validation-only"
+      }
+    },
+    "public-vuln-correlator": {
+      "description": "Subagent: evidence-weighted correlation of findings with public vulnerability records.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output"
+      }
+    },
+    "bilingual-report-publisher": {
+      "description": "Subagent: publishes zh-CN and en-US reports from machine JSON artifacts.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output",
+        "bash": "approved-tools-only"
+      }
+    },
+    "translation-reviewer": {
+      "description": "Subagent: reviews bilingual output for language isolation and invariant consistency.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true
+      }
+    },
+    "tool-install-assistant": {
+      "description": "Subagent: controlled tool installation with dry-run, prefix containment, offline-bundle verification.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output",
+        "bash": "install-only"
+      }
     }
   }
 }
