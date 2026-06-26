@@ -5,11 +5,66 @@ This helper is designed for subagent use. It emits only summary/decision files f
 parent agent and keeps raw logs inside an internal directory.
 """
 from __future__ import annotations
-import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, time
+import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, time, urllib.request
 from tool_catalog import CATALOG
 
 NETWORK_MODES = {"offline", "restricted", "online-approved"}
 DECISION_DRY = "dry-run-only"
+
+GITHUB_RELEASE_MAP = {
+    "osv-scanner": {
+        "repo": "google/osv-scanner",
+        "binary_name": "osv-scanner",
+        "url_pattern": "https://github.com/{repo}/releases/download/v{version}/{binary}_{version}_linux_{arch}",
+        "fallback_version": "2.4.0",
+    },
+}
+
+GITHUB_API_LATEST = "https://api.github.com/repos/{repo}/releases/latest"
+
+
+def get_latest_github_version(repo: str) -> str | None:
+    try:
+        req = urllib.request.Request(
+            GITHUB_API_LATEST.format(repo=repo),
+            headers={"Accept": "application/json", "User-Agent": "pvas-install-assistant/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            tag = data.get("tag_name", "")
+            return tag.lstrip("v")
+    except Exception:
+        return None
+
+
+def detect_linux_arch() -> str:
+    m = platform.machine().lower()
+    return {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(m, m)
+
+
+def download_github_release(tool: str, prefix: pathlib.Path) -> dict:
+    meta = GITHUB_RELEASE_MAP.get(tool)
+    if not meta:
+        return {"success": False, "error": f"no github-release config for {tool}"}
+    version = get_latest_github_version(meta["repo"]) or meta.get("fallback_version")
+    if not version:
+        return {"success": False, "error": "could not determine latest version"}
+    arch = detect_linux_arch()
+    binary_name = meta.get("binary_name", tool)
+    url = meta["url_pattern"].format(repo=meta["repo"], version=version, binary=binary_name, arch=arch)
+    dest_dir = prefix / "bin"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / binary_name
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "pvas-install-assistant/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        sha = hashlib.sha256(data).hexdigest()
+        dest.write_bytes(data)
+        dest.chmod(0o755)
+        return {"success": True, "version": version, "sha256": sha, "path": str(dest)}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -181,6 +236,16 @@ def main() -> int:
             failure_summary.append(f'{tool}: per-tool authorization missing')
         elif args.network_mode == 'offline' and not hash_details.get(tool, {}).get('verified'):
             row['execution'] = 'blocked-offline-bundle-hash'
+        elif args.network_mode == 'online-approved' and tool in GITHUB_RELEASE_MAP:
+            gh_result = download_github_release(tool, prefix_path)
+            if gh_result["success"]:
+                row['execution'] = 'installed-from-github-release'
+                row['github_release'] = gh_result
+                row['verification'] = verify_tool(tool, prefix_path)
+            else:
+                row['execution'] = 'blocked-github-release-download-failed'
+                row['github_release_error'] = gh_result.get("error", "unknown")
+                failure_summary.append(f'{tool}: github release download failed: {gh_result.get("error", "unknown")}')
         else:
             detail = hash_details.get(tool, {})
             if detail.get('verified') and detail.get('path'):

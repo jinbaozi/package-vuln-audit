@@ -96,11 +96,11 @@ def write_finding(lang_root, f, c, en=False):
             lines.append('_No PoC artifacts generated for this finding._')
         lines.extend(['', '## Discovery Method'])
         if dm:
-            for d in dm:
-                tool=f" (tool: `{d.get('tool_name','')}`)" if d.get('tool_name') else ''
-                hyp=f" (hypothesis: `{d.get('hypothesis_id','')}`)" if d.get('hypothesis_id') else ''
-                lines.append(f"- **{d.get('type','?')}**{tool}{hyp}")
-                lines.append(f"  {safe_str(d.get('description',''))}")
+            for disc in dm:
+                tool=f" (tool: `{disc.get('tool_name','')}`)" if disc.get('tool_name') else ''
+                hyp=f" (hypothesis: `{disc.get('hypothesis_id','')}`)" if disc.get('hypothesis_id') else ''
+                lines.append(f"- **{disc.get('type','?')}**{tool}{hyp}")
+                lines.append(f"  {safe_str(disc.get('description',''))}")
         else:
             lines.append('- Not recorded.')
         lines.extend(['', '## Public Vulnerability Correlation'])
@@ -148,11 +148,11 @@ def write_finding(lang_root, f, c, en=False):
             lines.append('_此发现未生成 PoC 工件。_')
         lines.extend(['', '## 发现方式'])
         if dm:
-            for d in dm:
-                tool=f"（工具：`{d.get('tool_name','')}`）" if d.get('tool_name') else ''
-                hyp=f"（假设：`{d.get('hypothesis_id','')}`）" if d.get('hypothesis_id') else ''
-                lines.append(f"- **{zh_type(d.get('type','?'))}**{tool}{hyp}")
-                lines.append(f"  {safe_str(d.get('description',''))}")
+            for disc in dm:
+                tool=f"（工具：`{disc.get('tool_name','')}`）" if disc.get('tool_name') else ''
+                hyp=f"（假设：`{disc.get('hypothesis_id','')}`）" if disc.get('hypothesis_id') else ''
+                lines.append(f"- **{zh_type(disc.get('type','?'))}**{tool}{hyp}")
+                lines.append(f"  {safe_str(disc.get('description',''))}")
         else:
             lines.append('- 未记录。')
         lines.extend(['', '## 公开漏洞比对结果'])

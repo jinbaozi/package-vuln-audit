@@ -101,6 +101,40 @@ Required behavior:
 - Avoid root/system package manager changes by default.
 - Continue the workflow in degraded mode unless a strict environment profile is explicitly required.
 
+## osv-scanner (Known Vulnerability Scan)
+
+osv-scanner is a strict-required tool for known-dependency-vulnerability matching against the OSV database. It runs during the traditional tool scan phase (`run_tools.sh`) as `osv-scanner scan --format json <source>`.
+
+### Installation methods (in priority order)
+
+1. **Offline bundle (preferred)** — Place the pre-downloaded Linux binary at `offline-bundle/binaries/osv-scanner` and add a SHA256 entry to `offline-bundle/install-manifest.json`. The install assistant copies and verifies it automatically.
+
+2. **GitHub release download** — When `--network-mode online-approved --authorize-tool osv-scanner --execute` is passed to the install assistant, it downloads the official prebuilt Linux binary from `github.com/google/osv-scanner/releases`. Architecture is auto-detected (`x86_64` → `amd64`, `aarch64` → `arm64`). The latest release version is determined via the GitHub API, with a fallback to v2.4.0.
+
+   ```bash
+   python3 tools/install_assistant.py \
+     --tool osv-scanner \
+     --network-mode online-approved \
+     --authorize-tool osv-scanner \
+     --execute
+   ```
+
+3. **User-local binary** — Manually download and place the binary:
+   ```bash
+   curl -sL "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_2.4.0_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" -o .pvas/tools/bin/osv-scanner && chmod +x .pvas/tools/bin/osv-scanner
+   ```
+
+4. **Go install** — Requires Go toolchain:
+   ```bash
+   GOBIN=$PWD/.pvas/tools/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+   ```
+
+### Verification
+
+```bash
+.pvas/tools/bin/osv-scanner --version
+```
+
 ## Bilingual correlation and PoC
 
 Publish human reports into separated `zh-CN` and `en-US` directories from the canonical `machine` artifacts. Correlate Validated findings against configured public vulnerability records. Generate local-only reproducer testcases only for Validated findings and keep PoC material private unless disclosure gates allow release.

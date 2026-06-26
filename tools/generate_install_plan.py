@@ -61,7 +61,7 @@ def render_markdown(plan: dict) -> str:
         '- Default behavior: do not auto-install tools.',
         '- Default assist behavior: dry-run only.',
         '- Each tool requires separate authorization before execution.',
-        '- Preferred order: offline-bundle, Python/pipx/uv, npm/npx, user-local binaries, then administrator RPM/DNF plan.',
+        '- Preferred order: offline-bundle, Python/pipx/uv, npm/npx, GitHub release download, user-local binaries, then administrator RPM/DNF plan.',
         '- Default network mode: offline. Network fetches require explicit authorization.',
         '- Default prefix: `.pvas/tools`; prefix must pass realpath escape checks.',
         '- Avoid by default: sudo, system package managers, `/usr`, `/usr/local/bin`, `curl | sh`, and overwriting system tools.',

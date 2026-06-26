@@ -150,6 +150,7 @@ CONTROLLED_INSTALL_METHOD_ORDER = [
     "python-pipx",
     "python-uv",
     "npm-npx",
+    "github-release-download",
     "user-local-binary",
     "user-local-distribution",
     "go-install-user-local",
@@ -170,6 +171,7 @@ INSTALL_HINTS = {
     ],
     "osv-scanner": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool osv-scanner --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified offline-bundle binary installed under the user prefix."},
+        {"priority": 3, "method": "github-release-download", "commands": ["install_assistant.py --tool osv-scanner --network-mode online-approved --execute"], "notes": "Download the official prebuilt Linux binary from GitHub releases (github.com/google/osv-scanner). Requires --network-mode online-approved and explicit --authorize-tool osv-scanner. Architecture auto-detected."},
         {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 osv-scanner .pvas/tools/bin/osv-scanner", "export PATH=\"$PWD/.pvas/tools/bin:$PATH\""], "notes": "Use the official/pre-approved prebuilt binary or an internal mirror."},
         {"priority": 5, "method": "go-install-user-local", "commands": ["GOBIN=$PWD/.pvas/tools/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"], "notes": "Requires Go plus an approved network/proxy mode; not used in offline mode."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install <approved-osv-scanner-package-or-local-rpm>"], "notes": "System package management requires separate authorization."},
