@@ -18,5 +18,5 @@ Use the root `SKILL.md` and `AGENTS.md` as the source of truth.
 2. `/package-vuln-audit`
 3. `/hypothesis-hunt`
 4. `/candidate-review`
-5. `/validate-finding`
+5. `/validate`
 6. Report from `audit-output/06-report/` and `audit-output/07-disclosure/`

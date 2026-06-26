@@ -1,4 +1,4 @@
-# /validate-finding
+# /validate
 
 Validate a Likely candidate using local, defensive evidence.
 
