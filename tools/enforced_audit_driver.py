@@ -40,6 +40,8 @@ def main() -> int:
     ap.add_argument('--max-candidates', default=os.environ.get('PVAS_MAX_CANDIDATES', '20'))
     ap.add_argument('--findings', help='Validated findings JSON for final report gates')
     ap.add_argument('--public-records', help='Normalized public vuln records JSON')
+    ap.add_argument('--allow-network', action='store_true', default=False, help='Allow fetching public vulnerability sources from network')
+    ap.add_argument('--fetch-package', help='Package name for public vulnerability source fetching')
     args = ap.parse_args()
 
     out = pathlib.Path(args.out)
@@ -101,10 +103,19 @@ def main() -> int:
     write_step(out, '07-poc-generation', 'completed' if poc_v_rc == 0 else 'warning', 'continue',
                outputs=[str(poc_out)], issues=[] if poc_v_rc == 0 else ['PoC validation produced warnings'])
 
+    if not args.public_records and args.allow_network and args.fetch_package:
+        fetch_out = out / 'machine' / 'correlation' / 'fetched-records'
+        fetch_out.mkdir(parents=True, exist_ok=True)
+        run([sys.executable, 'tools/fetch_public_vuln_sources.py', '--sources', 'NVD,OSV', '--package', args.fetch_package, '--out', str(fetch_out), '--allow-network'], allow_fail=True)
+        args.public_records = str(fetch_out)
+        write_step(out, '08-fetch-public-sources', 'completed', 'continue', outputs=[str(fetch_out)])
+
     if args.public_records:
         corr = out/'machine/correlation/public-vuln-correlation.json'
         run([sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(out/'machine/correlation/offline-db-freshness.json')], allow_fail=True)
-        run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', args.public_records, '--out', str(corr)], allow_fail=False)
+        norm_records = out / 'machine' / 'correlation' / 'normalized-public-records.json'
+        run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
+        run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', str(norm_records), '--out', str(corr)], allow_fail=False)
         run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out)], allow_fail=False)
         rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--out', str(out/'machine/report-completeness.json')], allow_fail=True)
         write_step(out, '08-report', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block',
@@ -121,6 +132,10 @@ def main() -> int:
     if args.public_records:
         final_cmd.extend(['--correlation', str(out / 'machine' / 'correlation' / 'public-vuln-correlation.json')])
     run(final_cmd, allow_fail=True)
+
+    # Generate artifact summary index
+    run([sys.executable, 'tools/summarize_artifacts.py', '--audit-output', str(out), '--out', str(out / 'machine' / 'artifact-summary.json')], allow_fail=True)
+    write_step(out, '09-artifact-summary', 'completed', 'continue', outputs=[str(out / 'machine' / 'artifact-summary.json')])
 
     return 0
 
