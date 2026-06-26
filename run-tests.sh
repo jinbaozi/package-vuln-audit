@@ -5,6 +5,7 @@ python3 -u tests/test_context_budget_per_agent.py
 python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_tool_install_plan.py
 python3 -u tests/test_strict_mode.py
+python3 -u tests/test_tool_matrix.py
 python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
 python3 -u tests/test_report_admission.py
