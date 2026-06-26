@@ -24,14 +24,18 @@ def test_strict_missing_blocks():
     rc, data = run_verify(['--profile','standard','--mode','strict'])
     assert rc == 2
     assert data['decision'] == 'block'
-    assert 'semgrep' in data['blocking_missing_tools']
+    # Verify at least one blocking_missing_tool exists rather than a specific name,
+    # because COMMON_BIN_DIRS may find tools outside PATH (e.g. ~/.local/bin).
+    assert len(data['blocking_missing_tools']) > 0, (
+        f"Expected blocking tools, got installed: {[t['name'] for t in data['tools'] if t['status']=='installed']}"
+    )
 
 
 def test_strict_allow_degraded_continues():
     rc, data = run_verify(['--profile','standard','--mode','strict','--allow-degraded'])
     assert rc == 0
     assert data['decision'] == 'continue-degraded'
-    assert data['blocking_missing_tools']
+    assert len(data['blocking_missing_tools']) > 0
 
 
 if __name__ == '__main__':

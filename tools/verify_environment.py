@@ -2,7 +2,7 @@
 """Check traditional tool availability and enforce default/strict execution gates."""
 from __future__ import annotations
 import argparse, json, os, pathlib, shutil, subprocess, sys
-from tool_catalog import CATALOG, PROFILE_TOOLS, STRICT_REQUIRED_TOOLS
+from tool_catalog import CATALOG, COMMON_BIN_DIRS, PROFILE_TOOLS, STRICT_REQUIRED_TOOLS
 
 STRICT_MODES = {"default", "strict"}
 
@@ -25,6 +25,12 @@ def check_tool(name: str, strict_required: set[str]) -> dict:
     meta = CATALOG[name]
     binary = meta['binary']
     path = shutil.which(binary)
+    if not path:
+        for d in COMMON_BIN_DIRS:
+            candidate = pathlib.Path(d).expanduser() / binary
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                path = str(candidate)
+                break
     if path:
         status = 'installed'
         version = version_for(path, meta.get('version_args', ['--version']))

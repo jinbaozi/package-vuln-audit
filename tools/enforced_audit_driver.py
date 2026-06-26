@@ -115,6 +115,13 @@ def main() -> int:
     else:
         write_step(out, '08-report', 'partial', 'continue', limitations=['no --public-records provided; correlation and bilingual reports skipped'])
 
+    # Generate final summary report
+    final_cmd = [sys.executable, 'tools/generate_final_report.py',
+                 '--audit-root', str(out), '--findings', args.findings, '--out', str(out)]
+    if args.public_records:
+        final_cmd.extend(['--correlation', str(out / 'machine' / 'correlation' / 'public-vuln-correlation.json')])
+    run(final_cmd, allow_fail=True)
+
     return 0
 
 

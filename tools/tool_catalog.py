@@ -143,6 +143,14 @@ PROFILE_TOOLS = {
     "binutils": ["rg", "semgrep", "cppcheck", "osv-scanner", "codeql", "gcc", "make", "timeout", "afl-fuzz"],
 }
 
+# Directories to search for traditional tool binaries when PATH lookup fails.
+COMMON_BIN_DIRS: list[str] = [
+    "/usr/bin",
+    "/usr/local/bin",
+    "~/.local/bin",
+    "~/.pvas/bin",
+]
+
 STRICT_REQUIRED_TOOLS = {
     "minimal": ["rg"],
     "standard": ["rg", "semgrep", "cppcheck", "osv-scanner"],

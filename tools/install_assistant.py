@@ -6,7 +6,7 @@ parent agent and keeps raw logs inside an internal directory.
 """
 from __future__ import annotations
 import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, time, urllib.request
-from tool_catalog import CATALOG
+from tool_catalog import CATALOG, COMMON_BIN_DIRS
 
 NETWORK_MODES = {"offline", "restricted", "online-approved"}
 DECISION_DRY = "dry-run-only"
@@ -130,6 +130,16 @@ def verify_bundle_hashes(bundle: pathlib.Path, manifest: dict, tools: list[str])
     return not failures, failures, details
 
 
+def _find_binary(name: str) -> bool:
+    if shutil.which(name):
+        return True
+    for d in COMMON_BIN_DIRS:
+        candidate = pathlib.Path(d).expanduser() / name
+        if candidate.exists():
+            return True
+    return False
+
+
 def detect_environment() -> dict:
     return {
         'platform': platform.platform(),
@@ -137,12 +147,12 @@ def detect_environment() -> dict:
         'python': sys.version.split()[0],
         'glibc': '-'.join(platform.libc_ver()).strip('-'),
         'path_entries': len(os.environ.get('PATH', '').split(os.pathsep)),
-        'has_pipx': bool(shutil.which('pipx')),
-        'has_uv': bool(shutil.which('uv')),
-        'has_npm': bool(shutil.which('npm')),
-        'has_go': bool(shutil.which('go')),
-        'has_dnf': bool(shutil.which('dnf')),
-        'has_rpm': bool(shutil.which('rpm')),
+        'has_pipx': _find_binary('pipx'),
+        'has_uv': _find_binary('uv'),
+        'has_npm': _find_binary('npm'),
+        'has_go': _find_binary('go'),
+        'has_dnf': _find_binary('dnf'),
+        'has_rpm': _find_binary('rpm'),
     }
 
 
@@ -180,6 +190,8 @@ def install_via_dnf(tool: str, dnf_pkg: str) -> dict:
 def verify_tool(tool: str, prefix: pathlib.Path) -> dict:
     binary = CATALOG.get(tool, {}).get('binary', tool)
     candidates = [prefix / 'bin' / binary, pathlib.Path(shutil.which(binary) or '')]
+    for d in COMMON_BIN_DIRS:
+        candidates.append(pathlib.Path(d).expanduser() / binary)
     for cand in candidates:
         if cand and str(cand) != '.' and cand.exists():
             try:

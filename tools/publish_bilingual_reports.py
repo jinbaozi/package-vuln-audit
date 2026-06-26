@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Publish zh-CN and en-US human-readable reports from machine artifacts."""
 from __future__ import annotations
-import argparse, json, pathlib
+import argparse, json, pathlib, subprocess, sys
 
 
 def load_json(p, default):
@@ -361,4 +361,22 @@ def main():
     bm={'outputs':{'machine':str(machine.relative_to(out)),'zh_CN':str(zh.relative_to(out)),'en_US':str(en.relative_to(out))},'pairs':pairs}
     (machine/'bilingual-map.json').write_text(json.dumps(bm, indent=2, ensure_ascii=False))
     print(f'[PVAS-BILINGUAL] wrote {machine/"bilingual-map.json"}')
+    # Generate final summary report aggregating all workflow steps
+    script_dir = pathlib.Path(__file__).resolve().parent
+    final_cmd = [
+        sys.executable, str(script_dir / 'generate_final_report.py'),
+        '--audit-root', str(out),
+        '--findings', args.findings,
+    ]
+    if args.correlation:
+        final_cmd.extend(['--correlation', args.correlation])
+    final_cmd.extend(['--out', str(out)])
+    try:
+        p = subprocess.run(final_cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        if p.returncode == 0:
+            print(p.stdout.strip())
+        else:
+            print(f'[PVAS-BILINGUAL] final report generator exited {p.returncode}: {p.stdout.strip()}', file=sys.stderr)
+    except Exception as exc:
+        print(f'[PVAS-BILINGUAL] final report generator failed: {exc}', file=sys.stderr)
 if __name__=='__main__': main()

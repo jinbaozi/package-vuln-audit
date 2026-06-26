@@ -40,6 +40,9 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
 5. **Validate PoC artifacts**:
    `tools/validate_poc_artifacts.py --poc-root audit-output/machine/poc-tests`
 
+6. **Generate final summary report** (aggregates all 10 workflow steps into a single bilingual summary):
+   `tools/generate_final_report.py --audit-root audit-output --findings <finding-index.json> --correlation <correlation.json> --out audit-output/06-report`
+
 ## Outputs
 
 - audit-output/06-report/machine/report.json (canonical machine artifact)
