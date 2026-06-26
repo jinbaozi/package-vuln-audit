@@ -72,7 +72,24 @@ def main() -> int:
     run(['bash', 'tools/profile_project.sh', args.source, str(out/'01-profile')], allow_fail=False)
     write_step(out, '01-package-profile', 'completed', 'continue', outputs=[str(out/'01-profile/package-profile.json'), str(out/'01-profile/context-budget.json')])
 
-    run(['bash', 'tools/run_tools.sh', args.source, str(out/'02-tools')], allow_fail=True)
+    matrix_path = out / '01-profile' / 'required-tools-matrix.json'
+    run([sys.executable, 'tools/generate_tool_matrix.py',
+         '--package-profile', str(out / '01-profile' / 'package-profile.json'),
+         '--profile', args.profile,
+         '--out', str(matrix_path)], allow_fail=False)
+    write_step(out, '02-tool-matrix', 'completed', 'continue',
+               inputs=[str(out / '01-profile' / 'package-profile.json')],
+               outputs=[str(matrix_path)])
+
+    rc, tool_out = run(['bash', 'tools/run_tools.sh', args.source, str(out/'02-tools')], allow_fail=True)
+    write_step(out, '03-tool-scan', 'completed' if rc == 0 else 'blocked',
+               'continue' if rc == 0 else 'block',
+               inputs=[str(out / '01-profile' / 'required-tools-matrix.json')],
+               outputs=[str(out / '02-tools' / 'tool-summary.json'), str(out / '02-tools' / 'tool-execution-attempts.json')],
+               issues=[] if rc == 0 else ['traditional tool scan blocked; see tool-summary.json and tool-execution-attempts.json'],
+               limitations=[] if rc == 0 else [tool_out[-1000:]])
+    if rc != 0:
+        return rc
     run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out/'02-tools/raw'), '--out', str(out/'03-candidates/raw-candidates.json')], allow_fail=True)
     run([sys.executable, 'tools/rank_candidates.py', '--candidates', str(out/'03-candidates/raw-candidates.json'), '--out', str(out/'03-candidates/ranked-candidates.json')], allow_fail=True)
     run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out/'03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out/'03-candidates/packets'), '--max-packets', str(args.max_candidates)], allow_fail=True)
@@ -96,12 +113,16 @@ def main() -> int:
     if schema_rc != 0:
         return schema_rc
 
-    poc_out = out / 'machine' / 'poc-tests'
+    poc_out = out / '04-validation' / 'poc-tests'
     poc_cmd = [sys.executable, 'tools/generate_poc_testcase.py', '--findings', args.findings, '--generate-from-finding', '--out', str(poc_out)]
     run(poc_cmd, allow_fail=True)
     poc_v_rc, _ = run([sys.executable, 'tools/validate_poc_artifacts.py', '--poc-root', str(poc_out)], allow_fail=True)
-    write_step(out, '07-poc-generation', 'completed' if poc_v_rc == 0 else 'warning', 'continue',
-               outputs=[str(poc_out)], issues=[] if poc_v_rc == 0 else ['PoC validation produced warnings'])
+    write_step(out, '07-poc-generation', 'completed' if poc_v_rc == 0 else 'blocked',
+               'continue' if poc_v_rc == 0 else 'block',
+               outputs=[str(poc_out)],
+               issues=[] if poc_v_rc == 0 else ['poc validation failed'])
+    if poc_v_rc != 0:
+        return poc_v_rc
 
     if not args.public_records and args.allow_network and args.fetch_package:
         fetch_out = out / 'machine' / 'correlation' / 'fetched-records'
