@@ -50,6 +50,16 @@ def validate_dir(d: pathlib.Path):
     er=data.get('expected_results',{})
     if not er.get('vulnerable') or not er.get('fixed'):
         errs.append(f'{d}: expected vulnerable/fixed behavior required')
+
+    run_result = d / 'poc-run-result.json'
+    if not run_result.exists():
+        errs.append(f'{d}: missing poc-run-result.json')
+    else:
+        rr = json.loads(run_result.read_text())
+        if rr.get('status') != 'passed':
+            errs.append(f'{d}: poc-run-result status is not passed')
+        if rr.get('exit_code') != 0:
+            errs.append(f'{d}: poc-run-result exit_code is not 0')
     return errs
 
 def main():

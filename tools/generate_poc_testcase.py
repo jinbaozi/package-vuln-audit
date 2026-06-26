@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate local-only PoC/reproducer artifacts for Validated findings."""
 from __future__ import annotations
-import argparse, json, pathlib, hashlib, shutil, os, platform, stat, sys
+import argparse, json, pathlib, hashlib, shutil, os, platform, stat, sys, subprocess, time
 
 SCRIPT_TEMPLATES = {
     "perl": r"""#!/usr/bin/env perl
@@ -63,7 +63,11 @@ dnl Authorized local validation and regression testing only.
 set -euo pipefail
 TIMEOUT="${TIMEOUT:-10s}"
 TMPDIR="$(mktemp -d)"
+export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
+
+timeout "$TIMEOUT" bash <<'POCEOF'
+set -euo pipefail
 
 echo "[PVAS-POC] Setting up test environment in $TMPDIR"
 
@@ -78,6 +82,7 @@ echo "[PVAS-POC] Checking for side effect..."
 {{check_steps}}
 
 echo "[PVAS-POC] Validation complete."
+POCEOF
 """,
 }
 
@@ -275,12 +280,34 @@ def generate_poc(f, lang, outdir):
     return str(outdir)
 
 
+def run_reproducer(outdir: pathlib.Path, timeout_seconds: int = 10) -> dict:
+    script = outdir / 'reproduce.sh'
+    start = time.time()
+    p = subprocess.run(
+        ['timeout', f'{timeout_seconds}s', './reproduce.sh'],
+        cwd=outdir,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    elapsed_ms = int((time.time() - start) * 1000)
+    result = {
+        'status': 'passed' if p.returncode == 0 else 'failed',
+        'exit_code': p.returncode,
+        'elapsed_ms': elapsed_ms,
+        'command': 'timeout %ss ./reproduce.sh' % timeout_seconds,
+        'stdout_tail': (p.stdout or '')[-4000:],
+    }
+    (outdir / 'poc-run-result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    return result
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--findings', required=True)
     ap.add_argument('--finding-id')
     ap.add_argument('--testcase')
-    ap.add_argument('--out', default='audit-output/machine/poc-tests')
+    ap.add_argument('--out', default='audit-output/04-validation/poc-tests')
     ap.add_argument('--build-command', default='')
     ap.add_argument('--reproduce-command', default='')
     ap.add_argument('--generate-from-finding', action='store_true', help='Auto-generate PoC from finding metadata (source_code_evidence, source_to_sink_path)')
@@ -293,7 +320,8 @@ def main():
     for f in findings:
         fid=f.get('id','FINDING-UNKNOWN')
         if args.finding_id and fid != args.finding_id: continue
-        if f.get('status') != 'Validated':
+        status = f.get('status') or f.get('validated_status')
+        if status != 'Validated':
             skipped.append({'id':fid,'reason':'status-not-Validated'}); continue
 
         if args.generate_from_finding:
@@ -303,6 +331,10 @@ def main():
                 shutil.rmtree(d)
             d.mkdir(parents=True, exist_ok=True)
             generate_poc(f, lang, d)
+            run_result = run_reproducer(d)
+            if run_result['status'] != 'passed':
+                skipped.append({'id': fid, 'reason': 'poc-execution-failed'})
+                continue
             generated.append(str(d))
             print(f'[PVAS-POC] generated PoC for {fid} (language={lang})')
             continue
@@ -348,6 +380,10 @@ timeout "$TIMEOUT" {repro} "$TESTCASE"
             'disclosure_level':f.get('disclosure_level','D3-maintainer-private'),'public_release_allowed':False
         }
         (d/'poc-manifest.json').write_text(json.dumps(manifest,indent=2))
+        run_result = run_reproducer(d)
+        if run_result['status'] != 'passed':
+            skipped.append({'id': fid, 'reason': 'poc-execution-failed'})
+            continue
         generated.append(str(d))
 
     summary={'generated':generated,'skipped':skipped}
