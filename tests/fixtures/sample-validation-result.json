@@ -1,0 +1,16 @@
+{
+  "candidate_id": "T-CAND-0001",
+  "status": "validated",
+  "method": "sanitizer",
+  "command": "tool testcase",
+  "artifacts": [
+    "stderr.txt"
+  ],
+  "result_summary": "fixture ASan finding",
+  "validated_source_path": [
+    "src/parser.c:15"
+  ],
+  "reproducibility": "reproducible",
+  "false_positive_exclusion": "reproducible on sanitizer build",
+  "safety_note": "Authorized local validation/regression testing only."
+}

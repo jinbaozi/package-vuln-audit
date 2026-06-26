@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Install Assistant Summary",
+  "type": "object",
+  "required": ["status", "mode", "dry_run", "network_mode", "prefix", "tools"],
+  "properties": {
+    "status": {"enum": ["planned", "completed", "failed", "blocked"]},
+    "mode": {"enum": ["default", "strict"]},
+    "dry_run": {"type": "boolean"},
+    "network_mode": {"enum": ["offline", "restricted", "online-approved"]},
+    "prefix": {"type": "string"},
+    "prefix_escape_check": {"enum": ["passed", "failed"]},
+    "offline_bundle": {"type": "object", "additionalProperties": true},
+    "tools": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+    "failure_summary": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

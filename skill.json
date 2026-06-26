@@ -1,0 +1,39 @@
+{
+  "name": "package-vuln-audit-skill",
+  "version": "0.9.0-alpha9",
+  "description": "Portable Agent Skill for software-package vulnerability discovery, validation, reporting, CVSS scoring, and progressive disclosure.",
+  "compatibility": [
+    "Claude Code",
+    "Codex",
+    "opencode",
+    "Agent Skills compatible agents"
+  ],
+  "primary_entrypoints": [
+    "SKILL.md",
+    "AGENTS.md"
+  ],
+  "adapters": {
+    "claude_code": "adapters/claude-code/",
+    "codex": "adapters/codex/",
+    "opencode": "adapters/opencode/"
+  },
+  "safety": {
+    "mode": "authorized-defensive-source-audit",
+    "validated_only_poc": true,
+    "progressive_disclosure": true,
+    "parent_context_hygiene": true,
+    "per_agent_context_budget": true,
+    "context_budget_tokens_per_agent": 200000,
+    "tool_availability_advisor": true,
+    "bilingual_output": true,
+    "public_vulnerability_correlation": true,
+    "local_only_validated_poc": true
+  },
+  "first_slice_status": "phases-1-to-19-plus-bilingual-public-correlation-and-validated-poc-implemented",
+  "installers": {
+    "scripted_install": "install/install.sh",
+    "verify_install": "install/verify-install.sh",
+    "verify_environment": "tools/verify_environment.py",
+    "generate_install_plan": "tools/generate_install_plan.py"
+  }
+}

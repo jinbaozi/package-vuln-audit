@@ -1,0 +1,34 @@
+{
+  "status": "install-plan-generated",
+  "install_policy": {
+    "auto_install_default": false,
+    "default_dry_run": true,
+    "preferred_methods": ["offline-bundle", "python-pipx", "python-uv", "npm-npx", "user-local-binary", "admin-rpm-dnf-plan"],
+    "forbidden_by_default": ["sudo", "system-package-manager-auto-execution", "write-/usr", "write-/usr/local/bin", "curl-pipe-shell", "overwrite-system-tools", "unapproved-network-fetch"],
+    "requires_per_tool_authorization": true,
+    "requires_system_install_authorization": true,
+    "network_default": "offline",
+    "prefix_default": ".pvas/tools"
+  },
+  "plans": [
+    {
+      "tool": "semgrep",
+      "impact": "Semgrep rule-based SAST candidates will not be generated.",
+      "authorization_required": true,
+      "version_constraint": "",
+      "recommended_methods": [
+        {
+          "method": "offline-bundle",
+          "priority": 0,
+          "commands": ["python3 tools/install_assistant.py --tool semgrep --mode strict --dry-run --offline-bundle offline-bundle"],
+          "notes": "Preferred controlled path."
+        }
+      ]
+    }
+  ],
+  "offline_bundle": {
+    "supported": true,
+    "hash_verification_required": true,
+    "layout": ["offline-bundle/wheels/", "offline-bundle/binaries/"]
+  }
+}

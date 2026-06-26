@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tool Install Plan",
+  "type": "object",
+  "required": ["status", "install_policy", "plans"],
+  "properties": {
+    "status": {"enum": ["no-missing-tools", "install-plan-generated"]},
+    "install_policy": {
+      "type": "object",
+      "required": ["auto_install_default", "default_dry_run", "preferred_methods", "forbidden_by_default"],
+      "properties": {
+        "auto_install_default": {"type": "boolean"},
+        "default_dry_run": {"type": "boolean"},
+        "preferred_methods": {"type": "array", "items": {"type": "string"}},
+        "forbidden_by_default": {"type": "array", "items": {"type": "string"}},
+        "requires_per_tool_authorization": {"type": "boolean"},
+        "requires_system_install_authorization": {"type": "boolean"},
+        "network_default": {"enum": ["offline", "restricted", "online-approved"]},
+        "prefix_default": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "plans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "impact", "recommended_methods"],
+        "properties": {
+          "tool": {"type": "string"},
+          "impact": {"type": "string"},
+          "authorization_required": {"type": "boolean"},
+          "version_constraint": {"type": "string"},
+          "recommended_methods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["method", "priority", "commands", "notes"],
+              "properties": {
+                "method": {"type": "string"},
+                "priority": {"type": "integer"},
+                "commands": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "offline_bundle": {
+      "type": "object",
+      "properties": {
+        "supported": {"type": "boolean"},
+        "hash_verification_required": {"type": "boolean"},
+        "layout": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

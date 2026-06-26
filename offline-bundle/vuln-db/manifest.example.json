@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "sources": [
+    {
+      "name": "OSV",
+      "path": "osv/",
+      "retrieved_at": "",
+      "record_count": 0
+    },
+    {
+      "name": "NVD",
+      "path": "nvd/",
+      "retrieved_at": "",
+      "record_count": 0
+    },
+    {
+      "name": "CISA-KEV",
+      "path": "cisa-kev/",
+      "retrieved_at": "",
+      "record_count": 0
+    }
+  ]
+}

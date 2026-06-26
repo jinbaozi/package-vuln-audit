@@ -1,0 +1,16 @@
+# Generated audit artifacts
+audit-output/
+.audit-work/
+.poc-work/
+fuzz-output/
+crashes/
+queue/
+*.log
+*.sarif
+*.db
+*.cpg
+.cache/
+__pycache__/
+.pytest_cache/
+node_modules/
+.DS_Store

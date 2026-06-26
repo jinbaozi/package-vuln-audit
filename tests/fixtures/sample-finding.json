@@ -1,0 +1,55 @@
+{
+  "id": "FINDING-0001",
+  "status": "Validated",
+  "title": "Fixture validated malformed-input crash",
+  "summary": "fixture only",
+  "affected_component": {
+    "package": "fixture",
+    "version_or_commit": "example",
+    "component": "parser",
+    "default_configuration_affected": "unknown"
+  },
+  "source_code_evidence": [
+    {
+      "file": "src/parser.c",
+      "function": "parse",
+      "start_line": 10,
+      "end_line": 20,
+      "snippet": "memcpy(dst, src, len);"
+    }
+  ],
+  "root_cause": "unchecked file-controlled length",
+  "source_to_sink_path": "file length -> parse -> memcpy",
+  "validation": {
+    "candidate_id": "T-CAND-0001",
+    "status": "validated",
+    "method": "sanitizer",
+    "command": "tool testcase",
+    "artifacts": [
+      "stderr.txt"
+    ],
+    "result_summary": "fixture",
+    "reproducibility": "reproducible",
+    "safety_note": "Authorized local validation/regression testing only."
+  },
+  "cvss": {
+    "version": "4.0",
+    "status": "provisional",
+    "vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:P/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+    "base_score": 3.3,
+    "severity": "Low",
+    "rationale": {
+      "AV": "fixture"
+    },
+    "uncertainties": [
+      "fixture"
+    ]
+  },
+  "security_impact": "DoS in local tool processing malformed file",
+  "false_positive_exclusion": "sanitizer reproduction fixture",
+  "fix_recommendation": "validate length before copy",
+  "poc_test_artifacts": [
+    "audit-output/04-validation/poc-tests/FINDING-0001"
+  ],
+  "disclosure_level": "D2-internal-validated"
+}

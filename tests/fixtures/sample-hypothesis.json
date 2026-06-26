@@ -1,0 +1,15 @@
+{
+  "id": "AI-HYP-0001",
+  "profile": "binary-parser",
+  "component": "readelf",
+  "assumption": "Section link references a valid table.",
+  "attacker_controlled_input": "section header sh_link",
+  "possible_gap": "type compatibility may be unchecked",
+  "possible_sink": "relocation display",
+  "minimal_extra_code_needed": [
+    "display_relocations"
+  ],
+  "validation_method": "mutate sh_link and run sanitizer build",
+  "confidence": "medium",
+  "candidate_id": "A-CAND-0001"
+}

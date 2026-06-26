@@ -1,0 +1,16 @@
+{
+  "tools": [
+    {
+      "name": "rg",
+      "status": "completed",
+      "output": "audit-output/02-tools/raw/rg.out",
+      "notes": "fixture"
+    }
+  ],
+  "raw_outputs": [
+    "audit-output/02-tools/raw/rg.out"
+  ],
+  "summary": "fixture",
+  "normalized_candidate_count": 1,
+  "errors": []
+}

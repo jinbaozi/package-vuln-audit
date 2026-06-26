@@ -1,0 +1,15 @@
+{
+  "outputs": {
+    "machine": "machine",
+    "zh_CN": "zh-CN",
+    "en_US": "en-US"
+  },
+  "pairs": [
+    {
+      "id": "FINDING-001",
+      "zh": "zh-CN/04-漏洞发现/FINDING-001.md",
+      "en": "en-US/04-findings/FINDING-001.md",
+      "invariants": {}
+    }
+  ]
+}

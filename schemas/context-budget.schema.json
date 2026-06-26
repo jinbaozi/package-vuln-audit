@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context Budget",
+  "type": "object",
+  "required": ["policy", "agents", "traversal", "candidate_packets", "run_cost_telemetry", "decision"],
+  "properties": {
+    "policy": {
+      "type": "object",
+      "required": ["budget_model", "default_agent_context_budget_tokens", "agent_input_target_tokens", "agent_input_warning_tokens", "agent_hard_input_limit_tokens", "agent_output_reserve_tokens"],
+      "properties": {
+        "budget_model": {"const": "per-agent-independent-context"},
+        "default_agent_context_budget_tokens": {"type": "integer", "minimum": 1},
+        "agent_input_target_tokens": {"type": "integer", "minimum": 1},
+        "agent_input_warning_tokens": {"type": "integer", "minimum": 1},
+        "agent_hard_input_limit_tokens": {"type": "integer", "minimum": 1},
+        "agent_output_reserve_tokens": {"type": "integer", "minimum": 1},
+        "long_context_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["context_budget_tokens", "target_input_tokens", "warning_tokens", "hard_input_limit_tokens", "allowed_artifact_classes", "forbidden_artifact_classes"],
+        "properties": {
+          "context_budget_tokens": {"type": "integer", "minimum": 1},
+          "target_input_tokens": {"type": "integer", "minimum": 1},
+          "warning_tokens": {"type": "integer", "minimum": 1},
+          "hard_input_limit_tokens": {"type": "integer", "minimum": 1},
+          "allowed_artifact_classes": {"type": "array", "items": {"type": "string"}},
+          "forbidden_artifact_classes": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "traversal": {
+      "type": "object",
+      "required": ["all_files_count", "source_files_count", "excluded_dirs", "large_files_skipped", "truncated"],
+      "properties": {
+        "all_files_count": {"type": "integer", "minimum": 0},
+        "source_files_count": {"type": "integer", "minimum": 0},
+        "excluded_dirs": {"type": "array", "items": {"type": "string"}},
+        "large_files_skipped": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "candidate_packets": {
+      "type": "object",
+      "required": ["packet_budget_tokens", "review_batch_tokens", "max_packet_count_per_review", "estimated_total_tokens", "batches"],
+      "properties": {
+        "packet_budget_tokens": {"type": "integer", "minimum": 1},
+        "review_batch_tokens": {"type": "integer", "minimum": 1},
+        "max_packet_count_per_review": {"type": "integer", "minimum": 1},
+        "estimated_total_tokens": {"type": "integer", "minimum": 0},
+        "batches": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": true
+    },
+    "run_cost_telemetry": {
+      "type": "object",
+      "required": ["estimated_invocation_count", "estimated_max_single_invocation_tokens", "estimated_total_tokens_across_agents", "note"],
+      "properties": {
+        "estimated_invocation_count": {"type": "integer", "minimum": 0},
+        "estimated_max_single_invocation_tokens": {"type": "integer", "minimum": 0},
+        "estimated_total_tokens_across_agents": {"type": "integer", "minimum": 0},
+        "note": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "decision": {"enum": ["safe", "warning", "truncate-required", "split-required", "blocked"]},
+    "recommended_action": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Environment Check",
+  "type": "object",
+  "required": ["environment_profile", "status", "decision", "tools", "capability_summary"],
+  "properties": {
+    "environment_profile": {"type": "string"},
+    "mode": {"enum": ["default", "strict"]},
+    "allow_degraded": {"type": "boolean"},
+    "status": {"enum": ["ok", "degraded", "missing-required", "unknown"]},
+    "decision": {"enum": ["continue", "continue-degraded", "block"]},
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "required_for", "impact"],
+        "properties": {
+          "name": {"type": "string"},
+          "binary": {"type": "string"},
+          "status": {"enum": ["installed", "missing", "skipped", "failed", "unknown"]},
+          "version": {"type": "string"},
+          "path": {"type": "string"},
+          "required_for": {"type": "array", "items": {"type": "string"}},
+          "requirement_level": {"enum": ["required", "recommended", "optional"]},
+          "impact": {"type": "string"},
+          "install_hint_id": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "capability_summary": {
+      "type": "object",
+      "additionalProperties": {"enum": ["available", "degraded", "missing", "unknown"]}
+    },
+    "missing_tools": {"type": "array", "items": {"type": "string"}},
+    "strict_required_tools": {"type": "array", "items": {"type": "string"}},
+    "blocking_missing_tools": {"type": "array", "items": {"type": "string"}},
+    "recommended_action": {"type": "array", "items": {"type": "string"}},
+    "install_assistant_recommended": {"type": "boolean"},
+    "degraded_capabilities": {"type": "array", "items": {"type": "string"}},
+    "output_files": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

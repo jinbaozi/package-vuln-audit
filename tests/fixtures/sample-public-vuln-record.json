@@ -1,0 +1,17 @@
+{
+  "id": "CVE-2026-0001",
+  "source": "NVD",
+  "aliases": [
+    "CVE-2026-0001"
+  ],
+  "summary": "Example vulnerability",
+  "package": "binutils",
+  "component": "readelf",
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2026-0001"
+  ],
+  "provenance": {
+    "source": "NVD",
+    "record_hash": "abc"
+  }
+}

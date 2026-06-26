@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Finding",
+  "type": "object",
+  "required": [
+    "id",
+    "status",
+    "title",
+    "affected_component",
+    "source_code_evidence",
+    "source_to_sink_path",
+    "validation",
+    "cvss",
+    "fix_recommendation",
+    "disclosure_level"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "Validated",
+        "Needs Manual Review"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "affected_component": {
+      "type": "object",
+      "required": [
+        "package",
+        "component"
+      ],
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "version_or_commit": {
+          "type": "string"
+        },
+        "component": {
+          "type": "string"
+        },
+        "default_configuration_affected": {
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "source_code_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "end_line": {
+            "type": "integer"
+          },
+          "snippet": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "root_cause": {
+      "type": "string"
+    },
+    "source_to_sink_path": {
+      "type": "string"
+    },
+    "validation": {
+      "type": "object"
+    },
+    "cvss": {
+      "type": "object"
+    },
+    "security_impact": {
+      "type": "string"
+    },
+    "false_positive_exclusion": {
+      "type": "string"
+    },
+    "fix_recommendation": {
+      "type": "string"
+    },
+    "poc_test_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disclosure_level": {
+      "enum": [
+        "D2-internal-validated",
+        "D3-maintainer-private",
+        "D4-public-after-fix"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

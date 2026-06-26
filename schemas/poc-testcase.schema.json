@@ -1,0 +1,9 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"PoC Testcase Manifest",
+  "type":"object",
+  "required":["finding_id","status","poc_type","safety_class","artifacts","commands","expected_results","disclosure_level"],
+  "properties":{
+    "finding_id":{"type":"string"},"status":{"enum":["Validated"]},"poc_type":{"type":"string"},"safety_class":{"enum":["local-validation-only"]},"affected_component":{"type":"object"},"artifacts":{"type":"object"},"commands":{"type":"object"},"expected_results":{"type":"object","required":["vulnerable","fixed"]},"environment":{"type":"object"},"testcase":{"type":"object"},"disclosure_level":{"type":"string"},"public_release_allowed":{"type":"boolean"}
+  },"additionalProperties":true
+}

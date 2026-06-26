@@ -1,0 +1,78 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "coordinator": {
+      "description": "Primary coordinator for package vulnerability audit. Keeps parent context clean and delegates noisy work.",
+      "mode": "primary",
+      "tools": {
+        "read": true,
+        "write": true,
+        "bash": false
+      }
+    },
+    "package-profiler": {
+      "description": "Subagent: read-only package profiling and recipe selection.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "bash": "readonly"
+      }
+    },
+    "tool-runner": {
+      "description": "Subagent: approved local tool execution and summarization.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output",
+        "bash": "approved-tools-only"
+      }
+    },
+    "hypothesis-hunter": {
+      "description": "Subagent: AI safety hypothesis generation from selected recipes and code slices.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "write": "audit-output"
+      }
+    },
+    "candidate-reviewer": {
+      "description": "Subagent: one-candidate-at-a-time evidence review.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "write": "audit-output"
+      }
+    },
+    "validator": {
+      "description": "Subagent: safe local validation, sanitizer, fuzz replay, and static refutation.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output",
+        "bash": "validation-only"
+      }
+    },
+    "cvss-scorer": {
+      "description": "Subagent: CVSS v4.0 scoring for Likely/Validated items.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output"
+      }
+    },
+    "report-writer": {
+      "description": "Subagent: formatted Markdown/JSON reports from admitted findings.",
+      "mode": "subagent",
+      "tools": {
+        "read": true,
+        "write": "audit-output"
+      }
+    }
+  }
+}

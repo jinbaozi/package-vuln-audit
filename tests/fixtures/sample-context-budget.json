@@ -1,0 +1,43 @@
+{
+  "policy": {
+    "budget_model": "per-agent-independent-context",
+    "default_agent_context_budget_tokens": 200000,
+    "agent_input_target_tokens": 140000,
+    "agent_input_warning_tokens": 170000,
+    "agent_hard_input_limit_tokens": 180000,
+    "agent_output_reserve_tokens": 20000,
+    "long_context_mode": "off"
+  },
+  "agents": {
+    "coordinator": {
+      "context_budget_tokens": 200000,
+      "target_input_tokens": 40000,
+      "warning_tokens": 70000,
+      "hard_input_limit_tokens": 80000,
+      "allowed_artifact_classes": ["summary"],
+      "forbidden_artifact_classes": ["raw_tool_log"]
+    }
+  },
+  "traversal": {
+    "all_files_count": 1,
+    "source_files_count": 1,
+    "excluded_dirs": [".git"],
+    "large_files_skipped": 0,
+    "truncated": false
+  },
+  "candidate_packets": {
+    "packet_budget_tokens": 8000,
+    "review_batch_tokens": 160000,
+    "max_packet_count_per_review": 20,
+    "estimated_total_tokens": 0,
+    "batches": []
+  },
+  "run_cost_telemetry": {
+    "estimated_invocation_count": 0,
+    "estimated_max_single_invocation_tokens": 0,
+    "estimated_total_tokens_across_agents": 0,
+    "note": "cost telemetry only"
+  },
+  "decision": "safe",
+  "recommended_action": "Proceed"
+}

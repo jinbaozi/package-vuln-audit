@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Package Profile",
+  "type": "object",
+  "required": [
+    "package_name",
+    "profiles",
+    "primary_languages",
+    "selected_recipes",
+    "high_risk_modules",
+    "confidence"
+  ],
+  "properties": {
+    "package_name": {
+      "type": "string"
+    },
+    "version_or_commit": {
+      "type": "string"
+    },
+    "primary_languages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "secondary_languages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "binary-parser",
+          "compiler-toolchain",
+          "build-system",
+          "cli-tool",
+          "privileged-tool",
+          "library-parser",
+          "network-service",
+          "crypto-auth",
+          "package-manager",
+          "mixed-project",
+          "unknown-conservative"
+        ]
+      }
+    },
+    "build_systems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "input_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "high_risk_modules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "selected_recipes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

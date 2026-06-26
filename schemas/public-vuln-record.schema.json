@@ -1,0 +1,9 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Normalized Public Vulnerability Record",
+  "type":"object",
+  "required":["id","source","aliases","summary","references","provenance"],
+  "properties":{
+    "id":{"type":"string"},"source":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"},"package":{"type":"string"},"component":{"type":"string"},"affected_versions":{"type":"array","items":{"type":"string"}},"cwe":{"type":"array","items":{"type":"string"}},"impact":{"type":"array","items":{"type":"string"}},"references":{"type":"array","items":{"type":"string"}},"published":{"type":"string"},"modified":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"functions":{"type":"array","items":{"type":"string"}},"root_cause":{"type":"string"},"provenance":{"type":"object","required":["source","record_hash"],"properties":{"source":{"type":"string"},"source_url":{"type":"string"},"retrieved_at":{"type":"string"},"source_file":{"type":"string"},"record_hash":{"type":"string"},"normalizer_version":{"type":"string"}},"additionalProperties":true}
+  },"additionalProperties":true
+}

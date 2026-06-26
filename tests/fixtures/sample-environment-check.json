@@ -1,0 +1,28 @@
+{
+  "environment_profile": "standard",
+  "mode": "strict",
+  "allow_degraded": false,
+  "status": "missing-required",
+  "decision": "block",
+  "tools": [
+    {
+      "name": "semgrep",
+      "binary": "semgrep",
+      "status": "missing",
+      "version": "",
+      "path": "",
+      "required_for": ["rule-scanning"],
+      "requirement_level": "required",
+      "impact": "Semgrep rule-based SAST candidates will not be generated.",
+      "install_hint_id": "semgrep"
+    }
+  ],
+  "capability_summary": {"rule-scanning": "missing"},
+  "missing_tools": ["semgrep"],
+  "strict_required_tools": ["semgrep"],
+  "blocking_missing_tools": ["semgrep"],
+  "recommended_action": ["Install or explicitly degrade: semgrep enables rule-scanning."],
+  "install_assistant_recommended": true,
+  "degraded_capabilities": ["rule-scanning"],
+  "output_files": ["audit-output/00-environment/environment-check.json"]
+}

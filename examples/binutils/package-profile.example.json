@@ -1,0 +1,39 @@
+{
+  "package_name": "binutils",
+  "version_or_commit": "example-only",
+  "primary_language": [
+    "C"
+  ],
+  "secondary_language": [
+    "Shell",
+    "M4",
+    "Makefile"
+  ],
+  "profiles": [
+    "binary-parser",
+    "compiler-toolchain",
+    "cli-tool"
+  ],
+  "build_system": [
+    "autotools",
+    "make"
+  ],
+  "input_surfaces": [
+    "ELF object files",
+    "archives",
+    "DWARF/debug sections",
+    "command-line options"
+  ],
+  "high_risk_modules": [
+    "binutils/readelf.c",
+    "binutils/objdump.c",
+    "bfd/",
+    "opcodes/"
+  ],
+  "selected_recipes": [
+    "recipes/binary-parser.md",
+    "recipes/compiler-toolchain.md"
+  ],
+  "confidence": "high",
+  "notes": "Example profile only. It does not assert any vulnerability."
+}

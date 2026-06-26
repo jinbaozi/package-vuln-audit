@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Validation Result",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "status",
+    "method",
+    "safety_note",
+    "reproducibility"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "validated",
+        "rejected",
+        "inconclusive",
+        "not-run"
+      ]
+    },
+    "method": {
+      "enum": [
+        "static-confirmation",
+        "unit-test",
+        "sanitizer",
+        "fuzz",
+        "minimal-testcase",
+        "manual-review"
+      ]
+    },
+    "command": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "result_summary": {
+      "type": "string"
+    },
+    "validated_source_path": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reproducibility": {
+      "enum": [
+        "not-attempted",
+        "once",
+        "reproducible",
+        "non-reproducible"
+      ]
+    },
+    "false_positive_exclusion": {
+      "type": "string"
+    },
+    "safety_note": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

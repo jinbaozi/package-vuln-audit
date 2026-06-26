@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CVSS Assessment",
+  "type": "object",
+  "required": [
+    "version",
+    "status",
+    "vector",
+    "base_score",
+    "severity",
+    "rationale"
+  ],
+  "properties": {
+    "version": {
+      "enum": [
+        "4.0",
+        "3.1"
+      ]
+    },
+    "status": {
+      "enum": [
+        "provisional",
+        "final"
+      ]
+    },
+    "vector": {
+      "type": "string"
+    },
+    "base_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "severity": {
+      "enum": [
+        "None",
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ]
+    },
+    "rationale": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "environmental_notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

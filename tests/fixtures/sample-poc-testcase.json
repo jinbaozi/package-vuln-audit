@@ -1,0 +1,19 @@
+{
+  "finding_id": "FINDING-001",
+  "status": "Validated",
+  "poc_type": "local-reproducer",
+  "safety_class": "local-validation-only",
+  "artifacts": {
+    "reproduce_script": "reproduce.sh",
+    "testcase": "testcase.bin"
+  },
+  "commands": {
+    "build": "make",
+    "reproduce": "./reproduce.sh"
+  },
+  "expected_results": {
+    "vulnerable": "crash",
+    "fixed": "no crash"
+  },
+  "disclosure_level": "D3-maintainer-private"
+}

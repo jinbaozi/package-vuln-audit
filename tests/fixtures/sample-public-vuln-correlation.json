@@ -1,0 +1,14 @@
+{
+  "checked_sources": [
+    "NVD",
+    "OSV"
+  ],
+  "correlations": [
+    {
+      "finding_id": "FINDING-001",
+      "status": "publicly_disclosed",
+      "match_level": "M3",
+      "matched_records": []
+    }
+  ]
+}

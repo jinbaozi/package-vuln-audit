@@ -1,0 +1,8 @@
+{
+  "decision": "dry-run-only",
+  "resume_audit": false,
+  "missing_after_assist": ["semgrep"],
+  "summary_file": "audit-output/00-environment/install-assistant-summary.json",
+  "log_digest_file": "audit-output/00-environment/install-assistant-log-digest.txt",
+  "next_actions": ["install missing required tools using an approved path"]
+}

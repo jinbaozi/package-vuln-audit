@@ -1,0 +1,10 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Public Vulnerability Correlation",
+  "type":"object",
+  "required":["correlations","checked_sources"],
+  "properties":{
+    "checked_sources":{"type":"array","items":{"type":"string"}},
+    "correlations":{"type":"array","items":{"type":"object","required":["finding_id","status","match_level","matched_records"],"properties":{"finding_id":{"type":"string"},"status":{"enum":["publicly_disclosed","possibly_public","not_found_in_configured_sources","unknown"]},"match_level":{"enum":["M0","M1","M2","M3"]},"matched_records":{"type":"array"},"checked_sources":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}},"additionalProperties":true}}
+  },"additionalProperties":true
+}

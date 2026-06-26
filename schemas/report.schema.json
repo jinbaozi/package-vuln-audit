@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Audit Report",
+  "type": "object",
+  "required": [
+    "package",
+    "scope",
+    "findings",
+    "public_disclosure_summary",
+    "generated_outputs"
+  ],
+  "properties": {
+    "package": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "object"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "needs_manual_review": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rejected_summary": {
+      "type": "string"
+    },
+    "generated_outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "public_disclosure_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "finding_id",
+          "status",
+          "match_level",
+          "standard_sources",
+          "record_ids",
+          "evidence_summary",
+          "limitations"
+        ],
+        "properties": {
+          "finding_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "publicly_disclosed",
+              "possibly_public",
+              "not_found_in_configured_sources",
+              "unknown"
+            ]
+          },
+          "match_level": {
+            "enum": [
+              "M0",
+              "M1",
+              "M2",
+              "M3"
+            ]
+          },
+          "standard_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_summary": {
+            "type": "string"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

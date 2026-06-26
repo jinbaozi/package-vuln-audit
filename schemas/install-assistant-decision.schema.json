@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Install Assistant Decision",
+  "type": "object",
+  "required": ["decision", "resume_audit", "missing_after_assist"],
+  "properties": {
+    "decision": {"enum": ["resume", "blocked", "degrade-explicitly", "dry-run-only"]},
+    "resume_audit": {"type": "boolean"},
+    "missing_after_assist": {"type": "array", "items": {"type": "string"}},
+    "summary_file": {"type": "string"},
+    "log_digest_file": {"type": "string"},
+    "next_actions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

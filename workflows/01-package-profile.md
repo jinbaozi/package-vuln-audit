@@ -1,0 +1,38 @@
+# 01 Package Profile
+
+## Purpose
+
+Identify language, build system, package type, input surfaces, high-risk modules, and likely recipe set.
+
+## Inputs
+
+- audit-output/00-intake/scope.md
+- top-level file tree
+- build/dependency file list
+
+## Subagent role
+
+`package-profiler`
+
+## Allowed tools
+
+- read
+- grep/rg/find read-only
+- bash read-only profiling commands
+
+## Outputs
+
+- audit-output/01-profile/package-profile.json
+- audit-output/01-profile/package-profile.md
+
+## Failure behavior
+
+If profile confidence is low, select unknown-conservative recipe and request additional scope only if required.
+
+## Parent context rule
+
+The parent agent should read only the declared output summary files from this workflow. Raw logs, full source scans, and large intermediate artifacts must stay in workflow-specific `audit-output/` subdirectories.
+
+## Context Budget Guard
+
+Use `context-budget.json` before loading artifacts into an agent context. The budget model is per-agent independent context: each subagent invocation has its own 200K hard window. Do not treat 200K as a workflow-wide shared limit, and do not treat it as permission to load raw repositories or raw logs.

@@ -1,0 +1,12 @@
+{
+  "id": "AI-HYP-BINUTILS-EXAMPLE-001",
+  "profile": "binary-parser",
+  "component": "readelf",
+  "assumption": "A section-link field references a valid table section with the expected type.",
+  "attacker_controlled_field": "ELF section header link-like field",
+  "possible_gap": "Range validation may exist without type compatibility validation.",
+  "possible_sink": "relocation or symbol/string table access",
+  "validation_method": "Mutate a local ELF testcase and run ASan/UBSan readelf locally.",
+  "confidence": "medium",
+  "disclaimer": "Example only; not a vulnerability claim."
+}

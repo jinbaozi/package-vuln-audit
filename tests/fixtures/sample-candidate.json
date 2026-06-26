@@ -1,0 +1,31 @@
+{
+  "id": "T-CAND-0001",
+  "type": "T-CAND",
+  "status": "Likely",
+  "title": "Unchecked file-controlled length reaches buffer access",
+  "component": "binary-parser",
+  "profile": "binary-parser",
+  "source_locations": [
+    {
+      "file": "src/parser.c",
+      "function": "parse",
+      "start_line": 10,
+      "end_line": 20
+    }
+  ],
+  "evidence": {
+    "source": "file header length",
+    "sink": "memcpy length",
+    "source_to_sink": "header -> parse -> memcpy",
+    "tool_refs": [
+      "rg"
+    ]
+  },
+  "confidence": "medium",
+  "provisional_severity": "medium",
+  "rank_score": 20,
+  "missing_evidence": [
+    "validation"
+  ],
+  "disclosure_level": "D1-internal-likely"
+}

@@ -1,0 +1,37 @@
+{
+  "package_name": "binutils",
+  "version_or_commit": "example",
+  "primary_languages": [
+    "C"
+  ],
+  "secondary_languages": [
+    "Shell",
+    "M4"
+  ],
+  "profiles": [
+    "binary-parser",
+    "compiler-toolchain",
+    "cli-tool"
+  ],
+  "build_systems": [
+    "autotools",
+    "make"
+  ],
+  "input_surfaces": [
+    "ELF object files",
+    "archives",
+    "DWARF sections"
+  ],
+  "high_risk_modules": [
+    "binutils/readelf.c",
+    "bfd/",
+    "opcodes/"
+  ],
+  "selected_recipes": [
+    "recipes/binary-parser.md",
+    "recipes/compiler-toolchain.md"
+  ],
+  "confidence": "high",
+  "rationale": "Fixture only.",
+  "limitations": []
+}

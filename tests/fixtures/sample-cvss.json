@@ -1,0 +1,13 @@
+{
+  "version": "4.0",
+  "status": "provisional",
+  "vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:P/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+  "base_score": 3.3,
+  "severity": "Low",
+  "rationale": {
+    "AV": "local malformed input processing fixture"
+  },
+  "uncertainties": [
+    "fixture score only"
+  ]
+}

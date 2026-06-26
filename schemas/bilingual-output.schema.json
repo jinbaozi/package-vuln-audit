@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Bilingual Output Map",
+  "type":"object",
+  "required":["outputs","pairs"],
+  "properties":{
+    "outputs":{"type":"object","properties":{"machine":{"type":"string"},"zh_CN":{"type":"string"},"en_US":{"type":"string"}},"additionalProperties":true},
+    "pairs":{"type":"array","items":{"type":"object","required":["id","zh","en"],"properties":{"id":{"type":"string"},"zh":{"type":"string"},"en":{"type":"string"},"invariants":{"type":"object"}},"additionalProperties":true}}
+  },
+  "additionalProperties":true
+}

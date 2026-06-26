@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Candidate",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "status",
+    "title",
+    "component",
+    "source_locations",
+    "evidence",
+    "confidence"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "T-CAND",
+        "A-CAND",
+        "F-CAND"
+      ]
+    },
+    "status": {
+      "enum": [
+        "Raw Tool Hit",
+        "Candidate",
+        "Likely",
+        "Validated",
+        "Rejected",
+        "Needs Manual Review"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "component": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "source_locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "provisional_severity": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "unknown"
+      ]
+    },
+    "rank_score": {
+      "type": "number"
+    },
+    "missing_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disclosure_level": {
+      "enum": [
+        "D0-internal-candidate",
+        "D1-internal-likely",
+        "D2-internal-validated",
+        "D3-maintainer-private",
+        "D4-public-after-fix"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

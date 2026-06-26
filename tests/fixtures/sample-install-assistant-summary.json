@@ -1,0 +1,11 @@
+{
+  "status": "planned",
+  "mode": "strict",
+  "dry_run": true,
+  "network_mode": "offline",
+  "prefix": "/tmp/project/.pvas/tools",
+  "prefix_escape_check": "passed",
+  "offline_bundle": {"present": false, "hash_verified": false},
+  "tools": [{"tool": "semgrep", "status": "planned"}],
+  "failure_summary": []
+}
