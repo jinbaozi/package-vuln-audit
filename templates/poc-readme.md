@@ -23,7 +23,7 @@ This testcase is for authorized local validation and regression testing only. It
 {{expected_vulnerable}}
 
 ## Expected Fixed Behavior
-{{fixed_behavior}}
+{{expected_fixed}}
 
 ## Cleanup
 ```bash
