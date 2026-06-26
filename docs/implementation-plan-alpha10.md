@@ -93,7 +93,7 @@ python3 tools/verify_environment.py --profile standard --mode strict --allow-deg
 Controlled install assist dry-run:
 
 ```bash
-python3 tools/install_assistant.py --tools semgrep,osv-scanner --mode strict --dry-run --network-mode offline --prefix .pvas/tools --out audit-output/00-environment
+python3 tools/install_assistant.py --tools semgrep,osv-scanner --mode strict --dry-run --network-mode offline --prefix ~/.pvas --out audit-output/00-environment
 ```
 
 Unified enforced driver:

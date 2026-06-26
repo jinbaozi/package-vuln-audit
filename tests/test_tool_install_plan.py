@@ -22,8 +22,8 @@ def test_generate_install_plan_prefers_user_local_methods():
         assert plan['install_policy']['auto_install_default'] is False
         assert 'python-pipx' in plan['install_policy']['preferred_methods']
         assert 'pipx install semgrep' in md
-        assert '.pvas/tools/bin/osv-scanner' in md
-        assert 'sudo' in plan['install_policy']['forbidden_by_default']
+        assert '~/.pvas/bin/osv-scanner' in md
+        assert 'sudo-without-auth' in plan['install_policy']['forbidden_by_default']
 
 
 

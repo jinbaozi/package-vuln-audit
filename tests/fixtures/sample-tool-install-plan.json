@@ -8,7 +8,7 @@
     "requires_per_tool_authorization": true,
     "requires_system_install_authorization": true,
     "network_default": "offline",
-    "prefix_default": ".pvas/tools"
+    "prefix_default": "~/.pvas"
   },
   "plans": [
     {

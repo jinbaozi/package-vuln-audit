@@ -8,11 +8,12 @@ POLICY = {
     'auto_install_default': False,
     'default_dry_run': True,
     'preferred_methods': CONTROLLED_INSTALL_METHOD_ORDER,
-    'forbidden_by_default': ['sudo', 'system-package-manager-auto-execution', 'write-/usr', 'write-/usr/local/bin', 'curl-pipe-shell', 'overwrite-system-tools', 'unapproved-network-fetch'],
+    'forbidden_by_default': ['sudo-without-auth', 'system-package-manager-auto-execution', 'write-/usr', 'write-/usr/local/bin', 'curl-pipe-shell', 'overwrite-system-tools', 'unapproved-network-fetch', 'unauthenticated-sudo'],
     'requires_per_tool_authorization': True,
     'requires_system_install_authorization': True,
+    'sudo_interactive_default': True,
     'network_default': 'offline',
-    'prefix_default': '.pvas/tools',
+    'prefix_default': '~/.pvas',
 }
 
 OFFLINE_LAYOUT = [
@@ -63,9 +64,9 @@ def render_markdown(plan: dict) -> str:
         '- Each tool requires separate authorization before execution.',
         '- Preferred order: offline-bundle, Python/pipx/uv, npm/npx, GitHub release download, user-local binaries, then administrator RPM/DNF plan.',
         '- Default network mode: offline. Network fetches require explicit authorization.',
-        '- Default prefix: `.pvas/tools`; prefix must pass realpath escape checks.',
-        '- Avoid by default: sudo, system package managers, `/usr`, `/usr/local/bin`, `curl | sh`, and overwriting system tools.',
-        '- RPM/DNF commands are last-resort administrator plans and are not executed automatically.', '',
+        '- Default prefix: `~/.pvas`; prefix must pass realpath escape checks and expanduser resolution.',
+        '- Avoid by default: sudo without authentication, system package managers, `/usr`, `/usr/local/bin`, `curl | sh`, and overwriting system tools.',
+        '- RPM/DNF commands are last-resort plans. When `--authorize-system-install` and `--interactive-sudo` are set, the assistant prompts the user for sudo password via `sudo -v` before executing `sudo dnf install`.', '',
         '## Missing Tools', ''
     ]
     if not plan['plans']:

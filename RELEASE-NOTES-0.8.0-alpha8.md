@@ -13,4 +13,4 @@ This release adds Tool Availability Advisor support.
 
 ## Safety
 
-Automatic installation is not performed by default. Future installer automation must require explicit opt-in and install only under a user-controlled prefix such as `.pvas/tools`.
+Automatic installation is not performed by default. Future installer automation must require explicit opt-in and install only under a user-controlled prefix such as `~/.pvas`.

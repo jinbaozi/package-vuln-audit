@@ -10,6 +10,7 @@ from tool_catalog import CATALOG
 
 NETWORK_MODES = {"offline", "restricted", "online-approved"}
 DECISION_DRY = "dry-run-only"
+DEFAULT_PREFIX = str(pathlib.Path('~/.pvas').expanduser())
 
 GITHUB_RELEASE_MAP = {
     "osv-scanner": {
@@ -145,6 +146,37 @@ def detect_environment() -> dict:
     }
 
 
+def sudo_auth() -> bool:
+    """Prompt user for sudo password interactively via sudo -v. Return True if authenticated."""
+    try:
+        p = subprocess.run(['sudo', '-v'], stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
+def install_via_dnf(tool: str, dnf_pkg: str) -> dict:
+    """Install a tool via sudo dnf install -y. Returns {'success': bool, 'output': str, 'error': str}."""
+    print(f'[PVAS-SUDO-REQUIRED] Installing {tool} requires sudo (dnf install {dnf_pkg}). Prompting for password...')
+    if not sudo_auth():
+        return {'success': False, 'output': '', 'error': 'sudo authentication failed or was cancelled'}
+    try:
+        p = subprocess.run(
+            ['sudo', 'dnf', 'install', '-y', dnf_pkg],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120,
+        )
+        ok = p.returncode == 0
+        return {
+            'success': ok,
+            'output': (p.stdout or '')[:2000],
+            'error': '' if ok else f'dnf exit code {p.returncode}',
+        }
+    except subprocess.TimeoutExpired:
+        return {'success': False, 'output': '', 'error': 'dnf install timed out after 120s'}
+    except Exception as exc:
+        return {'success': False, 'output': '', 'error': str(exc)}
+
+
 def verify_tool(tool: str, prefix: pathlib.Path) -> dict:
     binary = CATALOG.get(tool, {}).get('binary', tool)
     candidates = [prefix / 'bin' / binary, pathlib.Path(shutil.which(binary) or '')]
@@ -173,6 +205,8 @@ def summarize_plan(tool: str, authorized: bool, system_install_authorized: bool,
         actions.append('skip network-based installers')
     if not system_install_authorized:
         actions.append('emit RPM/DNF administrator plan only; do not execute')
+    else:
+        actions.append('attempt sudo dnf install with interactive password prompt when authorized')
     return {'tool': tool, 'status': 'planned', 'authorized': authorized, 'planned_actions': actions}
 
 
@@ -185,12 +219,14 @@ def main() -> int:
     ap.add_argument('--execute', action='store_true', help='execute authorized user-prefix install actions; overrides dry-run')
     ap.add_argument('--mock-only', action='store_true', default=os.environ.get('PVAS_INSTALL_MOCK_ONLY', '0') in {'1','true','yes','on'})
     ap.add_argument('--network-mode', default=os.environ.get('PVAS_NETWORK_MODE', 'offline'), choices=sorted(NETWORK_MODES))
-    ap.add_argument('--prefix', default=os.environ.get('PVAS_TOOL_PREFIX', '.pvas/tools'))
+    ap.add_argument('--prefix', default=os.environ.get('PVAS_TOOL_PREFIX', DEFAULT_PREFIX))
     ap.add_argument('--allowed-root', default=os.environ.get('PVAS_ALLOWED_PREFIX_ROOT', os.getcwd()))
     ap.add_argument('--offline-bundle', default=os.environ.get('PVAS_OFFLINE_BUNDLE', 'offline-bundle'))
     ap.add_argument('--authorize-tool', action='append', default=[], help='tool name approved for user-prefix installation')
     ap.add_argument('--authorize-all', action='store_true')
     ap.add_argument('--authorize-system-install', action='store_true', default=os.environ.get('PVAS_AUTHORIZE_SYSTEM_INSTALL', '0') in {'1','true','yes','on'})
+    ap.add_argument('--interactive-sudo', action='store_true', default=os.environ.get('PVAS_INTERACTIVE_SUDO', '1') in {'1','true','yes','on'},
+                    help='when set, prompt user via sudo -v before executing dnf commands')
     ap.add_argument('--out', default='audit-output/00-environment')
     args = ap.parse_args()
 
@@ -227,6 +263,7 @@ def main() -> int:
         row['version_constraint'] = ''
         row['offline_bundle_hash'] = hash_details.get(tool, {})
         row['verification'] = verify_tool(tool, prefix_path)
+        row['dnf_result'] = {}
         if (args.dry_run and not args.execute) or args.mock_only:
             row['execution'] = 'dry-run'
         elif not prefix_ok:
@@ -234,8 +271,6 @@ def main() -> int:
         elif not authorized:
             row['execution'] = 'blocked-per-tool-authorization-required'
             failure_summary.append(f'{tool}: per-tool authorization missing')
-        elif args.network_mode == 'offline' and not hash_details.get(tool, {}).get('verified'):
-            row['execution'] = 'blocked-offline-bundle-hash'
         elif args.network_mode == 'online-approved' and tool in GITHUB_RELEASE_MAP:
             gh_result = download_github_release(tool, prefix_path)
             if gh_result["success"]:
@@ -258,6 +293,20 @@ def main() -> int:
                 dest.chmod(0o755)
                 row['execution'] = 'installed-from-offline-bundle-user-prefix'
                 row['verification'] = verify_tool(tool, prefix_path)
+            elif args.authorize_system_install and args.interactive_sudo:
+                dnf_pkg = CATALOG.get(tool, {}).get('dnf_package', '')
+                if dnf_pkg and shutil.which('dnf'):
+                    dnf_result = install_via_dnf(tool, dnf_pkg)
+                    row['dnf_result'] = dnf_result
+                    if dnf_result['success']:
+                        row['execution'] = 'installed-via-sudo-dnf'
+                        row['verification'] = verify_tool(tool, prefix_path)
+                    else:
+                        row['execution'] = 'blocked-sudo-dnf-failed'
+                        failure_summary.append(f'{tool}: sudo dnf install failed: {dnf_result["error"]}')
+                else:
+                    row['execution'] = 'blocked-no-dnf-package-or-dnf-missing'
+                    failure_summary.append(f'{tool}: no dnf_package in catalog or dnf not available')
             else:
                 row['execution'] = 'blocked-no-verified-offline-payload'
                 failure_summary.append(f'{tool}: no verified offline payload for user-prefix install')

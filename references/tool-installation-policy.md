@@ -10,7 +10,7 @@ Traditional tools are capability enhancers. Missing tools must be visible to the
 4. Default behavior is advisory only; do not auto-install tools.
 5. Preferred methods are Python/pipx/uv, npm/npx, user-local binaries, and offline bundles.
 6. Avoid `sudo`, system package managers, `/usr/local/bin`, and `curl | sh` by default.
-7. Automatic installation requires explicit opt-in such as `PVAS_ALLOW_INSTALL=1` and must install into a user-controlled prefix such as `.pvas/tools`.
+7. Automatic installation requires explicit opt-in such as `PVAS_ALLOW_INSTALL=1` and must install into a user-controlled prefix such as `~/.pvas`.
 8. Offline environments should use `offline-bundle/` with wheels, npm cache, binaries, checksums, and an install manifest.
 
 ## Installation Priority

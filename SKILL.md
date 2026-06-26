@@ -121,18 +121,18 @@ osv-scanner is a strict-required tool for known-dependency-vulnerability matchin
 
 3. **User-local binary** — Manually download and place the binary:
    ```bash
-   curl -sL "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_2.4.0_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" -o .pvas/tools/bin/osv-scanner && chmod +x .pvas/tools/bin/osv-scanner
+    curl -sL "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_2.4.0_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" -o ~/.pvas/bin/osv-scanner && chmod +x ~/.pvas/bin/osv-scanner
    ```
 
 4. **Go install** — Requires Go toolchain:
    ```bash
-   GOBIN=$PWD/.pvas/tools/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+    GOBIN=$HOME/.pvas/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
    ```
 
 ### Verification
 
 ```bash
-.pvas/tools/bin/osv-scanner --version
+~/.pvas/bin/osv-scanner --version
 ```
 
 ## Bilingual correlation and PoC

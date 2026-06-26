@@ -4,6 +4,7 @@ SRC="${1:-.}"
 OUT="${2:-audit-output/02-tools}"
 RAW="$OUT/raw"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$HOME/.pvas/bin:$PATH"
 mkdir -p "$RAW"
 
 ENV_OUT="$(dirname "$OUT")/00-environment"

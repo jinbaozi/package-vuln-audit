@@ -11,6 +11,7 @@ CATALOG = {
         "impact": "High-speed source search and dangerous API grep will use slower grep/find fallbacks or be unavailable.",
         "install_hint_id": "rg",
         "version_args": ["--version"],
+        "dnf_package": "ripgrep",
     },
     "semgrep": {
         "binary": "semgrep",
@@ -20,6 +21,7 @@ CATALOG = {
         "impact": "Semgrep rule-based SAST candidates will not be generated.",
         "install_hint_id": "semgrep",
         "version_args": ["--version"],
+        "dnf_package": "semgrep",
     },
     "cppcheck": {
         "binary": "cppcheck",
@@ -29,6 +31,7 @@ CATALOG = {
         "impact": "C/C++ baseline static-analysis candidates will be reduced.",
         "install_hint_id": "cppcheck",
         "version_args": ["--version"],
+        "dnf_package": "cppcheck",
     },
     "osv-scanner": {
         "binary": "osv-scanner",
@@ -110,6 +113,7 @@ CATALOG = {
         "impact": "Binutils sanitizer builds may not run with GCC.",
         "install_hint_id": "gcc",
         "version_args": ["--version"],
+        "dnf_package": "gcc",
     },
     "make": {
         "binary": "make",
@@ -119,6 +123,7 @@ CATALOG = {
         "impact": "Autotools/Make based package builds may not run.",
         "install_hint_id": "make",
         "version_args": ["--version"],
+        "dnf_package": "make",
     },
     "timeout": {
         "binary": "timeout",
@@ -166,14 +171,14 @@ INSTALL_HINTS = {
     ],
     "cppcheck": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool cppcheck --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: offline binary/RPM payload verified by hash and installed into the user prefix only after authorization."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 cppcheck .pvas/tools/bin/cppcheck", "export PATH=\"$PWD/.pvas/tools/bin:$PATH\""], "notes": "Use a vetted user-local binary from the offline bundle or internal artifact store."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 cppcheck ~/.pvas/bin/cppcheck", "export PATH=\"$HOME/.pvas/bin:$PATH\""], "notes": "Use a vetted user-local binary from the offline bundle or internal artifact store."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install cppcheck"], "notes": "RPM/DNF is a final administrator option; do not execute without separate authorization."},
     ],
     "osv-scanner": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool osv-scanner --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified offline-bundle binary installed under the user prefix."},
         {"priority": 3, "method": "github-release-download", "commands": ["install_assistant.py --tool osv-scanner --network-mode online-approved --execute"], "notes": "Download the official prebuilt Linux binary from GitHub releases (github.com/google/osv-scanner). Requires --network-mode online-approved and explicit --authorize-tool osv-scanner. Architecture auto-detected."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 osv-scanner .pvas/tools/bin/osv-scanner", "export PATH=\"$PWD/.pvas/tools/bin:$PATH\""], "notes": "Use the official/pre-approved prebuilt binary or an internal mirror."},
-        {"priority": 5, "method": "go-install-user-local", "commands": ["GOBIN=$PWD/.pvas/tools/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"], "notes": "Requires Go plus an approved network/proxy mode; not used in offline mode."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 osv-scanner ~/.pvas/bin/osv-scanner", "export PATH=\"$HOME/.pvas/bin:$PATH\""], "notes": "Use the official/pre-approved prebuilt binary or an internal mirror."},
+        {"priority": 5, "method": "go-install-user-local", "commands": ["GOBIN=$HOME/.pvas/bin go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"], "notes": "Requires Go plus an approved network/proxy mode; not used in offline mode."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install <approved-osv-scanner-package-or-local-rpm>"], "notes": "System package management requires separate authorization."},
     ],
     "npm": [
@@ -183,32 +188,32 @@ INSTALL_HINTS = {
     ],
     "codeql": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool codeql --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified CodeQL bundle extracted into the user prefix."},
-        {"priority": 4, "method": "user-local-distribution", "commands": ["mkdir -p .pvas/tools/codeql", "# Extract approved CodeQL bundle into .pvas/tools/codeql", "export PATH=\"$PWD/.pvas/tools/codeql:$PATH\"", "codeql version"], "notes": "Use official CodeQL CLI bundle or internal mirror; glibc Linux required."},
+        {"priority": 4, "method": "user-local-distribution", "commands": ["mkdir -p ~/.pvas/codeql", "# Extract approved CodeQL bundle into ~/.pvas/codeql", "export PATH=\"$HOME/.pvas/codeql:$PATH\"", "codeql version"], "notes": "Use official CodeQL CLI bundle or internal mirror; glibc Linux required."},
     ],
     "syft": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool syft --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified offline-bundle binary."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 syft .pvas/tools/bin/syft"], "notes": "Use approved user-local binary."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 syft ~/.pvas/bin/syft"], "notes": "Use approved user-local binary."},
     ],
     "grype": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool grype --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified offline-bundle binary."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 grype .pvas/tools/bin/grype"], "notes": "Use approved user-local binary."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 grype ~/.pvas/bin/grype"], "notes": "Use approved user-local binary."},
     ],
     "trivy": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool trivy --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified offline-bundle binary."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 trivy .pvas/tools/bin/trivy"], "notes": "Use approved user-local binary."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 trivy ~/.pvas/bin/trivy"], "notes": "Use approved user-local binary."},
     ],
     "rg": [
         {"priority": 0, "method": "offline-bundle", "commands": ["python3 tools/install_assistant.py --tool rg --mode strict --dry-run --offline-bundle offline-bundle"], "notes": "Preferred controlled path: verified ripgrep binary from offline bundle."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p .pvas/tools/bin", "install -m 0755 rg .pvas/tools/bin/rg"], "notes": "Use approved user-local binary."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["mkdir -p ~/.pvas/bin", "install -m 0755 rg ~/.pvas/bin/rg"], "notes": "Use approved user-local binary."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install ripgrep"], "notes": "Do not execute RPM/DNF without separate system-install authorization."},
     ],
     "joern": [
         {"priority": 0, "method": "offline-bundle", "commands": ["# Extract approved Joern offline distribution after hash validation"], "notes": "Preferred controlled path."},
-        {"priority": 4, "method": "user-local-distribution", "commands": ["# Extract Joern distribution into .pvas/tools/joern", "export PATH=\"$PWD/.pvas/tools/joern:$PATH\""], "notes": "Prefer internal mirrored distribution for offline environments."},
+        {"priority": 4, "method": "user-local-distribution", "commands": ["# Extract Joern distribution into ~/.pvas/joern", "export PATH=\"$HOME/.pvas/joern:$PATH\""], "notes": "Prefer internal mirrored distribution for offline environments."},
     ],
     "afl-fuzz": [
         {"priority": 0, "method": "offline-bundle", "commands": ["# Use an approved AFL++ container/image/build artifact; keep fuzzing separate from baseline scan"], "notes": "Fuzzing is not a default strict-mode gate unless explicitly required."},
-        {"priority": 4, "method": "user-local-binary", "commands": ["# Install approved afl-fuzz binary/build under .pvas/tools"], "notes": "Do not install system-wide by default."},
+        {"priority": 4, "method": "user-local-binary", "commands": ["# Install approved afl-fuzz binary/build under ~/.pvas"], "notes": "Do not install system-wide by default."},
     ],
     "gcc": [
         {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline toolchain bundle or existing build environment"], "notes": "Compiler toolchains are environment dependencies; do not mutate system by default."},

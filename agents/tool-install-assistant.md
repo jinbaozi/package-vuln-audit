@@ -10,7 +10,7 @@ Responsibilities:
 - Enforce prefix realpath containment and reject prefix escape.
 - Verify offline-bundle manifest and SHA256 before any offline install action.
 - Treat network mode as offline unless explicitly approved.
-- Treat RPM/DNF as a last-resort administrator plan; do not execute it unless separate system-install authorization is present.
+- Treat RPM/DNF as a last-resort plan. When `--authorize-system-install` and `--interactive-sudo` are both set, execute `sudo dnf install` after interactive sudo password authentication via `sudo -v`. Block if sudo authentication fails.
 - Write `install-assistant-summary.json`, `install-assistant-decision.json`, and a short log digest.
 
 Parent context rule:
