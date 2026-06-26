@@ -4,7 +4,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def sample_findings():
-    return {'findings':[{'id':'FINDING-001','status':'Validated','title':'buffer overflow in parser','summary':'buffer overflow in parser','affected_component':{'package':'demo','component':'parser'},'source_code_evidence':[{'file':'src/parser.c','function':'parse'}],'source_to_sink_path':'input -> parse -> overflow','validation':{},'cvss':{},'fix_recommendation':'add bounds check','disclosure_level':'D2-internal-validated','discovery_method':[{'type':'tool','tool_name':'cppcheck','description':'fixture'}],'disclosure_status':'not_found_in_configured_sources'}]} 
+    return {'findings':[{'id':'FINDING-001','status':'Validated','title':'buffer overflow in parser','summary':'buffer overflow in parser','affected_component':{'package':'demo','component':'parser'},'source_code_evidence':[{'file':'src/parser.c','function':'parse'}],'source_to_sink_path':'input -> parse -> overflow','validation':{},'cvss':{},'fix_recommendation':'add bounds check','disclosure_level':'D2-internal-validated','discovery_method':[{'type':'tool','tool_name':'cppcheck','description':'fixture'}],'disclosure_status':'not_found_in_configured_sources','poc_test_artifacts':[{'id':'FINDING-001-poc','path':'04-validation/poc/FINDING-001','status':'executed'}]}]} 
 
 
 def sample_corr():

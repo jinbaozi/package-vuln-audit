@@ -39,10 +39,41 @@ def fmt_list(items, sep=', '):
     return sep.join(str(x) for x in items)
 
 
+def finding_status(f):
+    return f.get('status') or f.get('validated_status') or ''
+
+
+def build_manual_review_table(findings, audit_root):
+    rows = ['| ID | 组件 | 阻断原因 | 人工验证计划 |', '|---|---|---|---|']
+    for f in findings:
+        if finding_status(f) != 'Needs Manual Review':
+            continue
+        fid = f.get('id', '?')
+        comp = f.get('affected_component', {}).get('component', '?')
+        mr = f.get('manual_review') if isinstance(f.get('manual_review'), dict) else {}
+        reason = mr.get('blocked_reason') or f.get('manual_review_reason') or '自动验证条件不足'
+        plan = audit_root / '04-validation' / 'manual-review' / fid / 'manual-validation-plan.md'
+        rows.append(f'| {fid} | {comp} | {reason} | `{plan}` |')
+    if len(rows) == 2:
+        rows.append('| 无 | 无 | 无 | 无 |')
+    return '\n'.join(rows)
+
+
+def build_tool_matrix_content(audit_root):
+    matrix = load_json(audit_root / '01-profile' / 'required-tools-matrix.json', {})
+    tools = matrix.get('tools', [])
+    rows = ['| 工具 | 适用性 | 最终状态 | 理由 |', '|---|---|---|---|']
+    for t in tools:
+        rows.append(f"| {t.get('name','?')} | {t.get('applicability','?')} | {t.get('final_status') or t.get('status','?')} | {t.get('final_decision_rationale') or t.get('evidence','')} |")
+    if len(rows) == 2:
+        rows.append('| 无 | 无 | 无 | 无 |')
+    return '\n'.join(rows)
+
+
 def build_executive_summary(findings, all_tools, environment, intake, profile):
-    validated = [f for f in findings if f.get('status') == 'Validated']
-    needs_review = [f for f in findings if f.get('status') == 'Needs Manual Review']
-    candidates = [f for f in findings if f.get('status') not in ('Validated', 'Needs Manual Review')]
+    validated = [f for f in findings if finding_status(f) == 'Validated']
+    needs_review = [f for f in findings if finding_status(f) == 'Needs Manual Review']
+    candidates = [f for f in findings if finding_status(f) not in ('Validated', 'Needs Manual Review')]
 
     tool_available = sum(1 for t in all_tools if t.get('status') == 'installed')
     tool_total = len(all_tools)
@@ -77,7 +108,7 @@ def build_validated_table(findings, correlations):
         return '| — | — | — | — | — | — | — |'
     rows = []
     for f in findings:
-        if f.get('status') not in ('Validated', 'Needs Manual Review'):
+        if finding_status(f) not in ('Validated', 'Needs Manual Review'):
             continue
         fid = f.get('id', '?')
         sev = f.get('cvss', {}).get('severity', '?')
@@ -372,6 +403,8 @@ def main() -> int:
         'sources_checked': fmt_list(sorted(sources_set)) if sources_set else 'configured sources checked',
         'offline_db_freshness': safe_str(environment.get('offline_db_freshness', '—')),
         'validated_findings_table': build_validated_table(findings, correlations),
+        'tool_matrix_content': build_tool_matrix_content(audit_root),
+        'manual_review_table': build_manual_review_table(findings, audit_root),
         'intake_content': build_intake_content(intake, scope_md),
         'package_profile_content': build_profile_content(profile),
         'scope_selection_content': build_scope_content(scope_sel),

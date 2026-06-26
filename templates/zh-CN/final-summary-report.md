@@ -19,6 +19,16 @@
 
 ---
 
+## 工具矩阵执行状态
+
+{{tool_matrix_content}}
+
+## Needs Manual Review
+
+{{manual_review_table}}
+
+---
+
 ## 01 — 信息收集与范围
 
 {{intake_content}}

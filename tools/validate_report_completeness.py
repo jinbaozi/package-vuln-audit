@@ -42,6 +42,7 @@ def main() -> int:
     ap.add_argument('--correlation', required=True)
     ap.add_argument('--report-root', default='audit-output')
     ap.add_argument('--poc-root')
+    ap.add_argument('--manual-root')
     ap.add_argument('--out', default='audit-output/machine/report-completeness.json')
     args = ap.parse_args()
 
@@ -54,6 +55,7 @@ def main() -> int:
     warnings: list[str] = []
 
     validated = [f for f in findings if f.get('status') == 'Validated']
+    manual = [f for f in findings if f.get('status') == 'Needs Manual Review']
     for f in validated:
         fid = f.get('id')
         if not fid:
@@ -70,7 +72,7 @@ def main() -> int:
         # Check poc_test_artifacts
         pocs = f.get('poc_test_artifacts', [])
         if not pocs or len(pocs) == 0:
-            warnings.append(f'{fid}: no poc_test_artifacts (generate via generate_poc_testcase.py)')
+            errors.append(f'{fid}: no poc_test_artifacts (generate via generate_poc_testcase.py)')
 
         # Check disclosure_status is not 'unknown'
         ds = f.get('disclosure_status', 'unknown')
@@ -105,6 +107,18 @@ def main() -> int:
             candidates = list(poc_root.glob(f'**/*{fid}*'))
             if not candidates:
                 warnings.append(f'{fid}: no PoC/testcase summary found under poc-root')
+
+    if args.manual_root:
+        manual_root = pathlib.Path(args.manual_root)
+        for f in manual:
+            fid = f.get('id')
+            if not fid:
+                errors.append('Needs Manual Review item missing id')
+                continue
+            plan_json = manual_root / fid / 'manual-validation-plan.json'
+            plan_md = manual_root / fid / 'manual-validation-plan.md'
+            if not plan_json.exists() or not plan_md.exists():
+                errors.append(f'{fid}: missing manual validation plan')
 
     result = {
         'status': 'failed' if errors else 'passed',

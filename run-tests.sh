@@ -10,6 +10,7 @@ python3 -u tests/test_tool_execution_gates.py
 python3 -u tests/test_driver_workflow_gates.py
 python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
+python3 -u tests/test_final_summary_gates.py
 python3 -u tests/test_report_admission.py
 python3 -u tests/test_make_ai_packets.py
 python3 -u tests/test_bilingual_output.py
