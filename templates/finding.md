@@ -7,6 +7,11 @@ Validated / Needs Manual Review
 - File: {{file}}
 - Function: {{function}}
 - Lines: {{start_line}}-{{end_line}}
+{{#source_snippets}}
+```text
+{{snippet}}
+```
+{{/source_snippets}}
 
 ## Root Cause
 {{root_cause}}
@@ -28,7 +33,25 @@ Validated / Needs Manual Review
 {{fix_recommendation}}
 
 ## PoC / Test Artifacts
-Validated local reproduction/regression artifacts only.
+{{#poc_artifacts}}
+- `{{path}}` — {{purpose}} ({{type}}, {{safety_class}}){{#language}} [{{language}}]{{/language}}
+{{/poc_artifacts}}
+{{^poc_artifacts}}
+_No PoC artifacts generated. Use `tools/generate_poc_testcase.py --generate-from-finding` to create them._
+{{/poc_artifacts}}
+
+## Discovery Method
+{{#discovery_method}}
+- **{{type}}**{{#tool_name}} (tool: `{{tool_name}}`){{/tool_name}}{{#hypothesis_id}} (hypothesis: `{{hypothesis_id}}`){{/hypothesis_id}}
+  {{description}}
+{{/discovery_method}}
+
+## Public Vulnerability Correlation
+- Disclosure status: {{disclosure_status}}
+- Match level: {{match_level}}
+{{#public_references}}
+- {{source}} / {{id}}{{#url}} ({{url}}){{/url}}
+{{/public_references}}
 
 ## Disclosure Level
 {{disclosure_level}}

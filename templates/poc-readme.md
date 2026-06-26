@@ -12,5 +12,20 @@ This testcase is for authorized local validation and regression testing only. It
 ./reproduce.sh
 ```
 
+## Environment
+{{environment}}
+
+## Validation Steps
+1. {{step1}}
+2. {{step2}}
+
+## Expected Vulnerable Behavior
+{{expected_vulnerable}}
+
 ## Expected Fixed Behavior
 {{fixed_behavior}}
+
+## Cleanup
+```bash
+{{cleanup}}
+```

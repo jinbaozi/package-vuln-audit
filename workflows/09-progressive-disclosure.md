@@ -21,13 +21,29 @@ Generate internal, maintainer-private, and public-after-fix material according t
 
 ## Outputs
 
-- maintainer-private-report.md
-- cve-preparation.md
-- public-advisory-draft.md
+- audit-output/07-disclosure/zh-CN/maintainer-private-report.md
+- audit-output/07-disclosure/en-US/maintainer-private-report.md
+- audit-output/07-disclosure/machine/cve-preparation.json
+- audit-output/07-disclosure/machine/public-advisory-draft.md
+
+## Output directory alignment
+
+All disclosure outputs follow the same `machine/zh-CN/en-US` structure established by 08-report:
+- `machine/` — canonical JSON artifacts (CVE prep, vulnerability record)
+- `zh-CN/` — Chinese-language disclosure reports
+- `en-US/` — English-language disclosure reports
 
 ## Failure behavior
 
-Public advisory drafts must omit sensitive reproduction details unless fix/public authorization is confirmed.
+Public advisory drafts must omit sensitive reproduction details (PoC scripts, testcase bytes, exploit logic) unless fix/public authorization is confirmed.
+
+## Disclosure level mapping
+
+| Finding disclosure_level | Action |
+|--------------------------|--------|
+| D2-internal-validated | Internal report only |
+| D3-maintainer-private | Generate maintainer-private report |
+| D4-public-after-fix | Generate maintainer report + public advisory draft (fix pending) |
 
 ## Parent context rule
 

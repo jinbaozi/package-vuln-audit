@@ -22,7 +22,75 @@
     "findings": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "required": [
+          "id", "status", "title", "affected_component",
+          "source_code_evidence", "source_to_sink_path",
+          "validation", "cvss", "fix_recommendation",
+          "disclosure_level", "discovery_method", "disclosure_status"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["Validated", "Needs Manual Review"] },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "affected_component": { "type": "object" },
+          "source_code_evidence": { "type": "array" },
+          "root_cause": { "type": "string" },
+          "source_to_sink_path": { "type": "string" },
+          "validation": { "type": "object" },
+          "cvss": { "type": "object" },
+          "security_impact": { "type": "string" },
+          "false_positive_exclusion": { "type": "string" },
+          "fix_recommendation": { "type": "string" },
+          "discovery_method": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "description"],
+              "properties": {
+                "type": { "enum": ["tool", "ai", "manual", "fuzz"] },
+                "tool_name": { "type": "string" },
+                "hypothesis_id": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            },
+            "minItems": 1
+          },
+          "disclosure_status": {
+            "enum": ["publicly_disclosed", "not_found_in_configured_sources", "possibly_public", "unknown"]
+          },
+          "public_vulnerability_references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["source", "id"],
+              "properties": {
+                "source": { "type": "string" },
+                "id": { "type": "string" },
+                "url": { "type": "string" },
+                "match_level": { "enum": ["M0", "M1", "M2", "M3"] }
+              }
+            }
+          },
+          "poc_test_artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "path", "purpose"],
+              "properties": {
+                "type": { "enum": ["generated-script", "manifest", "testcase-file", "readme"] },
+                "path": { "type": "string" },
+                "purpose": { "type": "string" },
+                "language": { "type": "string" },
+                "safety_class": { "type": "string" }
+              }
+            }
+          },
+          "disclosure_level": {
+            "enum": ["D0-internal-candidate", "D1-internal-likely", "D2-internal-validated", "D3-maintainer-private", "D4-public-after-fix"]
+          }
+        }
       }
     },
     "needs_manual_review": {
@@ -51,7 +119,8 @@
           "standard_sources",
           "record_ids",
           "evidence_summary",
-          "limitations"
+          "limitations",
+          "discovery_method_summary"
         ],
         "properties": {
           "finding_id": {
@@ -93,6 +162,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "discovery_method_summary": {
+            "type": "string"
           }
         },
         "additionalProperties": true

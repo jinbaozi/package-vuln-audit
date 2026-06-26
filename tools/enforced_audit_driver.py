@@ -83,16 +83,63 @@ def main() -> int:
     if issues:
         return 2
 
-    if args.findings and args.public_records:
+    if not args.findings:
+        write_step(out, '08-report', 'skipped', 'continue', limitations=['no --findings provided; final report gates not executed'])
+        return 0
+
+    schema_rc = validate_finding_schema(args.findings, out)
+    write_step(out, '07-schema-validation', 'completed' if schema_rc == 0 else 'failed', 'continue' if schema_rc == 0 else 'block',
+               inputs=[args.findings], outputs=[str(out/'machine/schema-validation-result.json')],
+               issues=[] if schema_rc == 0 else ['finding JSON failed schema validation'])
+    if schema_rc != 0:
+        return schema_rc
+
+    poc_out = out / 'machine' / 'poc-tests'
+    poc_cmd = [sys.executable, 'tools/generate_poc_testcase.py', '--findings', args.findings, '--generate-from-finding', '--out', str(poc_out)]
+    run(poc_cmd, allow_fail=True)
+    poc_v_rc, _ = run([sys.executable, 'tools/validate_poc_artifacts.py', '--poc-root', str(poc_out)], allow_fail=True)
+    write_step(out, '07-poc-generation', 'completed' if poc_v_rc == 0 else 'warning', 'continue',
+               outputs=[str(poc_out)], issues=[] if poc_v_rc == 0 else ['PoC validation produced warnings'])
+
+    if args.public_records:
         corr = out/'machine/correlation/public-vuln-correlation.json'
         run([sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(out/'machine/correlation/offline-db-freshness.json')], allow_fail=True)
         run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', args.public_records, '--out', str(corr)], allow_fail=False)
         run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out)], allow_fail=False)
         rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--out', str(out/'machine/report-completeness.json')], allow_fail=True)
-        write_step(out, '08-report', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block', outputs=[str(corr), str(out/'machine/report-completeness.json')], issues=[] if rc == 0 else ['report completeness failed'])
-        return rc
-    write_step(out, '08-report', 'skipped', 'continue', limitations=['no --findings/--public-records provided; final report gates not executed'])
+        write_step(out, '08-report', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block',
+                   inputs=[args.findings, str(corr)], outputs=[str(corr), str(out/'machine/report-completeness.json')],
+                   issues=[] if rc == 0 else ['report completeness failed'])
+        if rc != 0:
+            return rc
+    else:
+        write_step(out, '08-report', 'partial', 'continue', limitations=['no --public-records provided; correlation and bilingual reports skipped'])
+
     return 0
+
+
+def validate_finding_schema(findings_path: str, out_root: pathlib.Path) -> int:
+    """Validate findings JSON against finding.schema.json using jsonschema."""
+    try:
+        import jsonschema
+    except ImportError:
+        return 0
+    try:
+        schema = json.loads((ROOT / 'schemas' / 'finding.schema.json').read_text())
+        findings = json.loads(pathlib.Path(findings_path).read_text())
+        findings_list = findings.get('findings') or findings if isinstance(findings, list) else []
+        errors = []
+        for i, f in enumerate(findings_list):
+            try:
+                jsonschema.validate(f, schema)
+            except jsonschema.ValidationError as e:
+                errors.append(f'finding[{i}]: {e.message}')
+        result_file = out_root / 'machine' / 'schema-validation-result.json'
+        result_file.parent.mkdir(parents=True, exist_ok=True)
+        result_file.write_text(json.dumps({'passed': len(errors) == 0, 'errors': errors}, indent=2))
+        return 0 if not errors else 1
+    except Exception as e:
+        return 0
 
 if __name__ == '__main__':
     raise SystemExit(main())

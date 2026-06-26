@@ -62,6 +62,26 @@ def main() -> int:
         if fid not in correlations:
             errors.append(f'{fid}: missing public vulnerability correlation')
 
+        # Check discovery_method is non-empty
+        dm = f.get('discovery_method', [])
+        if not dm or len(dm) == 0:
+            errors.append(f'{fid}: discovery_method is required but empty')
+
+        # Check poc_test_artifacts
+        pocs = f.get('poc_test_artifacts', [])
+        if not pocs or len(pocs) == 0:
+            warnings.append(f'{fid}: no poc_test_artifacts (generate via generate_poc_testcase.py)')
+
+        # Check disclosure_status is not 'unknown'
+        ds = f.get('disclosure_status', 'unknown')
+        if ds == 'unknown':
+            errors.append(f'{fid}: disclosure_status is still "unknown"')
+
+        # Check publicly_disclosed findings have references
+        refs = f.get('public_vulnerability_references', [])
+        if ds == 'publicly_disclosed' and (not refs or len(refs) == 0):
+            errors.append(f'{fid}: disclosure_status is publicly_disclosed but no public_vulnerability_references provided')
+
     for p, heading in [(zh_report, REQUIRED_ZH_HEADING), (en_report, REQUIRED_EN_HEADING)]:
         if not p.exists():
             errors.append(f'missing report: {p}')
@@ -86,8 +106,15 @@ def main() -> int:
             if not candidates:
                 warnings.append(f'{fid}: no PoC/testcase summary found under poc-root')
 
-    result = {'status': 'failed' if errors else 'passed', 'errors': errors, 'warnings': warnings, 'validated_findings': [f.get('id') for f in validated]}
-    out = pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    result = {
+        'status': 'failed' if errors else 'passed',
+        'errors': errors,
+        'warnings': warnings,
+        'validated_findings': [f.get('id') for f in validated],
+    }
+    out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2, ensure_ascii=False))
     print(json.dumps({'status': result['status'], 'errors': len(errors), 'warnings': len(warnings)}, ensure_ascii=False, indent=2))
     return 1 if errors else 0
 
