@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0-alpha10
+
+- Synced all 19 root agents to Claude Code, OpenCode, and Codex adapters.
+- Added `coordinator` agent to Claude Code adapter.
+- Added `tool-install-assistant` to Codex AGENTS.md.
+- Registered all 19 agents in `opencode.json`.
+- Unified command naming: `validate-finding` renamed to `validate` across adapters.
+- Added `candidate-review` command to OpenCode adapter.
+- Added 6 orphan tests to `run-tests.sh`: report admission, make_ai_packets, bilingual output, PoC safety policy, PoC testcase generation, public vulnerability correlation.
+- Created `sample-report.json` test fixture for `report.schema.json`.
+- Expanded `enforce_workflow_contract.py` to check all 17 schemas and all tool scripts.
+- Enriched 8 generic recipes with domain-specific high-risk inputs, AI hypothesis directions, and recommended tools.
+- Added "Recommended evidence" section to `build-system.md`.
+- Added upgrade path guidance to `unknown-conservative.md`.
+- Wired `normalize_public_vuln_records.py`, `fetch_public_vuln_sources.py`, and `summarize_artifacts.py` into `enforced_audit_driver.py`.
+- Fixed `poc-readme.md` placeholder mismatch (`fixed_behavior` → `expected_fixed`).
+
 ## 0.6.0-alpha6
 
 - Added scripted install and verify flow for Claude Code, Codex, and opencode adapters.

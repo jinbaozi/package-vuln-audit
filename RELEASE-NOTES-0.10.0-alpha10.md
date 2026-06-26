@@ -1,25 +1,34 @@
-# Release Notes 0.10.0-alpha10
+# Release Notes: 0.10.0-alpha10
 
-## Added
+## Summary
 
-- Explicit strict mode for traditional tool availability.
-- Controlled `tool-install-assistant` subagent and helper script.
-- Per-tool authorization, dry-run default, prefix escape guard, offline-bundle hash verification, network mode, system-install authorization, and mock-only tests.
-- Unified `enforced_audit_driver.py`.
-- Workflow contract checker for workflows, tools, schemas, templates, agents, and adapter commands.
-- Post-packet Context Budget Guard enforcement in the driver.
-- Offline public vulnerability database freshness checker.
-- Final report completeness validator.
-- Public disclosure status summary tables in zh-CN and en-US reports.
+This release addresses all issues found during the comprehensive project review: adapter agent synchronization gaps, test coverage shortfalls, recipe content deficiencies, and consistency problems.
 
-## Changed
+## Key Changes
 
-- `verify_environment.py` now supports `--mode strict`, `--allow-degraded`, and strict required tool profiles.
-- `generate_install_plan.py` now prioritizes offline-bundle/user-local paths and treats RPM/DNF as administrator-only last resort.
-- `run_tools.sh` now performs an environment gate before tool execution.
-- `publish_bilingual_reports.py` now emits non-skeleton internal reports with disclosure status tables.
+### Adapter Synchronization
+- All 19 root agents now have corresponding definitions in Claude Code (11 new files), OpenCode (10 new files + JSON registration), and Codex (AGENTS.md expanded).
+- Command naming unified: `validate-finding` → `validate`.
+- OpenCode gains `candidate-review` command.
+
+### Test Coverage
+- 6 previously orphan tests added to `run-tests.sh` CI runner (13 total unit tests).
+- `sample-report.json` fixture created for the last uncovered schema.
+- `enforce_workflow_contract.py` now validates all 17 schemas and all tool scripts.
+
+### Recipe Enrichment
+- 8 generic recipes (crypto-auth, network-service, privileged-tool, package-manager, library-parser, cli-tool, mixed-project, unknown-conservative) enriched with domain-specific high-risk inputs, AI hypothesis directions, and recommended tool patterns.
+- `build-system.md` gains missing "Recommended evidence" section.
+
+### Pipeline Completeness
+- `normalize_public_vuln_records.py`, `fetch_public_vuln_sources.py`, and `summarize_artifacts.py` wired into `enforced_audit_driver.py`.
+- Template placeholder naming unified across root and bilingual templates.
 
 ## Verification
 
-- `./run-tests.sh` passes.
-- `python3 tools/enforce_workflow_contract.py --root .` passes with warnings only.
+```bash
+bash run-tests.sh
+python3 tools/enforce_workflow_contract.py --root . --out /tmp/contract.json
+```
+
+Expected: all tests pass, contract status passed.
