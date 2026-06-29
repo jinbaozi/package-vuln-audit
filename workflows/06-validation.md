@@ -36,12 +36,15 @@ If validation cannot be performed, mark Needs Manual Review with missing prerequ
 
 ## Post-validation steps
 
-After validation passes (status becomes Validated), generate PoC artifacts:
+After validation passes (status becomes Validated) or Needs Manual Review, generate multi-language PoC artifacts:
 
-1. Run `tools/generate_poc_testcase.py --findings <finding-index.json> --generate-from-finding --language <lang>` to create local-only reproducer scripts.
-2. Validate PoC artifacts: `tools/validate_poc_artifacts.py --poc-root audit-output/machine/poc-tests`
-3. The PoC manifest must include `discovery_method_ref` referencing the finding's discovery_method entries.
-4. The PoC directory must include `input-description.md` with SHA256 and purpose fields.
+1. Run `tools/generate_poc_testcase.py --findings <finding-index.json> --generate-from-finding --languages <lang1,lang2,...> --profile <package-profile.json>` to create multi-language reproducer scripts. Default languages: Python, C, C++, Java, Go (auto-selected based on project profile).
+   - **Validated findings**: At least one language variant must execute successfully (`poc-run-result.json` status = `passed`).
+   - **Needs Manual Review findings**: PoC is generated as `draft`/`unverified`. Execution success is not required.
+2. Validate PoC artifacts: `tools/validate_poc_artifacts.py --poc-root audit-output/04-validation/poc-tests`
+3. Each PoC manifest must include `discovery_method_ref` referencing the finding's discovery_method entries.
+4. Each language variant directory must include `input-description.md` with SHA256 and purpose fields.
+5. The main `reproduce.sh` tries all language variants and reports aggregate results.
 
 ## Parent context rule
 

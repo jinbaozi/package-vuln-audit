@@ -19,6 +19,32 @@
 
 ---
 
+## Audit Funnel Statistics
+
+{{funnel_table}}
+
+## Severity Distribution
+
+{{severity_table}}
+
+## Risk Overview
+
+{{risk_overview}}
+
+## Discovery Method Analysis
+
+{{discovery_method_table}}
+
+## Tool Output Statistics
+
+{{tool_output_table}}
+
+## Affected Component Summary
+
+{{component_table}}
+
+---
+
 ## 01 — Intake & Scope
 
 {{intake_content}}
@@ -67,13 +93,19 @@
 
 ---
 
-## 09 — Bilingual Report Generation
+## 09 — Detailed Finding Reports
+
+{{finding_details}}
+
+---
+
+## 10 — Bilingual Report Generation
 
 {{report_generation_content}}
 
 ---
 
-## 10 — Progressive Disclosure
+## 11 — Progressive Disclosure
 
 {{disclosure_content}}
 

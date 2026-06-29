@@ -19,6 +19,32 @@
 
 ---
 
+## 审计漏斗统计
+
+{{funnel_table}}
+
+## 严重程度分布
+
+{{severity_table}}
+
+## 风险概览
+
+{{risk_overview}}
+
+## 发现方法分析
+
+{{discovery_method_table}}
+
+## 工具产出统计
+
+{{tool_output_table}}
+
+## 受影响组件汇总
+
+{{component_table}}
+
+---
+
 ## 工具矩阵执行状态
 
 {{tool_matrix_content}}
@@ -77,13 +103,19 @@
 
 ---
 
-## 09 — 双语报告生成
+## 09 — 漏洞详情报告
+
+{{finding_details}}
+
+---
+
+## 10 — 双语报告生成
 
 {{report_generation_content}}
 
 ---
 
-## 10 — 渐进式披露
+## 11 — 渐进式披露
 
 {{disclosure_content}}
 

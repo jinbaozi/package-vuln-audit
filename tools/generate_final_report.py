@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-"""Generate final summary report aggregating all 10 audit workflow steps."""
+"""Generate final summary report aggregating all 10 audit workflow steps.
+
+Enhanced with:
+- Audit funnel statistics
+- Severity distribution
+- Discovery method analysis
+- Tool output statistics
+- Risk overview
+- Affected component summary
+- Enhanced per-finding details
+"""
 from __future__ import annotations
 import argparse, json, pathlib, sys
 from datetime import datetime
+from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / 'templates'
@@ -43,6 +54,172 @@ def finding_status(f):
     return f.get('status') or f.get('validated_status') or ''
 
 
+# ---------------------------------------------------------------------------
+# Statistics builders
+# ---------------------------------------------------------------------------
+
+def compute_funnel(findings, candidate_summary, tool_summary):
+    """Compute audit funnel statistics.
+
+    Returns dict with counts for each stage.
+    """
+    validated = sum(1 for f in findings if finding_status(f) == 'Validated')
+    needs_review = sum(1 for f in findings if finding_status(f) == 'Needs Manual Review')
+    rejected = sum(1 for f in findings if finding_status(f) == 'Rejected')
+    likely = sum(1 for f in findings if finding_status(f) == 'Likely')
+    candidate = sum(1 for f in findings if finding_status(f) == 'Candidate')
+
+    # Try to get raw hits count from tool summary or candidate summary
+    raw_hits = 0
+    if tool_summary and isinstance(tool_summary, dict):
+        for tool in (tool_summary.get('tools', []) or tool_summary.get('results', []) or []):
+            if isinstance(tool, dict):
+                raw_hits += tool.get('hit_count', tool.get('findings_count', 0))
+    if not raw_hits and candidate_summary and isinstance(candidate_summary, dict):
+        raw_hits = candidate_summary.get('total_raw_hits', candidate_summary.get('raw_hit_count', 0))
+
+    total = len(findings)
+    if not raw_hits:
+        raw_hits = total  # fallback
+
+    return {
+        'raw_hits': max(raw_hits, total),
+        'candidates': candidate + likely + validated + needs_review + rejected,
+        'likely': likely,
+        'validated': validated,
+        'needs_review': needs_review,
+        'rejected': rejected,
+        'total': total,
+    }
+
+
+def compute_severity_distribution(findings):
+    """Compute severity distribution from CVSS scores."""
+    dist = Counter()
+    for f in findings:
+        if finding_status(f) not in ('Validated', 'Needs Manual Review'):
+            continue
+        sev = (f.get('cvss', {}) or {}).get('severity', 'Unknown')
+        if sev is None:
+            sev = 'Unknown'
+        dist[sev] += 1
+    return dict(dist)
+
+
+def compute_discovery_method_stats(findings):
+    """Compute discovery method statistics."""
+    method_counts = Counter()
+    method_validated = Counter()
+    for f in findings:
+        st = finding_status(f)
+        if st not in ('Validated', 'Needs Manual Review'):
+            continue
+        dm_list = f.get('discovery_method') or []
+        for dm in dm_list:
+            if isinstance(dm, dict):
+                mt = dm.get('type', 'unknown')
+                method_counts[mt] += 1
+                if st == 'Validated':
+                    method_validated[mt] += 1
+    return dict(method_counts), dict(method_validated)
+
+
+def compute_tool_output_stats(findings, tool_summary):
+    """Compute tool output statistics."""
+    tool_candidates = Counter()
+    tool_validated = Counter()
+
+    for f in findings:
+        st = finding_status(f)
+        if st not in ('Validated', 'Needs Manual Review'):
+            continue
+        dm_list = f.get('discovery_method') or []
+        for dm in dm_list:
+            if isinstance(dm, dict) and dm.get('type') == 'tool':
+                tool_name = dm.get('tool_name', 'unknown')
+                tool_candidates[tool_name] += 1
+                if st == 'Validated':
+                    tool_validated[tool_name] += 1
+
+    # Also count from tool_summary if available
+    if tool_summary and isinstance(tool_summary, dict):
+        for tool in (tool_summary.get('tools', []) or tool_summary.get('results', []) or []):
+            if isinstance(tool, dict):
+                name = tool.get('name', tool.get('tool', 'unknown'))
+                if name not in tool_candidates:
+                    tool_candidates[name] = tool.get('hit_count', tool.get('findings_count', 0))
+
+    return dict(tool_candidates), dict(tool_validated)
+
+
+def compute_component_summary(findings):
+    """Compute affected component summary."""
+    comp_counts = Counter()
+    comp_findings = defaultdict(list)
+    for f in findings:
+        st = finding_status(f)
+        if st not in ('Validated', 'Needs Manual Review'):
+            continue
+        comp = (f.get('affected_component', {}) or {}).get('component', 'unknown')
+        comp_counts[comp] += 1
+        comp_findings[comp].append({
+            'id': f.get('id', '?'),
+            'severity': (f.get('cvss', {}) or {}).get('severity', '?'),
+            'status': st,
+        })
+    return dict(comp_counts), dict(comp_findings)
+
+
+def compute_risk_overview(findings):
+    """Compute overall risk assessment based on CVSS scores."""
+    scores = []
+    for f in findings:
+        if finding_status(f) not in ('Validated', 'Needs Manual Review'):
+            continue
+        score = (f.get('cvss', {}) or {}).get('base_score')
+        if score is not None:
+            try:
+                scores.append(float(score))
+            except (ValueError, TypeError):
+                pass
+
+    if not scores:
+        return {
+            'avg_score': '—',
+            'max_score': '—',
+            'min_score': '—',
+            'total_scored': 0,
+            'risk_level': '—',
+        }
+
+    avg = sum(scores) / len(scores)
+    mx = max(scores)
+    mn = min(scores)
+
+    if avg >= 9.0:
+        risk = 'Critical'
+    elif avg >= 7.0:
+        risk = 'High'
+    elif avg >= 4.0:
+        risk = 'Medium'
+    elif avg > 0:
+        risk = 'Low'
+    else:
+        risk = 'None'
+
+    return {
+        'avg_score': f'{avg:.1f}',
+        'max_score': f'{mx:.1f}',
+        'min_score': f'{mn:.1f}',
+        'total_scored': len(scores),
+        'risk_level': risk,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Content builders
+# ---------------------------------------------------------------------------
+
 def build_manual_review_table(findings, audit_root):
     rows = ['| ID | 组件 | 阻断原因 | 人工验证计划 |', '|---|---|---|---|']
     for f in findings:
@@ -80,6 +257,10 @@ def build_executive_summary(findings, all_tools, environment, intake, profile):
     profile_name = profile.get('package_name', '?') if profile else '?'
     primary_lang = fmt_list(profile.get('primary_language', [])) if profile else '?'
 
+    # Severity distribution
+    sev_dist = compute_severity_distribution(findings)
+    risk = compute_risk_overview(findings)
+
     lines = [
         f'- **Package**: `{profile_name}`',
         f'- **Primary Language(s)**: {primary_lang}',
@@ -87,8 +268,21 @@ def build_executive_summary(findings, all_tools, environment, intake, profile):
         f'- **Validated Findings**: {len(validated)}',
         f'- **Needs Manual Review**: {len(needs_review)}',
         f'- **Other Candidates**: {len(candidates)}',
+        f'- **Overall Risk Level**: {risk["risk_level"]} (avg CVSS: {risk["avg_score"]})',
         '',
     ]
+
+    # Severity breakdown
+    if sev_dist:
+        lines.append('#### Severity Distribution')
+        lines.append('')
+        lines.append('| Severity | Count |')
+        lines.append('|----------|-------|')
+        for sev in ['Critical', 'High', 'Medium', 'Low', 'None', 'Unknown']:
+            if sev in sev_dist:
+                lines.append(f'| {sev} | {sev_dist[sev]} |')
+        lines.append('')
+
     if intake:
         lines.append(f'- **Scope**: {intake.get("scope_summary", "see 01-intake")}')
         lines.append(f'- **Authorization**: {intake.get("authorization", "not specified")}')
@@ -141,6 +335,286 @@ def build_validated_table(findings, correlations):
         return '| — | — | — | — | — | — | — |'
     return '\n'.join(rows)
 
+
+def build_funnel_table(findings, candidate_summary, tool_summary):
+    """Build the audit funnel statistics table."""
+    funnel = compute_funnel(findings, candidate_summary, tool_summary)
+    rows = [
+        '| Stage | Count | Description |',
+        '|-------|-------|-------------|',
+        f'| Raw Tool Hits | {funnel["raw_hits"]} | Total hits from traditional security tools |',
+        f'| Candidates | {funnel["candidates"]} | After normalization and deduplication |',
+        f'| Likely | {funnel["likely"]} | Passed candidate review |',
+        f'| **Validated** | **{funnel["validated"]}** | Confirmed via validation |',
+        f'| Needs Manual Review | {funnel["needs_review"]} | Cannot be auto-validated |',
+        f'| Rejected | {funnel["rejected"]} | False positives or out-of-scope |',
+    ]
+    return '\n'.join(rows)
+
+
+def build_severity_table(findings):
+    """Build severity distribution table."""
+    dist = compute_severity_distribution(findings)
+    if not dist:
+        return 'No severity data available.'
+
+    rows = [
+        '| Severity | Count | Percentage |',
+        '|----------|-------|------------|',
+    ]
+    total = sum(dist.values()) or 1
+    for sev in ['Critical', 'High', 'Medium', 'Low', 'None', 'Unknown']:
+        count = dist.get(sev, 0)
+        if count > 0 or sev in ('Critical', 'High', 'Medium', 'Low'):
+            pct = f'{count/total*100:.0f}%'
+            rows.append(f'| {sev} | {count} | {pct} |')
+    return '\n'.join(rows)
+
+
+def build_discovery_method_table(findings):
+    """Build discovery method analysis table."""
+    method_counts, method_validated = compute_discovery_method_stats(findings)
+    if not method_counts:
+        return 'No discovery method data available.'
+
+    rows = [
+        '| Method | Total Findings | Validated | Validation Rate |',
+        '|--------|---------------|-----------|-----------------|',
+    ]
+    type_labels = {
+        'tool': 'Traditional Tool',
+        'ai': 'AI Hypothesis',
+        'manual': 'Manual Review',
+        'fuzz': 'Fuzz Testing',
+    }
+    for method in ['tool', 'ai', 'fuzz', 'manual']:
+        total = method_counts.get(method, 0)
+        validated = method_validated.get(method, 0)
+        rate = f'{validated/total*100:.0f}%' if total > 0 else '—'
+        label = type_labels.get(method, method)
+        if total > 0:
+            rows.append(f'| {label} | {total} | {validated} | {rate} |')
+
+    # Add any methods not in the predefined list
+    for method, total in sorted(method_counts.items()):
+        if method not in type_labels:
+            validated = method_validated.get(method, 0)
+            rate = f'{validated/total*100:.0f}%' if total > 0 else '—'
+            rows.append(f'| {method} | {total} | {validated} | {rate} |')
+
+    return '\n'.join(rows)
+
+
+def build_tool_output_table(findings, tool_summary):
+    """Build tool output statistics table."""
+    tool_candidates, tool_validated = compute_tool_output_stats(findings, tool_summary)
+    if not tool_candidates:
+        return 'No tool output data available.'
+
+    rows = [
+        '| Tool | Candidates Produced | Validated | Effectiveness |',
+        '|------|--------------------:|----------:|---------------|',
+    ]
+    for tool in sorted(tool_candidates.keys()):
+        total = tool_candidates[tool]
+        validated = tool_validated.get(tool, 0)
+        rate = f'{validated/total*100:.0f}%' if total > 0 else '—'
+        rows.append(f'| {tool} | {total} | {validated} | {rate} |')
+    return '\n'.join(rows)
+
+
+def build_risk_overview(findings):
+    """Build risk overview section."""
+    risk = compute_risk_overview(findings)
+    sev_dist = compute_severity_distribution(findings)
+
+    lines = [
+        '| Metric | Value |',
+        '|--------|-------|',
+        f'| Average CVSS Score | {risk["avg_score"]} |',
+        f'| Maximum CVSS Score | {risk["max_score"]} |',
+        f'| Minimum CVSS Score | {risk["min_score"]} |',
+        f'| Total Scored Findings | {risk["total_scored"]} |',
+        f'| **Overall Risk Level** | **{risk["risk_level"]}** |',
+    ]
+
+    # Severity heatmap
+    if sev_dist:
+        lines.append('')
+        lines.append('#### Severity Heatmap')
+        lines.append('')
+        critical = sev_dist.get('Critical', 0)
+        high = sev_dist.get('High', 0)
+        medium = sev_dist.get('Medium', 0)
+        low = sev_dist.get('Low', 0)
+
+        if critical > 0:
+            lines.append(f'- 🔴 **Critical**: {critical} finding(s) — immediate action required')
+        if high > 0:
+            lines.append(f'- 🟠 **High**: {high} finding(s) — priority remediation')
+        if medium > 0:
+            lines.append(f'- 🟡 **Medium**: {medium} finding(s) — scheduled remediation')
+        if low > 0:
+            lines.append(f'- 🟢 **Low**: {low} finding(s) — monitor and address')
+        if not any([critical, high, medium, low]):
+            lines.append('- ✅ No significant vulnerabilities found')
+
+    return '\n'.join(lines)
+
+
+def build_component_table(findings):
+    """Build affected component summary table."""
+    comp_counts, comp_findings = compute_component_summary(findings)
+    if not comp_counts:
+        return 'No affected component data available.'
+
+    rows = [
+        '| Component | Finding Count | Severity Range | Finding IDs |',
+        '|-----------|:-------------:|----------------|-------------|',
+    ]
+    for comp in sorted(comp_counts, key=comp_counts.get, reverse=True):
+        count = comp_counts[comp]
+        flist = comp_findings[comp]
+        ids = ', '.join(f'`{f["id"]}`' for f in flist)
+        severities = [f['severity'] for f in flist if f['severity'] != '?']
+        sev_range = ', '.join(sorted(set(severities))) if severities else '—'
+        rows.append(f'| {comp} | {count} | {sev_range} | {ids} |')
+    return '\n'.join(rows)
+
+
+def build_finding_details(findings, correlations):
+    """Build enhanced per-finding detail section."""
+    validated = [f for f in findings if finding_status(f) in ('Validated', 'Needs Manual Review')]
+    if not validated:
+        return 'No validated findings to detail.'
+
+    parts = []
+    for f in validated:
+        fid = f.get('id', '?')
+        title = f.get('title', 'Untitled')
+        status = finding_status(f)
+        cvss = f.get('cvss', {}) or {}
+
+        parts.append(f'### {fid}: {title}')
+        parts.append('')
+        parts.append(f'**Status:** {status}  ')
+        parts.append(f'**Severity:** {cvss.get("severity", "?")} (CVSS {cvss.get("base_score", "?")})  ')
+        parts.append(f'**CVSS Vector:** `{cvss.get("vector", "—")}`  ')
+        parts.append('')
+
+        # Affected component
+        ac = f.get('affected_component', {}) or {}
+        parts.append(f'**Package:** {ac.get("package", "?")}  ')
+        parts.append(f'**Component:** {ac.get("component", "?")}  ')
+        if ac.get('version_or_commit'):
+            parts.append(f'**Version/Commit:** {ac["version_or_commit"]}  ')
+        parts.append('')
+
+        # Source code evidence
+        evidence = f.get('source_code_evidence') or []
+        if evidence:
+            parts.append('#### Source Code Evidence')
+            parts.append('')
+            for ev in evidence:
+                if isinstance(ev, dict):
+                    parts.append(f'- **File:** `{ev.get("file", "?")}`')
+                    if ev.get('function'):
+                        parts.append(f'  - **Function:** `{ev["function"]}`')
+                    if ev.get('line') or ev.get('line_range'):
+                        lr = ev.get('line_range') or ev.get('line')
+                        parts.append(f'  - **Line(s):** {lr}')
+                    if ev.get('description'):
+                        parts.append(f'  - {ev["description"]}')
+            parts.append('')
+
+        # Source-to-sink path
+        ssp = f.get('source_to_sink_path', '')
+        if ssp:
+            parts.append('#### Source-to-Sink Path')
+            parts.append('')
+            if isinstance(ssp, list):
+                for step in ssp:
+                    if isinstance(step, dict):
+                        parts.append(f'1. **{step.get("stage", "?")}**: {step.get("description", "")}')
+                    else:
+                        parts.append(f'1. {step}')
+            else:
+                parts.append(f'```\n{ssp}\n```')
+            parts.append('')
+
+        # Validation evidence
+        val = f.get('validation', {})
+        if isinstance(val, dict) and val:
+            parts.append('#### Validation Evidence')
+            parts.append('')
+            method = val.get('method', '?')
+            parts.append(f'- **Method:** {method}')
+            if val.get('command'):
+                parts.append(f'- **Command:** `{val["command"]}`')
+            if val.get('result_summary'):
+                parts.append(f'- **Result:** {val["result_summary"]}')
+            parts.append('')
+
+        # POC status
+        poc = f.get('poc_test_artifacts') or []
+        if poc:
+            parts.append('#### PoC Test Artifacts')
+            parts.append('')
+            for p in poc:
+                if isinstance(p, dict):
+                    parts.append(f'- **{p.get("type", "?")}**: `{p.get("path", "?")}` — {p.get("purpose", "")}')
+            parts.append('')
+
+        # Discovery method
+        dm_list = f.get('discovery_method') or []
+        if dm_list:
+            parts.append('#### Discovery Method')
+            parts.append('')
+            for dm in dm_list:
+                if isinstance(dm, dict):
+                    parts.append(f'- **{dm.get("type", "?")}**: {dm.get("description", "")}')
+                    if dm.get('tool_name'):
+                        parts.append(f'  - Tool: {dm["tool_name"]}')
+                    if dm.get('hypothesis_id'):
+                        parts.append(f'  - Hypothesis: {dm["hypothesis_id"]}')
+            parts.append('')
+
+        # Fix recommendation
+        fix = f.get('fix_recommendation', '')
+        if fix:
+            parts.append('#### Fix Recommendation')
+            parts.append('')
+            parts.append(fix if isinstance(fix, str) else json.dumps(fix, indent=2, ensure_ascii=False))
+            parts.append('')
+
+        # Public vulnerability correlation
+        corr = correlations.get(fid) if correlations else None
+        if corr:
+            parts.append('#### Public Vulnerability Correlation')
+            parts.append('')
+            parts.append(f'- **Status:** {corr.get("status", "?")}')
+            parts.append(f'- **Match Level:** {corr.get("match_level", "?")}')
+            records = corr.get('matched_records', [])
+            if records:
+                for r in records:
+                    rid = r.get('id', '')
+                    url = r.get('url', '')
+                    source = r.get('source', '')
+                    if url:
+                        parts.append(f'- [{source}/{rid}]({url})')
+                    elif rid:
+                        parts.append(f'- {source}/{rid}')
+            parts.append('')
+
+        parts.append('---')
+        parts.append('')
+
+    return '\n'.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Existing builders (kept for backward compatibility)
+# ---------------------------------------------------------------------------
 
 def build_intake_content(intake, scope_md):
     parts = []
@@ -403,6 +877,13 @@ def main() -> int:
         'sources_checked': fmt_list(sorted(sources_set)) if sources_set else 'configured sources checked',
         'offline_db_freshness': safe_str(environment.get('offline_db_freshness', '—')),
         'validated_findings_table': build_validated_table(findings, correlations),
+        'funnel_table': build_funnel_table(findings, candidate_summary, tool_summary),
+        'severity_table': build_severity_table(findings),
+        'discovery_method_table': build_discovery_method_table(findings),
+        'tool_output_table': build_tool_output_table(findings, tool_summary),
+        'risk_overview': build_risk_overview(findings),
+        'component_table': build_component_table(findings),
+        'finding_details': build_finding_details(findings, correlations),
         'tool_matrix_content': build_tool_matrix_content(audit_root),
         'manual_review_table': build_manual_review_table(findings, audit_root),
         'intake_content': build_intake_content(intake, scope_md),
@@ -426,11 +907,24 @@ def main() -> int:
     for d in [machine_dir, en_dir, zh_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    # machine JSON
+    # machine JSON (enhanced with statistics)
+    funnel = compute_funnel(findings, candidate_summary, tool_summary)
+    sev_dist = compute_severity_distribution(findings)
+    method_counts, method_validated = compute_discovery_method_stats(findings)
+    tool_candidates, tool_validated = compute_tool_output_stats(findings, tool_summary)
+    risk = compute_risk_overview(findings)
+
     machine_report = {
         'generated_at': datetime.utcnow().isoformat() + 'Z',
         'generator': 'generate_final_report.py',
         'executive_summary': values['executive_summary'],
+        'statistics': {
+            'funnel': funnel,
+            'severity_distribution': sev_dist,
+            'discovery_methods': {'total': method_counts, 'validated': method_validated},
+            'tool_output': {'candidates': tool_candidates, 'validated': tool_validated},
+            'risk_overview': risk,
+        },
         'public_disclosure': {
             'matched_count': matched_count,
             'not_found_count': not_found_count,

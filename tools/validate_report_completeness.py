@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Validate enforced bilingual report completeness and public-correlation gates."""
+"""Validate enforced bilingual report completeness and public-correlation gates.
+
+Also validates final summary report contains required data sections
+(funnel statistics, severity distribution, risk overview, etc.).
+"""
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
@@ -9,6 +13,20 @@ ABSOLUTE_UNPUBLISHED_PATTERNS = [
 ]
 REQUIRED_ZH_HEADING = '公开披露状态与标准来源汇总表'
 REQUIRED_EN_HEADING = 'Public Disclosure Status and Standard Source Summary'
+
+# Required sections in the final summary report
+REQUIRED_FINAL_REPORT_SECTIONS_EN = [
+    'Executive Summary',
+    'Audit Funnel Statistics',
+    'Severity Distribution',
+    'Risk Overview',
+]
+REQUIRED_FINAL_REPORT_SECTIONS_ZH = [
+    '执行摘要',
+    '审计漏斗统计',
+    '严重程度分布',
+    '风险概览',
+]
 
 
 def load_json(path: pathlib.Path, default):
@@ -34,6 +52,36 @@ def contains_skeleton(text: str) -> bool:
         'TODO', 'TBD'
     ]
     return any(x in text for x in skeletons)
+
+
+def validate_final_report_sections(root: pathlib.Path, errors, warnings):
+    """Validate that the final summary report contains required data sections."""
+    en_final = root / 'final-summary-report.md'
+    zh_final = root / 'zh-CN' / 'final-summary-report.md'
+
+    for report_path, required_sections, label in [
+        (en_final, REQUIRED_FINAL_REPORT_SECTIONS_EN, 'EN final report'),
+        (zh_final, REQUIRED_FINAL_REPORT_SECTIONS_ZH, 'ZH final report'),
+    ]:
+        if not report_path.exists():
+            # Final report is optional — only warn
+            warnings.append(f'{label}: not found at {report_path}')
+            continue
+
+        text = report_path.read_text(errors='ignore')
+        for section in required_sections:
+            if section not in text:
+                warnings.append(f'{label}: missing required section "{section}"')
+
+        # Check that report has data tables (not just placeholders)
+        table_count = text.count('|---|')
+        if table_count < 3:
+            warnings.append(f'{label}: fewer than 3 data tables detected ({table_count})')
+
+        # Check for unfilled placeholders
+        unfilled = re.findall(r'\{\{[a-z_]+\}\}', text)
+        if unfilled:
+            errors.append(f'{label}: unfilled template placeholders: {", ".join(unfilled[:5])}')
 
 
 def main() -> int:
@@ -98,6 +146,9 @@ def main() -> int:
                 errors.append(f'{p}: forbidden absolute unpublished wording: {pat}')
         if '|' not in text:
             errors.append(f'{p}: no markdown summary table detected')
+
+    # Validate final summary report sections
+    validate_final_report_sections(root, errors, warnings)
 
     if args.poc_root:
         poc_root = pathlib.Path(args.poc_root)

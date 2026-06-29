@@ -1,9 +1,93 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "title":"PoC Testcase Manifest",
-  "type":"object",
-  "required":["finding_id","status","poc_type","safety_class","artifacts","commands","expected_results","disclosure_level"],
-  "properties":{
-    "finding_id":{"type":"string"},"status":{"enum":["Validated"]},"poc_type":{"type":"string"},"safety_class":{"enum":["local-validation-only"]},"affected_component":{"type":"object"},"artifacts":{"type":"object"},"commands":{"type":"object"},"expected_results":{"type":"object","required":["vulnerable","fixed"]},"environment":{"type":"object"},"testcase":{"type":"object"},"disclosure_level":{"type":"string"},"public_release_allowed":{"type":"boolean"}
-  },"additionalProperties":true
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PoC Testcase Manifest",
+  "description": "Schema for proof-of-concept testcase manifests. Supports both single-language (legacy) and multi-language POC structures.",
+  "type": "object",
+  "required": ["finding_id", "status", "poc_type", "safety_class", "artifacts", "commands", "expected_results", "disclosure_level"],
+  "properties": {
+    "finding_id": { "type": "string" },
+    "status": {
+      "enum": ["Validated", "draft"],
+      "description": "Validated for confirmed findings; draft for Needs Manual Review findings"
+    },
+    "verification": {
+      "enum": ["verified", "unverified"],
+      "description": "verified for Validated findings; unverified for draft findings"
+    },
+    "poc_type": { "type": "string" },
+    "safety_class": { "enum": ["local-validation-only"] },
+    "language": {
+      "type": "string",
+      "description": "Primary language for single-language POCs (legacy mode)"
+    },
+    "language_variants": {
+      "type": "array",
+      "description": "List of language variant directories for multi-language POCs",
+      "items": {
+        "type": "object",
+        "required": ["language", "directory", "script"],
+        "properties": {
+          "language": { "type": "string" },
+          "directory": { "type": "string" },
+          "script": { "type": "string" },
+          "sha256": { "type": "string" },
+          "runtime_available": { "type": "boolean" },
+          "status": { "enum": ["passed", "failed", "skipped"] }
+        }
+      }
+    },
+    "affected_component": { "type": "object" },
+    "discovery_method_ref": {
+      "type": "string",
+      "description": "Reference to the discovery method (tool name, hypothesis ID, etc.)"
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "reproduce_script": { "type": "string" },
+        "expected_vulnerable": { "type": "string" },
+        "expected_fixed": { "type": "string" },
+        "input_description": { "type": "string" },
+        "testcase": { "type": "string" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "properties": {
+        "build": { "type": "string" },
+        "reproduce": { "type": "string" },
+        "regression": { "type": "string" }
+      }
+    },
+    "expected_results": {
+      "type": "object",
+      "required": ["vulnerable", "fixed"],
+      "properties": {
+        "vulnerable": { "type": "string" },
+        "fixed": { "type": "string" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "python": { "type": "string" },
+        "commit": { "type": "string" }
+      }
+    },
+    "testcase": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "size_bytes": { "type": "integer" },
+        "source": { "type": "string" },
+        "language": { "type": "string" }
+      }
+    },
+    "disclosure_level": { "type": "string" },
+    "public_release_allowed": { "type": "boolean" }
+  },
+  "additionalProperties": true
 }

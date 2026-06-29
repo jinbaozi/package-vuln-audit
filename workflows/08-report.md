@@ -24,8 +24,8 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
 
 ## Required steps (in order)
 
-1. **Generate PoC artifacts** for each Validated finding (if not already done in 06-validation):
-   `tools/generate_poc_testcase.py --findings <finding-index.json> --generate-from-finding --language <lang>`
+1. **Generate PoC artifacts** for each Validated and Needs Manual Review finding (if not already done in 06-validation):
+   `tools/generate_poc_testcase.py --findings <finding-index.json> --generate-from-finding --languages <lang1,lang2,...> --profile <package-profile.json>`
 
 2. **Publish bilingual reports** (machine/zh-CN/en-US):
    `tools/publish_bilingual_reports.py --findings <finding-index.json> --correlation <correlation.json> --out audit-output/06-report`
