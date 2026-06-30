@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-import pathlib
-import subprocess
-import sys
-
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+from tool_runner import ROOT, run_subprocess
 
 
 def run_validate(extra_args=None):
-    cmd = [sys.executable, str(ROOT / 'tools' / 'validate_manifest.py'), '--root', str(ROOT)]
+    args = ['--root', str(ROOT)]
     if extra_args:
-        cmd.extend(extra_args)
-    return subprocess.run(cmd, text=True, capture_output=True)
+        args.extend(extra_args)
+    return run_subprocess('tools/validate_manifest.py', args, check=False)
 
 
 def test_validate_manifest_passes_on_repo():

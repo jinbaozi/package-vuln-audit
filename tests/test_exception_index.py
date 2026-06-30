@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 import json
 import pathlib
-import subprocess
-import sys
-import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+from tool_runner import run_subprocess, temp_audit_dir
 
 
 def write_step(audit: pathlib.Path, step_id: str, status: str, decision: str, limitations=None):
@@ -19,15 +16,17 @@ def write_step(audit: pathlib.Path, step_id: str, status: str, decision: str, li
 
 
 def run_aggregate(audit: pathlib.Path, extra=None):
-    cmd = [sys.executable, str(ROOT / 'tools' / 'aggregate_exceptions.py'),
-           '--audit-output', str(audit), '--out', str(audit / 'machine' / 'exception-index.json')]
+    args = [
+        '--audit-output', str(audit),
+        '--out', str(audit / 'machine' / 'exception-index.json'),
+    ]
     if extra:
-        cmd.extend(extra)
-    return subprocess.run(cmd, check=True, text=True, capture_output=True)
+        args.extend(extra)
+    return run_subprocess('tools/aggregate_exceptions.py', args)
 
 
 def test_partial_report_stage_recorded():
-    with tempfile.TemporaryDirectory() as td:
+    with temp_audit_dir() as td:
         audit = pathlib.Path(td)
         write_step(audit, '08-report', 'partial', 'continue', ['no --public-records'])
         write_step(audit, '03-tool-scan', 'completed', 'continue')
@@ -38,7 +37,7 @@ def test_partial_report_stage_recorded():
 
 
 def test_blocked_step_halts_pipeline():
-    with tempfile.TemporaryDirectory() as td:
+    with temp_audit_dir() as td:
         audit = pathlib.Path(td)
         write_step(audit, '03-tool-scan', 'blocked', 'block')
         run_aggregate(audit)
@@ -49,7 +48,7 @@ def test_blocked_step_halts_pipeline():
 
 
 def test_schema_validation_failure_emits_event():
-    with tempfile.TemporaryDirectory() as td:
+    with temp_audit_dir() as td:
         audit = pathlib.Path(td)
         write_step(audit, '07-schema-validation', 'failed', 'block')
         (audit / 'machine').mkdir(parents=True, exist_ok=True)

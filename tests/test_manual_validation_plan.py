@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from fixtures_helpers import minimal_finding, temp_audit_dir
+from tool_runner import minimal_finding, temp_audit_dir
 from tool_runner import run_subprocess
 
 
