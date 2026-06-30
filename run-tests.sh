@@ -3,6 +3,8 @@ set -euo pipefail
 python3 -u tests/test_schemas.py
 python3 -u tests/test_manifest_io.py
 python3 -u tests/test_manifest.py
+python3 -u tests/test_manifest_single_source.py
+python3 -u tests/test_guides_index_fresh.py
 python3 -u tests/test_intake_gate.py
 python3 -u tests/test_exception_index.py
 python3 -u tests/test_schema_fail_closed.py

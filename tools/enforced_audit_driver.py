@@ -82,8 +82,14 @@ def main() -> int:
     if rc != 0:
         return rc
 
-    run([sys.executable, 'tools/validate_manifest.py',
+    mv_rc, _ = run([sys.executable, 'tools/validate_manifest.py',
          '--root', '.', '--out', str(out / 'machine' / 'manifest-validation.json')], allow_fail=True)
+    write_step(out, '00-manifest-validation',
+               'completed' if mv_rc == 0 else 'failed',
+               'continue' if mv_rc == 0 else 'warn',
+               outputs=[str(out / 'machine' / 'manifest-validation.json')],
+               issues=[] if mv_rc == 0 else ['manifest validation failed; see manifest-validation.json'])
+    refresh_exception_index(out)
 
     env_cmd = [sys.executable, 'tools/strict_env_gate.py', '--out', str(env_out),
                '--profile', args.profile, '--mode', args.mode]

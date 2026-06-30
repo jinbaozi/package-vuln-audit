@@ -1,5 +1,5 @@
 schema_version: "1.0"
-skill_version: "0.10.0-alpha10"
+skill_version: "0.10.0-alpha11"
 
 load_tiers:
   L0: { max_tokens_hint: 8000 }
@@ -16,6 +16,27 @@ disclosure_tiers:
   D4: { reportable: public_after_fix }
 
 schema_root: schemas
+
+registered_schemas:
+  - bilingual-output.schema.json
+  - candidate.schema.json
+  - context-budget.schema.json
+  - cvss.schema.json
+  - environment-check.schema.json
+  - finding.schema.json
+  - hypothesis.schema.json
+  - install-assistant-decision.schema.json
+  - install-assistant-summary.schema.json
+  - package-profile.schema.json
+  - poc-testcase.schema.json
+  - public-vuln-correlation.schema.json
+  - public-vuln-record.schema.json
+  - report.schema.json
+  - tool-install-plan.schema.json
+  - tool-summary.schema.json
+  - validation-result.schema.json
+  - exception-index.schema.json
+  - intake.schema.json
 
 l4_forbidden_patterns:
   - "audit-output/**/raw/**"

@@ -7,7 +7,9 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import manifest_io
+from pvas_io import emit_gate_result, load_json, write_json
 
 VALID_LOAD_TIERS = frozenset({'L0', 'L1', 'L2', 'L3', 'L4'})
 
@@ -71,6 +73,10 @@ def validate_manifest(root: pathlib.Path, manifest_path: pathlib.Path) -> dict:
     else:
         errors.append('exception_aggregation must be a mapping')
 
+    xc_errs, xc_warns = manifest_io.crosscheck_schemas(root, manifest)
+    errors.extend(xc_errs)
+    warnings.extend(xc_warns)
+
     return {
         'status': 'failed' if errors else 'passed',
         'errors': errors,
@@ -88,10 +94,7 @@ def main() -> int:
     root = pathlib.Path(args.root).resolve()
     manifest_path = root / args.manifest
     result = validate_manifest(root, manifest_path)
-
-    out = pathlib.Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    emit_gate_result(args.out, result)
     print(
         json.dumps(
             {

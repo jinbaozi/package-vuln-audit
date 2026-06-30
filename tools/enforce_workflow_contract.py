@@ -3,6 +3,8 @@
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
+from pvas_io import emit_gate_result
+
 REQUIRED_DIRS = ['workflows', 'tools', 'schemas', 'templates', 'agents', 'adapters']
 REQUIRED_TOOLS = [
     'verify_environment.py',
@@ -20,7 +22,6 @@ REQUIRED_TOOLS = [
     'rank_candidates.py',
     'generate_poc_testcase.py',
     'validate_poc_artifacts.py',
-    'validate_language_outputs.py',
     'generate_final_report.py',
     'fetch_public_vuln_sources.py',
     'normalize_public_vuln_records.py',
@@ -33,27 +34,6 @@ REQUIRED_TOOLS = [
     'pvas_env.py',
     'budget_common.py',
     'generate_guides_index.py',
-]
-REQUIRED_SCHEMAS = [
-    'bilingual-output.schema.json',
-    'candidate.schema.json',
-    'context-budget.schema.json',
-    'cvss.schema.json',
-    'environment-check.schema.json',
-    'finding.schema.json',
-    'hypothesis.schema.json',
-    'install-assistant-decision.schema.json',
-    'install-assistant-summary.schema.json',
-    'package-profile.schema.json',
-    'poc-testcase.schema.json',
-    'public-vuln-correlation.schema.json',
-    'public-vuln-record.schema.json',
-    'report.schema.json',
-    'tool-install-plan.schema.json',
-    'tool-summary.schema.json',
-    'validation-result.schema.json',
-    'exception-index.schema.json',
-    'intake.schema.json',
 ]
 REQUIRED_TEMPLATES = ['tool-install-plan.md', 'finding.md', 'internal-report.md']
 REQUIRED_WORKFLOW_TERMS = ['Purpose', 'Inputs', 'Outputs']
@@ -73,9 +53,6 @@ def check_root(root: pathlib.Path) -> dict:
     for f in REQUIRED_TOOLS:
         if not (root / 'tools' / f).is_file():
             fail(f'missing required tool: tools/{f}', errors)
-    for f in REQUIRED_SCHEMAS:
-        if not (root / 'schemas' / f).is_file():
-            fail(f'missing required schema: schemas/{f}', errors)
 
     manifest_path = root / 'core' / 'manifest.yaml'
     if not manifest_path.is_file():
@@ -83,20 +60,13 @@ def check_root(root: pathlib.Path) -> dict:
     else:
         try:
             sys.path.insert(0, str(root / 'tools'))
-            import manifest_io
-            m = manifest_io.load_manifest(manifest_path)
-            manifest_schemas = {a['schema'] for a in m.get('artifacts', []) if a.get('schema')}
-            manifest_schemas.add(m.get('exception_aggregation', {}).get('schema', ''))
-            manifest_schemas.discard('')
-            required = set(REQUIRED_SCHEMAS)
-            extra = manifest_schemas - required
-            missing = required - manifest_schemas
-            for s in sorted(missing):
-                warnings.append(f'manifest missing schema registration: {s}')
-            for s in sorted(extra):
-                warnings.append(f'manifest lists schema not in REQUIRED_SCHEMAS: {s}')
+            import validate_manifest as vm
+            mv = vm.validate_manifest(root, manifest_path)
+            warnings.extend(mv.get('warnings') or [])
+            for e in mv.get('errors') or []:
+                fail(e, errors)
         except Exception as e:
-            warnings.append(f'manifest cross-check skipped: {e}')
+            warnings.append(f'manifest validation skipped: {e}')
 
     for f in REQUIRED_TEMPLATES:
         if not (root / 'templates' / f).is_file():
@@ -151,7 +121,7 @@ def main() -> int:
     ap.add_argument('--out', default='audit-output/machine/workflow-contract.json')
     args = ap.parse_args()
     result = check_root(pathlib.Path(args.root))
-    out = pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(result, indent=2))
+    emit_gate_result(args.out, result)
     print(json.dumps({'status': result['status'], 'errors': len(result['errors']), 'warnings': len(result['warnings'])}, indent=2))
     return 1 if result['errors'] else 0
 

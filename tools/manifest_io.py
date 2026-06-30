@@ -29,6 +29,34 @@ def l4_forbidden_patterns(manifest: dict) -> list[str]:
     return [str(p) for p in patterns]
 
 
+def registered_schemas(manifest: dict) -> list[str]:
+    explicit = manifest.get('registered_schemas') or []
+    from_artifacts = [
+        a['schema'] for a in (manifest.get('artifacts') or [])
+        if isinstance(a, dict) and a.get('schema')
+    ]
+    exc = (manifest.get('exception_aggregation') or {}).get('schema')
+    names = list(dict.fromkeys([*explicit, *from_artifacts, *([exc] if exc else [])]))
+    return [n for n in names if n]
+
+
+def crosscheck_schemas(root: pathlib.Path, manifest: dict) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    schema_root = pathlib.Path(manifest.get('schema_root', 'schemas'))
+    registered = set(registered_schemas(manifest))
+    for name in sorted(registered):
+        path = root / schema_root / name
+        if not path.is_file():
+            errors.append(f'registered schema missing on disk: {schema_root / name}')
+    schema_dir = root / schema_root
+    if schema_dir.is_dir():
+        for path in sorted(schema_dir.glob('*.schema.json')):
+            if path.name not in registered:
+                warnings.append(f'schema file not registered in manifest: {path.name}')
+    return errors, warnings
+
+
 def _strip_comment(line: str) -> str:
     in_single = False
     in_double = False
