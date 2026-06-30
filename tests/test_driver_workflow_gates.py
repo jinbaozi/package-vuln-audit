@@ -24,8 +24,16 @@ def test_driver_blocks_failed_poc_validation():
     assert "return poc_v_rc" in text or "return 2" in text
 
 
+def test_driver_calls_validate_intake_and_aggregate_exceptions():
+    text = (ROOT / "tools" / "enforced_audit_driver.py").read_text()
+    assert "validate_intake.py" in text
+    assert "aggregate_exceptions.py" in text
+    assert "exception-index.json" in text
+
+
 if __name__ == "__main__":
     test_driver_generates_tool_matrix_before_running_tools()
     test_driver_uses_validation_poc_path()
     test_driver_blocks_failed_poc_validation()
+    test_driver_calls_validate_intake_and_aggregate_exceptions()
     print("driver workflow gate tests passed")
