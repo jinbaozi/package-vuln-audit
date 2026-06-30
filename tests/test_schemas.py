@@ -28,6 +28,8 @@ def main():
         'install-assistant-summary.schema.json':'sample-install-assistant-summary.json',
         'install-assistant-decision.schema.json':'sample-install-assistant-decision.json',
         'report.schema.json':'sample-report.json',
+        'exception-index.schema.json':'sample-exception-index.json',
+        'intake.schema.json':'sample-intake.json',
     }
     try:
         import jsonschema

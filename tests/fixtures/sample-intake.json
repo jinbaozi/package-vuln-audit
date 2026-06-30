@@ -1,0 +1,9 @@
+{
+  "authorization": "authorized defensive audit for maintainer",
+  "scope_summary": "Audit toy C package under examples/toy-cpkg",
+  "source_path": "examples/toy-cpkg",
+  "network_policy": "offline",
+  "build_permission": "local build allowed",
+  "fuzz_permission": "not requested",
+  "disclosure_policy": "D3 maintainer private"
+}

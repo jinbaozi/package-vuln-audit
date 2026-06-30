@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-06-30T12:00:00Z",
+  "pipeline_decision": "continue",
+  "summary": {
+    "blocked_count": 0,
+    "recoverable_count": 1,
+    "not_applicable_count": 2,
+    "manual_review_count": 3
+  },
+  "events": [
+    {
+      "id": "EX-03-tool-scan-semgrep",
+      "step_id": "03-tool-scan",
+      "audit_output_dir": "02-tools",
+      "class": "recoverable",
+      "code": "semgrep.timeout",
+      "message": "semgrep exceeded 120s; retried with increased timeout",
+      "recovery_actions": ["increase-timeout", "retry"],
+      "final_decision": "completed",
+      "artifact_refs": ["audit-output/02-tools/tool-execution-attempts.json"]
+    }
+  ],
+  "halted_stages": [],
+  "partial_stages": ["08-report"]
+}
