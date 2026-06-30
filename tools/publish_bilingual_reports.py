@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse, json, pathlib, subprocess, sys
 
 from pvas_io import corr_map, findings_list, load_json
-from report_render import discovery_summary_str, safe_str
+from report_render import discovery_summary_str, flatten_discovery, finding_status, safe_str
 
 
 def zh_status(s):
@@ -19,13 +19,6 @@ def flatten_poc(pocs):
     if not pocs: return []
     if isinstance(pocs, list):
         return [p for p in pocs if isinstance(p, dict)]
-    return []
-
-
-def flatten_discovery(dm):
-    if not dm: return []
-    if isinstance(dm, list):
-        return [d for d in dm if isinstance(d, dict)]
     return []
 
 
@@ -180,8 +173,8 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
         lines=[
             '# Internal Security Report', '',
             '## Executive Summary', '',
-            f'**Validated Findings**: {len([f for f in findings if f.get("status")=="Validated"])}',
-            f'**Needs Manual Review**: {len([f for f in findings if f.get("status")=="Needs Manual Review"])}',
+            f'**Validated Findings**: {len([f for f in findings if finding_status(f)=="Validated"])}',
+            f'**Needs Manual Review**: {len([f for f in findings if finding_status(f)=="Needs Manual Review"])}',
             '', '## Validated Findings', '',
             '| ID | Severity | CVSS | Component | Discovery | Disclosure Status |',
             '|---|---|---|---|---|---|',
@@ -227,7 +220,7 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
                 lines.append('- None matched.')
             lines.append('')
         lines.extend(['## Candidates', ''])
-        cands=[f for f in findings if f.get('status') not in ('Validated','Needs Manual Review')]
+        cands=[f for f in findings if finding_status(f) not in ('Validated','Needs Manual Review')]
         if cands:
             for f in cands:
                 lines.append(f'- {f.get("id","?")}: {f.get("title","?")}')
@@ -246,8 +239,8 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
         lines=[
             '# 内部安全报告', '',
             '## 执行摘要', '',
-            f'**已验证发现**：{len([f for f in findings if f.get("status")=="Validated"])}',
-            f'**需要人工审查**：{len([f for f in findings if f.get("status")=="Needs Manual Review"])}',
+            f'**已验证发现**：{len([f for f in findings if finding_status(f)=="Validated"])}',
+            f'**需要人工审查**：{len([f for f in findings if finding_status(f)=="Needs Manual Review"])}',
             '', '## 已验证发现', '',
             '| ID | 严重性 | CVSS | 组件 | 发现方式 | 披露状态 |',
             '|---|---|---|---|---|---|',
@@ -293,7 +286,7 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
                 lines.append('- 未匹配。')
             lines.append('')
         lines.extend(['## 候选问题', ''])
-        cands=[f for f in findings if f.get('status') not in ('Validated','Needs Manual Review')]
+        cands=[f for f in findings if finding_status(f) not in ('Validated','Needs Manual Review')]
         if cands:
             for f in cands:
                 lines.append(f'- {f.get("id","?")}：{f.get("title","?")}')

@@ -30,6 +30,39 @@ REQUIRED_FINAL_REPORT_SECTIONS_ZH = [
     '风险概览',
 ]
 
+CJK = re.compile(r'[\u4e00-\u9fff]')
+CODE_BLOCK = re.compile(r'```.*?```', re.S)
+INLINE_CODE = re.compile(r'`[^`]+`')
+ID_PAT = re.compile(
+    r'\b(CVE-\d{4}-\d+|GHSA-[A-Za-z0-9-]+|OSV-[A-Za-z0-9-]+|CVSS:[0-9.]+/[^\s]+|'
+    r'[A-Za-z0-9_./+-]+\.(c|h|cpp|md|json|sh))\b'
+)
+
+
+def natural_text(s: str) -> str:
+    s = CODE_BLOCK.sub('', s)
+    s = INLINE_CODE.sub('', s)
+    return ID_PAT.sub('', s)
+
+
+def check_language_isolation(report_root: pathlib.Path) -> list[str]:
+    errors: list[str] = []
+    bm_path = report_root / 'machine' / 'bilingual-map.json'
+    if not bm_path.is_file():
+        return ['missing bilingual-map.json']
+    bm = load_json(bm_path, required=True)
+    for pair in bm.get('pairs', []):
+        for k in ('zh', 'en'):
+            if not (report_root / pair[k]).is_file():
+                errors.append(f'missing {k}: {pair[k]}')
+        zh = (report_root / pair['zh']).read_text() if (report_root / pair['zh']).exists() else ''
+        en = (report_root / pair['en']).read_text() if (report_root / pair['en']).exists() else ''
+        if len(CJK.findall(natural_text(zh))) < 5:
+            errors.append(f'zh-CN output lacks Chinese prose: {pair["id"]}')
+        if len(CJK.findall(natural_text(en))) > 10:
+            errors.append(f'en-US output contains too much CJK prose: {pair["id"]}')
+    return errors
+
 
 def contains_skeleton(text: str) -> bool:
     skeletons = [
@@ -72,17 +105,36 @@ def validate_final_report_sections(root: pathlib.Path, errors, warnings):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument('--findings', required=True)
-    ap.add_argument('--correlation', required=True)
+    ap.add_argument('--findings')
+    ap.add_argument('--correlation')
     ap.add_argument('--report-root', default='audit-output')
     ap.add_argument('--poc-root')
     ap.add_argument('--manual-root')
+    ap.add_argument('--check-language-isolation', action='store_true')
+    ap.add_argument('--language-isolation-only', action='store_true',
+                    help='Only run CJK isolation check (skip report completeness gates)')
     ap.add_argument('--out', default='audit-output/machine/report-completeness.json')
     args = ap.parse_args()
+    root = pathlib.Path(args.report_root)
+
+    if args.language_isolation_only:
+        errors = check_language_isolation(root)
+        result = {
+            'status': 'failed' if errors else 'passed',
+            'errors': errors,
+            'warnings': [],
+        }
+        write_json(args.out, result)
+        print(json.dumps({'status': result['status'], 'errors': len(errors), 'warnings': 0},
+                         ensure_ascii=False, indent=2))
+        return 1 if errors else 0
+
+    if not args.findings or not args.correlation:
+        print('error: --findings and --correlation are required unless --language-isolation-only', file=sys.stderr)
+        return 2
 
     findings = findings_list(load_json(pathlib.Path(args.findings), {'findings': []}))
     correlations = corr_map(load_json(pathlib.Path(args.correlation), {'correlations': []}))
-    root = pathlib.Path(args.report_root)
     zh_report = root / 'zh-CN' / '05-内部安全报告' / 'internal-security-report.md'
     en_report = root / 'en-US' / '05-internal-security-report' / 'internal-security-report.md'
     errors: list[str] = []
@@ -135,6 +187,9 @@ def main() -> int:
 
     # Validate final summary report sections
     validate_final_report_sections(root, errors, warnings)
+
+    if args.check_language_isolation:
+        errors.extend(check_language_isolation(root))
 
     if args.poc_root:
         poc_root = pathlib.Path(args.poc_root)

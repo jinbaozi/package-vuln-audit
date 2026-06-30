@@ -31,8 +31,10 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
    `tools/publish_bilingual_reports.py --findings <finding-index.json> --correlation <correlation.json> --out audit-output/06-report`
    - This generates `machine/report.json`, `zh-CN/04-findings/*.md`, `zh-CN/05-内部安全报告/internal-security-report.md`, `en-US/04-findings/*.md`, `en-US/05-internal-security-report/internal-security-report.md`
 
-3. **Validate language output**:
-   `tools/validate_language_outputs.py --report-root audit-output/06-report`
+3. **Validate language output and report completeness** (CJK isolation + disclosure gates):
+   `tools/validate_report_completeness.py --findings <finding-index.json> --correlation <correlation.json> --report-root audit-output --check-language-isolation`
+   - Standalone workflow runs may use `--report-root audit-output/06-report` when reports live under that directory.
+   - The enforced driver writes bilingual output to the audit-output root; use `--report-root audit-output` on that path.
 
 4. **Validate report completeness** (checks discovery_method, poc_test_artifacts, disclosure_status):
    `tools/validate_report_completeness.py --findings <finding-index.json> --correlation <correlation.json> --report-root audit-output/06-report --poc-root audit-output/machine/poc-tests`

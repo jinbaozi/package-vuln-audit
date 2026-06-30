@@ -9,7 +9,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from pvas_io import load_json, write_json
+from pvas_io import load_json, write_json, emit_gate_result
 
 
 def validate_intake_dir(intake_dir: pathlib.Path, *, require_present: bool = False) -> list[str]:
@@ -57,7 +57,7 @@ def main() -> int:
     errors = validate_intake_dir(pathlib.Path(args.intake_dir), require_present=args.require_present)
     result = {'status': 'passed' if not errors else 'blocked', 'errors': errors}
     if args.out:
-        write_json(args.out, result)
+        emit_gate_result(args.out, result)
     if errors:
         for e in errors:
             print(f'[PVAS-INTAKE-BLOCKED] {e}', file=sys.stderr)

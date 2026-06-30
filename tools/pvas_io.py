@@ -73,3 +73,18 @@ def corr_map(data: Any) -> dict[str, dict]:
     if not isinstance(data, dict):
         return {}
     return {c.get('finding_id'): c for c in data.get('correlations', [])}
+
+
+VALID_GATE_STATUSES = frozenset({'passed', 'failed', 'blocked'})
+
+
+def emit_gate_result(path: pathlib.Path | str, result: dict) -> None:
+    status = result.get('status', 'failed')
+    if status not in VALID_GATE_STATUSES:
+        raise ValueError(f'invalid gate status: {status!r}')
+    payload = {
+        'status': status,
+        'errors': list(result.get('errors') or []),
+        'warnings': list(result.get('warnings') or []),
+    }
+    write_json(path, payload)

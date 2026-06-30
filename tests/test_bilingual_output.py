@@ -9,7 +9,11 @@ def main():
         corr.write_text(json.dumps({'checked_sources':['NVD'],'correlations':[{'finding_id':'FINDING-001','status':'publicly_disclosed','match_level':'M3','matched_records':[{'id':'CVE-2026-0001','references':['https://example.invalid/CVE-2026-0001']}]}]}))
         out=t/'audit-output'
         run_tool('tools/publish_bilingual_reports.py', ['--findings', str(findings), '--correlation', str(corr), '--out', str(out)])
-        run_tool('tools/validate_language_outputs.py', ['--audit-output', str(out)])
+        run_tool('tools/validate_report_completeness.py', [
+            '--report-root', str(out),
+            '--language-isolation-only',
+            '--out', str(out / 'machine' / 'language-check.json'),
+        ])
         bm=json.loads((out/'machine/bilingual-map.json').read_text())
         assert bm['pairs'][0]['id']=='FINDING-001'
         assert (out/bm['pairs'][0]['zh']).exists()
