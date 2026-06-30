@@ -1,0 +1,146 @@
+# PVAS driver stage gate policies (Phase 1 skeleton)
+# Canonical step_id: enforced_audit_driver write_step values (spec §3.4)
+# Consumed by driver preflight/postflight (Phase 2: runtime/gates/run_postflight.py)
+
+policies:
+  - step_id: "00-intake"
+    audit_output_dir: audit-output/00-intake
+    preflight: []
+    postflight:
+      - check: artifact_exists
+        path: audit-output/00-intake/scope.md
+      - check: artifact_exists
+        path: audit-output/00-intake/intake.json
+
+  - step_id: "00-workflow-contract"
+    audit_output_dir: audit-output/machine
+    preflight:
+      - check: artifact_exists
+        path: audit-output/00-intake/intake.json
+    postflight:
+      - check: artifact_exists
+        path: audit-output/machine/workflow-contract.json
+
+  - step_id: "00-environment"
+    audit_output_dir: audit-output/00-intake
+    preflight:
+      - check: artifact_exists
+        path: audit-output/00-intake/intake.json
+    postflight:
+      - check: artifact_exists
+        path: audit-output/00-intake/environment-check.json
+      - check: artifact_exists
+        path: audit-output/00-intake/tool-install-plan.json
+
+  - step_id: "01-package-profile"
+    audit_output_dir: audit-output/01-profile
+    preflight:
+      - check: artifact_exists
+        path: audit-output/00-intake/intake.json
+    postflight:
+      - check: artifact_exists
+        path: audit-output/01-profile/package-profile.json
+      - check: artifact_exists
+        path: audit-output/01-profile/context-budget.json
+
+  - step_id: "02-tool-matrix"
+    audit_output_dir: audit-output/02-tools
+    preflight:
+      - check: artifact_exists
+        path: audit-output/01-profile/package-profile.json
+    postflight:
+      - check: artifact_exists
+        path: audit-output/02-tools/tool-matrix.json
+      - check: schema_valid
+        schema: tool-matrix.schema.json
+
+  - step_id: "03-tool-scan"
+    audit_output_dir: audit-output/02-tools
+    preflight:
+      - check: artifact_exists
+        path: audit-output/02-tools/tool-matrix.json
+    execution:
+      record: audit-output/02-tools/tool-execution-attempts.json
+      mandatory_tools: [semgrep]
+    postflight:
+      - check: no_mandatory_blocked
+        artifact: audit-output/02-tools/tool-summary.json
+
+  - step_id: "03-candidate-packets"
+    audit_output_dir: audit-output/03-candidates
+    preflight:
+      - check: artifact_exists
+        path: audit-output/02-tools/tool-summary.json
+      - check: no_mandatory_blocked
+        artifact: audit-output/02-tools/tool-summary.json
+    postflight:
+      - check: artifact_exists
+        path: audit-output/03-candidates/raw-candidates.json
+      - check: artifact_exists
+        path: audit-output/03-candidates/ranked-candidates.json
+      - check: artifact_exists
+        path: audit-output/03-candidates/context-budget-post-packet.json
+
+  - step_id: "07-schema-validation"
+    audit_output_dir: audit-output/machine
+    preflight:
+      - check: input_provided
+        name: findings
+    postflight:
+      - check: artifact_exists
+        path: audit-output/machine/schema-validation-result.json
+      - check: schema_validation_passed
+        artifact: audit-output/machine/schema-validation-result.json
+
+  - step_id: "07-manual-validation-plans"
+    audit_output_dir: audit-output/04-validation
+    preflight:
+      - check: input_provided
+        name: findings
+    postflight:
+      - check: artifact_exists
+        path: audit-output/04-validation/manual-review
+
+  - step_id: "07-poc-generation"
+    audit_output_dir: audit-output/04-validation
+    preflight:
+      - check: input_provided
+        name: findings
+    execution:
+      record: audit-output/04-validation/poc-tests
+    postflight:
+      - check: artifact_exists
+        path: audit-output/04-validation/poc-tests
+      - check: poc_validation_passed
+        artifact: audit-output/04-validation/poc-tests
+
+  - step_id: "08-fetch-public-sources"
+    audit_output_dir: audit-output/machine/correlation
+    preflight:
+      - check: network_authorized
+        flag: allow-network
+    execution:
+      record: audit-output/machine/correlation/fetched-records
+    postflight:
+      - check: artifact_exists
+        path: audit-output/machine/correlation/fetched-records
+
+  - step_id: "08-report"
+    audit_output_dir: audit-output/06-report
+    preflight:
+      - check: input_provided
+        name: findings
+    postflight:
+      - check: artifact_exists
+        path: audit-output/machine/report-completeness.json
+      - check: report_completeness_passed
+        artifact: audit-output/machine/report-completeness.json
+
+  - step_id: "09-artifact-summary"
+    audit_output_dir: audit-output/machine
+    preflight: []
+    postflight:
+      - check: artifact_exists
+        path: audit-output/machine/artifact-summary.json
+    report_gate:
+      emit_to: audit-output/machine/exception-index.json
