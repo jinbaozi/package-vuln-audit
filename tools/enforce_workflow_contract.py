@@ -26,6 +26,11 @@ REQUIRED_TOOLS = [
     'normalize_public_vuln_records.py',
     'summarize_artifacts.py',
     'tool_catalog.py',
+    'validate_manifest.py',
+    'validate_intake.py',
+    'aggregate_exceptions.py',
+    'manifest_io.py',
+    'generate_guides_index.py',
 ]
 REQUIRED_SCHEMAS = [
     'bilingual-output.schema.json',
@@ -45,6 +50,8 @@ REQUIRED_SCHEMAS = [
     'tool-install-plan.schema.json',
     'tool-summary.schema.json',
     'validation-result.schema.json',
+    'exception-index.schema.json',
+    'intake.schema.json',
 ]
 REQUIRED_TEMPLATES = ['tool-install-plan.md', 'finding.md', 'internal-report.md']
 REQUIRED_WORKFLOW_TERMS = ['Purpose', 'Inputs', 'Outputs']
@@ -67,6 +74,28 @@ def check_root(root: pathlib.Path) -> dict:
     for f in REQUIRED_SCHEMAS:
         if not (root / 'schemas' / f).is_file():
             fail(f'missing required schema: schemas/{f}', errors)
+
+    manifest_path = root / 'core' / 'manifest.yaml'
+    if not manifest_path.is_file():
+        warnings.append('missing core/manifest.yaml')
+    else:
+        try:
+            sys.path.insert(0, str(root / 'tools'))
+            import manifest_io
+            m = manifest_io.load_manifest(manifest_path)
+            manifest_schemas = {a['schema'] for a in m.get('artifacts', []) if a.get('schema')}
+            manifest_schemas.add(m.get('exception_aggregation', {}).get('schema', ''))
+            manifest_schemas.discard('')
+            required = set(REQUIRED_SCHEMAS)
+            extra = manifest_schemas - required
+            missing = required - manifest_schemas
+            for s in sorted(missing):
+                warnings.append(f'manifest missing schema registration: {s}')
+            for s in sorted(extra):
+                warnings.append(f'manifest lists schema not in REQUIRED_SCHEMAS: {s}')
+        except Exception as e:
+            warnings.append(f'manifest cross-check skipped: {e}')
+
     for f in REQUIRED_TEMPLATES:
         if not (root / 'templates' / f).is_file():
             fail(f'missing required template: templates/{f}', errors)
