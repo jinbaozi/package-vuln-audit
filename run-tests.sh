@@ -3,6 +3,7 @@ set -euo pipefail
 python3 -u tests/test_schemas.py
 python3 -u tests/test_manifest_io.py
 python3 -u tests/test_manifest.py
+python3 -u tests/test_intake_gate.py
 python3 -u tests/test_context_budget_per_agent.py
 python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_tool_install_plan.py
