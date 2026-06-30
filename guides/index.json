@@ -1,0 +1,84 @@
+{
+  "generated_from": "workflows/",
+  "manifest": "core/manifest.yaml",
+  "stages": [
+    {
+      "step_id": "00-intake",
+      "workflow_doc": "workflows/00-intake.md",
+      "title": "00 Intake",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "00-workflow-contract",
+      "workflow_doc": null,
+      "title": "00 Workflow Contract",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "00-environment",
+      "workflow_doc": "workflows/00-intake.md",
+      "title": "00 Intake",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "01-package-profile",
+      "workflow_doc": "workflows/01-package-profile.md",
+      "title": "01 Package Profile",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "02-tool-matrix",
+      "workflow_doc": "workflows/03-tool-scan.md",
+      "title": "03 Tool Scan",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "03-tool-scan",
+      "workflow_doc": "workflows/03-tool-scan.md",
+      "title": "03 Tool Scan",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "03-candidate-packets",
+      "workflow_doc": "workflows/04-ai-hypothesis.md",
+      "title": "04 AI Hypothesis",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "07-schema-validation",
+      "workflow_doc": null,
+      "title": "07 Schema Validation",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "07-manual-validation-plans",
+      "workflow_doc": "workflows/06-validation.md",
+      "title": "06 Validation",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "07-poc-generation",
+      "workflow_doc": "workflows/06-validation.md",
+      "title": "06 Validation",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "08-fetch-public-sources",
+      "workflow_doc": null,
+      "title": "08 Fetch Public Sources",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "08-report",
+      "workflow_doc": "workflows/08-report.md",
+      "title": "08 Report",
+      "load_tier": "L2"
+    },
+    {
+      "step_id": "09-artifact-summary",
+      "workflow_doc": "workflows/09-progressive-disclosure.md",
+      "title": "09 Progressive Disclosure",
+      "load_tier": "L2"
+    }
+  ]
+}
