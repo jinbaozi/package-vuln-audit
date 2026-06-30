@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, json, os, pathlib, shutil, subprocess, sys
 from pvas_env import env_flag
+from pvas_io import write_json
 from tool_catalog import CATALOG, COMMON_BIN_DIRS, PROFILE_TOOLS, STRICT_REQUIRED_TOOLS
 
 STRICT_MODES = {"default", "strict"}
@@ -121,7 +122,7 @@ def main() -> int:
     }
     check_path = out / 'environment-check.json'
     result['output_files'].append(str(check_path))
-    check_path.write_text(json.dumps(result, indent=2))
+    write_json(check_path, result)
 
     if not args.json_only:
         if decision == 'block':

@@ -7,6 +7,7 @@ if str(TOOLS_DIR) not in sys.path:
 from budget_common import est_tokens, batch_packets
 
 import manifest_io
+from pvas_io import load_json, write_json
 
 DEFAULT_AGENT_BUDGET=int(os.getenv('PVAS_AGENT_CONTEXT_BUDGET_TOKENS','200000'))
 DEFAULT_TARGET=int(os.getenv('PVAS_AGENT_INPUT_TARGET_TOKENS','140000'))
@@ -55,7 +56,7 @@ def role_profiles():
 def load_traversal(profile_dir: pathlib.Path):
     manifest=profile_dir/'traversal-manifest.json'
     if manifest.exists():
-        try: return json.loads(manifest.read_text())
+        try: return load_json(manifest, default={})
         except Exception: pass
     all_files=(profile_dir/'all-files.txt').read_text(errors='ignore').splitlines() if (profile_dir/'all-files.txt').exists() else []
     source_files=(profile_dir/'source-files.txt').read_text(errors='ignore').splitlines() if (profile_dir/'source-files.txt').exists() else []
@@ -67,7 +68,7 @@ def packet_entries(packet_dir: pathlib.Path):
     index_path = packet_dir / 'packet-index.json'
     if index_path.exists():
         try:
-            data = json.loads(index_path.read_text())
+            data = load_json(index_path, default={})
             indexed = data.get('packets', [])
             if indexed:
                 return indexed
@@ -167,7 +168,7 @@ def main():
     args=ap.parse_args()
     check_paths = [p.strip() for p in args.check_paths.split(',') if p.strip()] if args.check_paths else None
     budget=build_budget(pathlib.Path(args.profile_dir), pathlib.Path(args.packet_dir), check_paths=check_paths, root=pathlib.Path(args.root))
-    out=pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(budget, indent=2))
+    write_json(args.out, budget)
     summary = {'decision': budget['decision'], 'recommended_action': budget['recommended_action']}
     if budget.get('issues'):
         summary['issues'] = budget['issues']

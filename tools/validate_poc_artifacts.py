@@ -7,7 +7,7 @@ For multi-language POCs, validates each language variant independently.
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
-from pvas_io import sha256_file
+from pvas_io import load_json, sha256_file
 
 DENY=[r'\bcurl\b',r'\bwget\b',r'\bnc\b',r'\bnetcat\b',r'\bssh\b',r'\bscp\b',r'\bftp\b',r'\btelnet\b',r'\bsudo\b',r'\bsu\b',r'\bsetcap\b',r'chmod\s+u\+s',r'\|\s*sh\b',r'>\s*/etc/',r'>\s*/usr/',r'>\s*/var/lib/',r'>\s*/root/',r'\b(cp|mv|install)\b[^\n]*(/etc/|/usr/|/var/lib/|/root/)']
 
@@ -47,7 +47,7 @@ def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str, is
         errs.append(f'{lang_dir}: missing poc-manifest.json')
         return errs
 
-    data = json.loads(m.read_text())
+    data = load_json(m, required=True)
 
     # Required keys
     for k in ['finding_id', 'status', 'safety_class', 'commands', 'expected_results',
@@ -133,7 +133,7 @@ def validate_dir(d: pathlib.Path):
     if not m.exists():
         return [f'{d}: missing poc-manifest.json']
 
-    data = json.loads(m.read_text())
+    data = load_json(m, required=True)
     for k in ['finding_id', 'status', 'safety_class', 'commands', 'expected_results',
               'artifacts', 'disclosure_level']:
         if k not in data:

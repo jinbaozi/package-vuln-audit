@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-import argparse, json, pathlib
+import argparse, json, pathlib, sys
+
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from pvas_io import load_json, write_json
+
 HIGH=['parser','parse','read','elf','dwarf','archive','bfd','crypto','auth','priv','setuid','network','socket','decode','compress']
 SINK=['memcpy','strcpy','sprintf','free','system','popen','open','unlink','malloc','realloc','offset','size','count','length']
 def score(c):
@@ -13,8 +19,8 @@ def score(c):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--input', default='audit-output/03-candidates/raw-candidates.json'); ap.add_argument('--out', default='audit-output/03-candidates/ranked-candidates.json'); ap.add_argument('--top', type=int, default=20); args=ap.parse_args()
-    data=json.loads(pathlib.Path(args.input).read_text()); c=data.get('candidates', [])
+    data=load_json(args.input, default={}, required=True); c=data.get('candidates', [])
     for x in c: x['rank_score']=score(x)
     c=sorted(c, key=lambda x:x['rank_score'], reverse=True)[:args.top]
-    pathlib.Path(args.out).parent.mkdir(parents=True, exist_ok=True); pathlib.Path(args.out).write_text(json.dumps({'candidates':c}, indent=2))
+    write_json(args.out, {'candidates': c})
 if __name__=='__main__': main()

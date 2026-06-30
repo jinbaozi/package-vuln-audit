@@ -5,6 +5,7 @@ TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 from budget_common import est_tokens, batch_packets
+from pvas_io import write_json
 
 DEFAULT_PACKET_BUDGET=8000
 DEFAULT_BATCH_BUDGET=160000
@@ -108,5 +109,5 @@ def main():
         'max_single_batch_tokens': max([b['estimated_tokens'] for b in batches] or [0]),
         'merge_rule': 'summary-only; rejected details do not re-enter coordinator context'
     }
-    (out/'packet-index.json').write_text(json.dumps(index, indent=2))
+    write_json(out / 'packet-index.json', index)
 if __name__=='__main__': main()

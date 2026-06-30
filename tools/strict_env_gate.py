@@ -13,6 +13,7 @@ TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
 
 from pvas_env import env_flag
+from pvas_io import load_json
 
 
 def run_strict_assist(env_out: pathlib.Path, *, dry_run: bool = False) -> int:
@@ -20,7 +21,7 @@ def run_strict_assist(env_out: pathlib.Path, *, dry_run: bool = False) -> int:
     check_path = env_out / 'environment-check.json'
     if not check_path.exists():
         return 2
-    env = json.loads(check_path.read_text())
+    env = load_json(check_path, required=True)
     missing = ','.join(env.get('blocking_missing_tools') or env.get('missing_tools') or [])
     subprocess.run(
         [sys.executable, str(TOOLS_DIR / 'generate_install_plan.py'),

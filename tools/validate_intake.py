@@ -9,7 +9,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from pvas_io import load_json
+from pvas_io import load_json, write_json
 
 
 def validate_intake_dir(intake_dir: pathlib.Path, *, require_present: bool = False) -> list[str]:
@@ -38,7 +38,7 @@ def validate_intake_dir(intake_dir: pathlib.Path, *, require_present: bool = Fal
     try:
         import jsonschema
 
-        schema = json.loads((ROOT / 'schemas' / 'intake.schema.json').read_text())
+        schema = load_json(ROOT / 'schemas' / 'intake.schema.json', required=True)
         jsonschema.validate(data, schema)
     except ImportError:
         pass
@@ -57,9 +57,7 @@ def main() -> int:
     errors = validate_intake_dir(pathlib.Path(args.intake_dir), require_present=args.require_present)
     result = {'status': 'passed' if not errors else 'blocked', 'errors': errors}
     if args.out:
-        out = pathlib.Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(result, indent=2))
+        write_json(args.out, result)
     if errors:
         for e in errors:
             print(f'[PVAS-INTAKE-BLOCKED] {e}', file=sys.stderr)

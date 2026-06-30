@@ -15,6 +15,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from pvas_env import env_flag
+from pvas_io import load_json, write_json
 
 
 def run(cmd: list[str], allow_fail: bool=False) -> tuple[int, str]:
@@ -34,7 +35,7 @@ def write_step(out_root: pathlib.Path, step_id: str, status: str, decision: str,
     machine = out_root / 'machine' / 'workflow-steps'; zh = out_root / 'zh-CN' / 'workflow-steps'; en = out_root / 'en-US' / 'workflow-steps'
     for d in [machine, zh, en]: d.mkdir(parents=True, exist_ok=True)
     payload = {'step_id': step_id, 'status': status, 'decision': decision, 'inputs_checked': inputs, 'outputs_written': outputs, 'required_artifacts_present': not issues, 'blocking_issues': issues, 'limitations': limitations}
-    (machine / f'{step_id}.json').write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    write_json(machine / f'{step_id}.json', payload)
     (zh / f'{step_id}.md').write_text(f'# {step_id}\n\n- 状态：{status}\n- 决策：{decision}\n- 输出：{", ".join(outputs) if outputs else "无"}\n- 限制：{"；".join(limitations) if limitations else "无"}\n')
     (en / f'{step_id}.md').write_text(f'# {step_id}\n\n- Status: {status}\n- Decision: {decision}\n- Outputs: {", ".join(outputs) if outputs else "none"}\n- Limitations: {"; ".join(limitations) if limitations else "none"}\n')
 
@@ -125,7 +126,7 @@ def main() -> int:
     run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out/'03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out/'03-candidates/packets'), '--max-packets', str(args.max_candidates)], allow_fail=True)
     post_budget = out/'03-candidates/context-budget-post-packet.json'
     run([sys.executable, 'tools/context_budget.py', '--profile-dir', str(out/'01-profile'), '--packet-dir', str(out/'03-candidates/packets'), '--out', str(post_budget)], allow_fail=False)
-    budget = json.loads(post_budget.read_text())
+    budget = load_json(post_budget, required=True)
     decision = budget.get('decision')
     issues = [] if decision in {'safe','warning','split-required'} else [f'post-packet budget decision={decision}']
     write_step(out, '03-candidate-packets', 'completed' if not issues else 'blocked', 'continue' if not issues else 'block', outputs=[str(post_budget)], issues=issues)
@@ -208,8 +209,7 @@ def validate_finding_schema(findings_path: str, out_root: pathlib.Path, *, compl
     result_file = out_root / 'machine' / 'schema-validation-result.json'
 
     def write_result(passed: bool, errors: list[str]) -> None:
-        result_file.parent.mkdir(parents=True, exist_ok=True)
-        result_file.write_text(json.dumps({'passed': passed, 'errors': errors}, indent=2))
+        write_json(result_file, {'passed': passed, 'errors': errors})
 
     try:
         import jsonschema
@@ -219,9 +219,9 @@ def validate_finding_schema(findings_path: str, out_root: pathlib.Path, *, compl
             return 1
         return 0
     try:
-        schema = json.loads((ROOT / 'schemas' / 'finding.schema.json').read_text())
+        schema = load_json(ROOT / 'schemas' / 'finding.schema.json', required=True)
         validator = jsonschema.Draft202012Validator(schema)
-        findings = json.loads(pathlib.Path(findings_path).read_text())
+        findings = load_json(findings_path, required=True)
         findings_list_data = findings.get('findings') or findings if isinstance(findings, list) else []
         errors = []
         for i, f in enumerate(findings_list_data):

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-import argparse, json, pathlib, re
+import argparse, json, pathlib, re, sys
+
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from pvas_io import load_json, write_json
 
 def add_candidate(cands, cid, title, component, file=None, line=None, evidence=None, score=0):
     loc={'file':file or 'unknown'}
@@ -13,7 +18,7 @@ def main():
     sem=raw/'semgrep.json'
     if sem.exists():
         try:
-            data=json.loads(sem.read_text(errors='ignore') or '{}')
+            data=load_json(sem, default={})
             for r in data.get('results',[])[:200]:
                 add_candidate(c, f'T-CAND-{n:04d}', r.get('extra',{}).get('message','Semgrep result'), 'semgrep', r.get('path'), r.get('start',{}).get('line'), {'tool_refs':['semgrep']}, 10); n+=1
         except Exception: pass
@@ -29,5 +34,5 @@ def main():
             m=re.match(r'([^:]+):(\d+):.*?:\s*(.*)', line)
             if m:
                 add_candidate(c, f'T-CAND-{n:04d}', m.group(3)[:120] or 'Cppcheck result', 'cppcheck', m.group(1), m.group(2), {'tool_refs':['cppcheck']}, 8); n+=1
-    out=pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps({'candidates':c}, indent=2))
+    write_json(args.out, {'candidates': c})
 if __name__=='__main__': main()

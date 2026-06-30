@@ -3,6 +3,9 @@
 from __future__ import annotations
 import argparse, datetime as dt, json, pathlib, sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from pvas_io import load_json, write_json
+
 SOURCES = ['nvd', 'osv', 'ghsa', 'cisa-kev']
 
 
@@ -19,7 +22,7 @@ def check_source(root: pathlib.Path, source: str, max_age_days: int) -> dict:
     if not p.exists():
         return {'source': source.upper(), 'manifest': str(p), 'freshness': 'missing', 'blocking': False, 'limitations': ['manifest missing']}
     try:
-        data = json.loads(p.read_text())
+        data = load_json(p, required=True)
     except Exception as exc:
         return {'source': source.upper(), 'manifest': str(p), 'freshness': 'corrupt', 'blocking': True, 'limitations': [f'cannot parse manifest: {exc}']}
     last = data.get('last_updated') or data.get('updated_at') or data.get('retrieved_at')
@@ -41,7 +44,7 @@ def main() -> int:
     root = pathlib.Path(args.db_root)
     checks = [check_source(root, s, args.max_age_days) for s in SOURCES]
     result = {'status': 'blocked' if any(c.get('blocking') for c in checks) else 'ok', 'sources': checks}
-    out = pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(result, indent=2))
+    write_json(args.out, result)
     print(json.dumps({'status': result['status'], 'freshness': {c['source']: c['freshness'] for c in checks}}, indent=2))
     return 2 if result['status'] == 'blocked' else 0
 
