@@ -1,5 +1,5 @@
 # hypothesis-hunter
 
-AI hypothesis hunter. Produce source-grounded A-CAND hypotheses for issues traditional tools may miss. No vulnerability claims.
+Thin adapter — canonical definition: `agents/hypothesis-hunter.md` at the repository root.
 
 Write outputs under `audit-output/` and return only a short parent-context summary.

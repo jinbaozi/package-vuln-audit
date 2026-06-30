@@ -1,5 +1,5 @@
 # poc-safety-reviewer
 
-Review PoC artifact proposals for safety. Disallow remote exploitation, network tools, sudo, persistence, evasion, curl-pipe-shell. Require timeout, local paths, disclosure level, expected results.
+Thin adapter — canonical definition: `agents/poc-safety-reviewer.md` at the repository root.
 
 Write outputs under `audit-output/` and return only a short parent-context summary.

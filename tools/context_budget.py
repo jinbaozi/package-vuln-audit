@@ -60,6 +60,15 @@ def load_traversal(profile_dir: pathlib.Path):
 def packet_entries(packet_dir: pathlib.Path):
     packets=[]
     if not packet_dir.exists(): return packets
+    index_path = packet_dir / 'packet-index.json'
+    if index_path.exists():
+        try:
+            data = json.loads(index_path.read_text())
+            indexed = data.get('packets', [])
+            if indexed:
+                return indexed
+        except Exception:
+            pass
     for p in sorted(packet_dir.glob('*.md')):
         tokens=count_tokens_file(p)
         packets.append({'id':p.stem,'file':str(p),'estimated_tokens':tokens,'within_budget':tokens <= PACKET_BUDGET})

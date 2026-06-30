@@ -8,9 +8,13 @@ DEFAULT_MAX_PACKETS=20
 def est_tokens(text: str) -> int:
     return int(math.ceil(len(text) / 3.5))
 
-def slice_file(path, start, end, max_lines):
+def slice_file(path, start, end, max_lines, line_cache=None):
+    cache = line_cache if line_cache is not None else {}
     try:
-        lines=path.read_text(errors='ignore').splitlines()
+        key = str(path)
+        if key not in cache:
+            cache[key] = path.read_text(errors='ignore').splitlines()
+        lines = cache[key]
     except Exception:
         return '[source unavailable]'
     start=max(1,start); end=min(len(lines),end)
@@ -83,17 +87,18 @@ def main():
         candidates=candidates[:args.max_packets]
     out=pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True); src=pathlib.Path(args.source_root)
     entries=[]
+    line_cache={}
     for c in candidates:
         loc=(c.get('source_locations') or [{}])[0]
         line=loc.get('start_line') or 1
         fp=src/loc.get('file','')
         max_lines=args.max_lines
-        snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines)
+        snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines, line_cache)
         md=make_packet_text(c, loc, snippet)
         # Reduce code slice if the packet exceeds budget.
         while est_tokens(md) > args.packet_token_budget and max_lines > 40:
             max_lines=max(40, int(max_lines*0.75))
-            snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines)
+            snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines, line_cache)
             md=make_packet_text(c, loc, snippet)
         p=out/f"{c.get('id','CAND')}.md"
         p.write_text(md)

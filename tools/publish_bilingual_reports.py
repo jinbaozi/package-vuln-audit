@@ -3,20 +3,8 @@
 from __future__ import annotations
 import argparse, json, pathlib, subprocess, sys
 
-
-def load_json(p, default):
-    path=pathlib.Path(p) if p else None
-    if path and path.exists(): return json.loads(path.read_text())
-    return default
-
-
-def findings_list(data):
-    if isinstance(data,list): return data
-    return data.get('findings',[]) if isinstance(data,dict) else []
-
-
-def corr_map(data):
-    return {c.get('finding_id'):c for c in data.get('correlations',[])} if isinstance(data,dict) else {}
+from pvas_io import corr_map, findings_list, load_json
+from report_render import discovery_summary_str, safe_str
 
 
 def zh_status(s):
@@ -25,12 +13,6 @@ def zh_status(s):
 
 def zh_type(t):
     return {'tool':'传统工具','ai':'AI大模型','manual':'人工审查','fuzz':'模糊测试'}.get(t,t)
-
-
-def safe_str(v, fallback='—'):
-    if v is None: return fallback
-    s = str(v)
-    return s if s.strip() else fallback
 
 
 def flatten_poc(pocs):
@@ -52,12 +34,6 @@ def flatten_refs(refs):
     if isinstance(refs, list):
         return [r for r in refs if isinstance(r, dict)]
     return []
-
-
-def discovery_summary_str(dm):
-    parts = flatten_discovery(dm)
-    if not parts: return 'unknown'
-    return '; '.join(f"{p.get('type','?')}({p.get('tool_name','') or p.get('hypothesis_id','') or '—'})" for p in parts)
 
 
 def write_finding(lang_root, f, c, en=False):
@@ -342,6 +318,8 @@ def main():
     ap.add_argument('--correlation')
     ap.add_argument('--poc-root')
     ap.add_argument('--out', default='audit-output')
+    ap.add_argument('--skip-final-report', action='store_true',
+                    help='Do not invoke generate_final_report.py (caller handles it)')
     args=ap.parse_args()
     out=pathlib.Path(args.out); machine=out/'machine'; zh=out/'zh-CN'; en=out/'en-US'
     for p in [machine, zh, en]: p.mkdir(parents=True, exist_ok=True)
@@ -361,6 +339,8 @@ def main():
     bm={'outputs':{'machine':str(machine.relative_to(out)),'zh_CN':str(zh.relative_to(out)),'en_US':str(en.relative_to(out))},'pairs':pairs}
     (machine/'bilingual-map.json').write_text(json.dumps(bm, indent=2, ensure_ascii=False))
     print(f'[PVAS-BILINGUAL] wrote {machine/"bilingual-map.json"}')
+    if args.skip_final_report:
+        return
     # Generate final summary report aggregating all workflow steps
     script_dir = pathlib.Path(__file__).resolve().parent
     final_cmd = [

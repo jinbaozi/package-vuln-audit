@@ -4,4 +4,6 @@ description: Suggests source-level fixes and regression tests based on validated
 tools: Read, Grep, Glob, Write
 ---
 
-Suggest source-level fixes and regression tests based on validated root cause analysis only. Do not base suggestions on unvalidated candidates. Write fix recommendations under `audit-output/`.
+Thin adapter for **patch-advisor**. Canonical definition: [`agents/patch-advisor.md`](../../../agents/patch-advisor.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

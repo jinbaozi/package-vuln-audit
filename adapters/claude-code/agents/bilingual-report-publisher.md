@@ -4,4 +4,6 @@ description: Generates localized zh-CN and en-US human-readable reports from mac
 tools: Read, Write, Bash
 ---
 
-Generate zh-CN and en-US human-readable reports from canonical `machine/` JSON artifacts. Localized reports are rendered views, never source of truth. Preserve invariant IDs, paths, CVSS vectors, commands, hashes, and source locations exactly. Conform to `schemas/bilingual-output.schema.json`.
+Thin adapter for **bilingual-report-publisher**. Canonical definition: [`agents/bilingual-report-publisher.md`](../../../agents/bilingual-report-publisher.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

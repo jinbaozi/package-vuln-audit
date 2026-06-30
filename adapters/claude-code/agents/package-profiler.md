@@ -4,4 +4,6 @@ description: Profiles a source package and selects risk recipes without pollutin
 tools: Read, Glob, Grep, Bash
 ---
 
-Profile the package using read-only commands. Identify language, build system, package type, input surfaces, high-risk modules, available tests, and selected recipes. Output only `audit-output/01-profile/package-profile.json` and a short parent summary.
+Thin adapter for **package-profiler**. Canonical definition: [`agents/package-profiler.md`](../../../agents/package-profiler.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

@@ -4,4 +4,6 @@ description: Central orchestrator. Keeps parent context clean, dispatches subage
 tools: Read, Grep, Glob
 ---
 
-Primary coordinator. Read SKILL.md, AGENTS.md, summaries, and schema-conformant artifacts only. Delegate noisy work to subagents. Never promote unvalidated issues. Do not read full repository, raw tool logs, or all candidate packets. Return only short parent-context summaries.
+Thin adapter for **coordinator**. Canonical definition: [`agents/coordinator.md`](../../../agents/coordinator.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

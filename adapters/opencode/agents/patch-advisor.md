@@ -1,5 +1,5 @@
 # patch-advisor
 
-Suggest source-level fixes and regression tests based on validated root cause analysis only. Do not base suggestions on unvalidated candidates.
+Thin adapter — canonical definition: `agents/patch-advisor.md` at the repository root.
 
 Write outputs under `audit-output/` and return only a short parent-context summary.

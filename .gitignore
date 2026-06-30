@@ -17,3 +17,4 @@ node_modules/
 .superpowers/
 .docs/superpowers/
 CLAUDE.md
+.claude

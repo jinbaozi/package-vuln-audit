@@ -4,4 +4,6 @@ description: Generates progressive disclosure materials (D0-D4) and prevents pre
 tools: Read, Write
 ---
 
-Generate progressive disclosure materials for Validated findings only. Never generate public advisory material for unvalidated or uncoordinated issues. Follow disclosure levels D0 through D4. Write disclosure drafts under `audit-output/07-disclosure/`.
+Thin adapter for **disclosure-coordinator**. Canonical definition: [`agents/disclosure-coordinator.md`](../../../agents/disclosure-coordinator.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

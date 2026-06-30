@@ -101,6 +101,7 @@ def main() -> int:
             action = 'Install or explicitly degrade' if r['name'] in blocking_missing else 'Install to restore coverage'
             recommended.append(f"{action}: {r['name']} enables {', '.join(r['required_for'])}. Impact: {r['impact']}")
 
+    caps = capability_summary(rows)
     result = {
         'environment_profile': args.profile,
         'mode': args.mode,
@@ -108,13 +109,13 @@ def main() -> int:
         'status': status,
         'decision': decision,
         'tools': rows,
-        'capability_summary': capability_summary(rows),
+        'capability_summary': caps,
         'missing_tools': missing,
         'strict_required_tools': sorted(strict_required),
         'blocking_missing_tools': blocking_missing,
         'recommended_action': recommended,
         'install_assistant_recommended': decision == 'block',
-        'degraded_capabilities': [cap for cap, st in capability_summary(rows).items() if st != 'available'],
+        'degraded_capabilities': [cap for cap, st in caps.items() if st != 'available'],
         'output_files': [],
     }
     check_path = out / 'environment-check.json'

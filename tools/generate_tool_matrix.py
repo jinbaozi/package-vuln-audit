@@ -10,14 +10,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
+from pvas_io import load_json, write_json  # noqa: E402
 from tool_catalog import CATALOG, PROFILE_TOOLS  # noqa: E402
 
 
 SEMGRP_EVIDENCE = "complete-audit baseline required by workflow gate design"
-
-
-def load_json(path: pathlib.Path) -> dict:
-    return json.loads(path.read_text())
 
 
 def is_node_project(profile: dict) -> bool:

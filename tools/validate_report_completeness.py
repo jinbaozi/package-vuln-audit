@@ -7,6 +7,8 @@ Also validates final summary report contains required data sections
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
+from pvas_io import corr_map, findings_list, load_json, write_json
+
 ABSOLUTE_UNPUBLISHED_PATTERNS = [
     '未公开', '绝对未公开', '从未公开', '不存在公开漏洞',
     'not publicly disclosed', 'never disclosed', 'no public vulnerability exists'
@@ -27,22 +29,6 @@ REQUIRED_FINAL_REPORT_SECTIONS_ZH = [
     '严重程度分布',
     '风险概览',
 ]
-
-
-def load_json(path: pathlib.Path, default):
-    if not path or not path.exists(): return default
-    return json.loads(path.read_text())
-
-
-def findings_list(data):
-    if isinstance(data, list): return data
-    if isinstance(data, dict): return data.get('findings', [])
-    return []
-
-
-def corr_map(data):
-    if not isinstance(data, dict): return {}
-    return {c.get('finding_id'): c for c in data.get('correlations', [])}
 
 
 def contains_skeleton(text: str) -> bool:
@@ -152,11 +138,17 @@ def main() -> int:
 
     if args.poc_root:
         poc_root = pathlib.Path(args.poc_root)
+        poc_index: dict[str, list[str]] = {}
+        for p in poc_root.rglob('*'):
+            if p.is_file():
+                for f in validated:
+                    fid = f.get('id')
+                    if fid and fid in p.name:
+                        poc_index.setdefault(fid, []).append(str(p))
         for f in validated:
             fid = f.get('id')
             if not fid: continue
-            candidates = list(poc_root.glob(f'**/*{fid}*'))
-            if not candidates:
+            if fid not in poc_index:
                 warnings.append(f'{fid}: no PoC/testcase summary found under poc-root')
 
     if args.manual_root:
@@ -177,9 +169,7 @@ def main() -> int:
         'warnings': warnings,
         'validated_findings': [f.get('id') for f in validated],
     }
-    out = pathlib.Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    write_json(args.out, result)
     print(json.dumps({'status': result['status'], 'errors': len(errors), 'warnings': len(warnings)}, ensure_ascii=False, indent=2))
     return 1 if errors else 0
 

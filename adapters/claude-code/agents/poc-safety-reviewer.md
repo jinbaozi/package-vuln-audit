@@ -4,4 +4,6 @@ description: Gate-keeper for PoC/testcase artifacts. Blocks unsafe PoC content b
 tools: Read
 ---
 
-Review PoC artifact proposals for safety compliance. Disallow: remote target exploitation, network tools, sudo/system writes, persistence mechanisms, evasion techniques, curl-pipe-shell patterns. Require: timeout, local input paths, disclosure level, expected results.
+Thin adapter for **poc-safety-reviewer**. Canonical definition: [`agents/poc-safety-reviewer.md`](../../../agents/poc-safety-reviewer.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

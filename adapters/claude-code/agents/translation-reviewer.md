@@ -4,4 +4,6 @@ description: Reviews localized reports for language isolation and invariant cons
 tools: Read, Grep, Glob
 ---
 
-Review localized zh-CN and en-US reports for language isolation and invariant consistency. Chinese outputs must use Chinese natural-language prose. English outputs must use English natural-language prose. Do not translate code identifiers, file paths, commands, CVE/GHSA/OSV IDs, or CVSS vectors.
+Thin adapter for **translation-reviewer**. Canonical definition: [`agents/translation-reviewer.md`](../../../agents/translation-reviewer.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

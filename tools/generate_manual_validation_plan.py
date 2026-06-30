@@ -6,12 +6,7 @@ import argparse
 import json
 import pathlib
 
-
-def load_findings(path: pathlib.Path) -> list[dict]:
-    data = json.loads(path.read_text())
-    if isinstance(data, list):
-        return data
-    return data.get("findings", [])
+from pvas_io import load_findings, write_json
 
 
 def field(finding: dict, key: str, fallback: str) -> str:

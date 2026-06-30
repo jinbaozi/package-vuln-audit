@@ -4,4 +4,6 @@ description: Validates Likely candidates through safe local tests, sanitizer run
 tools: Read, Bash, Write
 ---
 
-Validate only authorized local source packages. Write validation artifacts under `audit-output/04-validation/`. Do not generate weaponized exploits. PoC/test artifacts are for local reproduction/regression testing only.
+Thin adapter for **validator**. Canonical definition: [`agents/validator.md`](../../../agents/validator.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

@@ -13,19 +13,23 @@ Enhanced with:
 from __future__ import annotations
 import argparse, json, pathlib, sys
 from datetime import datetime
-from collections import Counter, defaultdict
+
+from pvas_io import load_json
+from report_render import (
+    compute_all_stats,
+    compute_component_summary,
+    compute_discovery_method_stats,
+    compute_funnel,
+    compute_risk_overview,
+    compute_severity_distribution,
+    compute_tool_output_stats,
+    finding_status,
+    fmt_list,
+    safe_str,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / 'templates'
-
-
-def load_json(p: pathlib.Path, default=None):
-    if p and p.exists():
-        try:
-            return json.loads(p.read_text())
-        except Exception:
-            return default
-    return default
 
 
 def read_text(p: pathlib.Path, default=''):
@@ -35,185 +39,6 @@ def read_text(p: pathlib.Path, default=''):
         except Exception:
             return default
     return default
-
-
-def safe_str(v, fallback='—'):
-    if v is None:
-        return fallback
-    s = str(v)
-    return s if s.strip() else fallback
-
-
-def fmt_list(items, sep=', '):
-    if not items:
-        return '—'
-    return sep.join(str(x) for x in items)
-
-
-def finding_status(f):
-    return f.get('status') or f.get('validated_status') or ''
-
-
-# ---------------------------------------------------------------------------
-# Statistics builders
-# ---------------------------------------------------------------------------
-
-def compute_funnel(findings, candidate_summary, tool_summary):
-    """Compute audit funnel statistics.
-
-    Returns dict with counts for each stage.
-    """
-    validated = sum(1 for f in findings if finding_status(f) == 'Validated')
-    needs_review = sum(1 for f in findings if finding_status(f) == 'Needs Manual Review')
-    rejected = sum(1 for f in findings if finding_status(f) == 'Rejected')
-    likely = sum(1 for f in findings if finding_status(f) == 'Likely')
-    candidate = sum(1 for f in findings if finding_status(f) == 'Candidate')
-
-    # Try to get raw hits count from tool summary or candidate summary
-    raw_hits = 0
-    if tool_summary and isinstance(tool_summary, dict):
-        for tool in (tool_summary.get('tools', []) or tool_summary.get('results', []) or []):
-            if isinstance(tool, dict):
-                raw_hits += tool.get('hit_count', tool.get('findings_count', 0))
-    if not raw_hits and candidate_summary and isinstance(candidate_summary, dict):
-        raw_hits = candidate_summary.get('total_raw_hits', candidate_summary.get('raw_hit_count', 0))
-
-    total = len(findings)
-    if not raw_hits:
-        raw_hits = total  # fallback
-
-    return {
-        'raw_hits': max(raw_hits, total),
-        'candidates': candidate + likely + validated + needs_review + rejected,
-        'likely': likely,
-        'validated': validated,
-        'needs_review': needs_review,
-        'rejected': rejected,
-        'total': total,
-    }
-
-
-def compute_severity_distribution(findings):
-    """Compute severity distribution from CVSS scores."""
-    dist = Counter()
-    for f in findings:
-        if finding_status(f) not in ('Validated', 'Needs Manual Review'):
-            continue
-        sev = (f.get('cvss', {}) or {}).get('severity', 'Unknown')
-        if sev is None:
-            sev = 'Unknown'
-        dist[sev] += 1
-    return dict(dist)
-
-
-def compute_discovery_method_stats(findings):
-    """Compute discovery method statistics."""
-    method_counts = Counter()
-    method_validated = Counter()
-    for f in findings:
-        st = finding_status(f)
-        if st not in ('Validated', 'Needs Manual Review'):
-            continue
-        dm_list = f.get('discovery_method') or []
-        for dm in dm_list:
-            if isinstance(dm, dict):
-                mt = dm.get('type', 'unknown')
-                method_counts[mt] += 1
-                if st == 'Validated':
-                    method_validated[mt] += 1
-    return dict(method_counts), dict(method_validated)
-
-
-def compute_tool_output_stats(findings, tool_summary):
-    """Compute tool output statistics."""
-    tool_candidates = Counter()
-    tool_validated = Counter()
-
-    for f in findings:
-        st = finding_status(f)
-        if st not in ('Validated', 'Needs Manual Review'):
-            continue
-        dm_list = f.get('discovery_method') or []
-        for dm in dm_list:
-            if isinstance(dm, dict) and dm.get('type') == 'tool':
-                tool_name = dm.get('tool_name', 'unknown')
-                tool_candidates[tool_name] += 1
-                if st == 'Validated':
-                    tool_validated[tool_name] += 1
-
-    # Also count from tool_summary if available
-    if tool_summary and isinstance(tool_summary, dict):
-        for tool in (tool_summary.get('tools', []) or tool_summary.get('results', []) or []):
-            if isinstance(tool, dict):
-                name = tool.get('name', tool.get('tool', 'unknown'))
-                if name not in tool_candidates:
-                    tool_candidates[name] = tool.get('hit_count', tool.get('findings_count', 0))
-
-    return dict(tool_candidates), dict(tool_validated)
-
-
-def compute_component_summary(findings):
-    """Compute affected component summary."""
-    comp_counts = Counter()
-    comp_findings = defaultdict(list)
-    for f in findings:
-        st = finding_status(f)
-        if st not in ('Validated', 'Needs Manual Review'):
-            continue
-        comp = (f.get('affected_component', {}) or {}).get('component', 'unknown')
-        comp_counts[comp] += 1
-        comp_findings[comp].append({
-            'id': f.get('id', '?'),
-            'severity': (f.get('cvss', {}) or {}).get('severity', '?'),
-            'status': st,
-        })
-    return dict(comp_counts), dict(comp_findings)
-
-
-def compute_risk_overview(findings):
-    """Compute overall risk assessment based on CVSS scores."""
-    scores = []
-    for f in findings:
-        if finding_status(f) not in ('Validated', 'Needs Manual Review'):
-            continue
-        score = (f.get('cvss', {}) or {}).get('base_score')
-        if score is not None:
-            try:
-                scores.append(float(score))
-            except (ValueError, TypeError):
-                pass
-
-    if not scores:
-        return {
-            'avg_score': '—',
-            'max_score': '—',
-            'min_score': '—',
-            'total_scored': 0,
-            'risk_level': '—',
-        }
-
-    avg = sum(scores) / len(scores)
-    mx = max(scores)
-    mn = min(scores)
-
-    if avg >= 9.0:
-        risk = 'Critical'
-    elif avg >= 7.0:
-        risk = 'High'
-    elif avg >= 4.0:
-        risk = 'Medium'
-    elif avg > 0:
-        risk = 'Low'
-    else:
-        risk = 'None'
-
-    return {
-        'avg_score': f'{avg:.1f}',
-        'max_score': f'{mx:.1f}',
-        'min_score': f'{mn:.1f}',
-        'total_scored': len(scores),
-        'risk_level': risk,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +72,7 @@ def build_tool_matrix_content(audit_root):
     return '\n'.join(rows)
 
 
-def build_executive_summary(findings, all_tools, environment, intake, profile):
+def build_executive_summary(findings, all_tools, environment, intake, profile, stats=None):
     validated = [f for f in findings if finding_status(f) == 'Validated']
     needs_review = [f for f in findings if finding_status(f) == 'Needs Manual Review']
     candidates = [f for f in findings if finding_status(f) not in ('Validated', 'Needs Manual Review')]
@@ -257,9 +82,10 @@ def build_executive_summary(findings, all_tools, environment, intake, profile):
     profile_name = profile.get('package_name', '?') if profile else '?'
     primary_lang = fmt_list(profile.get('primary_language', [])) if profile else '?'
 
-    # Severity distribution
-    sev_dist = compute_severity_distribution(findings)
-    risk = compute_risk_overview(findings)
+    if stats is None:
+        stats = compute_all_stats(findings)
+    sev_dist = stats['severity_distribution']
+    risk = stats['risk_overview']
 
     lines = [
         f'- **Package**: `{profile_name}`',
@@ -870,8 +696,10 @@ def main() -> int:
     environment = environment or {}
     tool_list = environment.get('tools', []) or (tool_summary or {}).get('tools', [])
 
+    stats = compute_all_stats(findings, candidate_summary, tool_summary)
+
     values = {
-        'executive_summary': build_executive_summary(findings, tool_list, environment, intake, profile),
+        'executive_summary': build_executive_summary(findings, tool_list, environment, intake, profile, stats),
         'public_matched_count': str(matched_count),
         'public_not_found_count': str(not_found_count),
         'sources_checked': fmt_list(sorted(sources_set)) if sources_set else 'configured sources checked',
@@ -908,22 +736,16 @@ def main() -> int:
         d.mkdir(parents=True, exist_ok=True)
 
     # machine JSON (enhanced with statistics)
-    funnel = compute_funnel(findings, candidate_summary, tool_summary)
-    sev_dist = compute_severity_distribution(findings)
-    method_counts, method_validated = compute_discovery_method_stats(findings)
-    tool_candidates, tool_validated = compute_tool_output_stats(findings, tool_summary)
-    risk = compute_risk_overview(findings)
-
     machine_report = {
         'generated_at': datetime.utcnow().isoformat() + 'Z',
         'generator': 'generate_final_report.py',
         'executive_summary': values['executive_summary'],
         'statistics': {
-            'funnel': funnel,
-            'severity_distribution': sev_dist,
-            'discovery_methods': {'total': method_counts, 'validated': method_validated},
-            'tool_output': {'candidates': tool_candidates, 'validated': tool_validated},
-            'risk_overview': risk,
+            'funnel': stats['funnel'],
+            'severity_distribution': stats['severity_distribution'],
+            'discovery_methods': stats['discovery_methods'],
+            'tool_output': stats['tool_output'],
+            'risk_overview': stats['risk_overview'],
         },
         'public_disclosure': {
             'matched_count': matched_count,

@@ -10,12 +10,9 @@ import subprocess
 import sys
 import time
 
+from pvas_io import load_json
 
 BLOCKING_APPLICABILITY = {"mandatory", "profile-required", "recommended"}
-
-
-def load_json(path: pathlib.Path) -> dict:
-    return json.loads(path.read_text())
 
 
 def expand_command(command: list[str], source: pathlib.Path, raw: pathlib.Path) -> list[str]:

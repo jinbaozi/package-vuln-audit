@@ -7,6 +7,8 @@ Each finding gets POC variants in multiple languages under language-specific sub
 from __future__ import annotations
 import argparse, json, pathlib, hashlib, shutil, os, platform, stat, sys, subprocess, time
 
+from pvas_io import load_findings
+
 # ---------------------------------------------------------------------------
 # Language extension mapping
 # ---------------------------------------------------------------------------
@@ -331,14 +333,6 @@ POCEOF
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def load_findings(p):
-    data=json.loads(pathlib.Path(p).read_text())
-    if isinstance(data,list): return data
-    if 'findings' in data: return data['findings']
-    if 'id' in data: return [data]
-    return []
-
 
 def sha256_file(p):
     h=hashlib.sha256();

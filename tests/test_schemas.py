@@ -27,6 +27,7 @@ def main():
         'poc-testcase.schema.json':'sample-poc-testcase.json',
         'install-assistant-summary.schema.json':'sample-install-assistant-summary.json',
         'install-assistant-decision.schema.json':'sample-install-assistant-decision.json',
+        'report.schema.json':'sample-report.json',
     }
     try:
         import jsonschema

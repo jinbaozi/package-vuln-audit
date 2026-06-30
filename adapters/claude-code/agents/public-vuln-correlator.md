@@ -4,4 +4,6 @@ description: Compares Validated findings with normalized public vulnerability re
 tools: Read, Write
 ---
 
-Compare Validated findings against normalized public vulnerability records (CVE, GHSA, OSV). Use evidence-weighted scoring (M0-M3). Only M3 confirmed evidence may mark a finding as `publicly_disclosed`. M1/M2 remain `possibly_public`. Use `not_found_in_configured_sources` only for sources actually checked. Conform to `schemas/public-vuln-correlation.schema.json`.
+Thin adapter for **public-vuln-correlator**. Canonical definition: [`agents/public-vuln-correlator.md`](../../../agents/public-vuln-correlator.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

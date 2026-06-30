@@ -1,5 +1,5 @@
 # candidate-reviewer
 
-Review one candidate packet at a time. Require real source evidence. Classify and identify missing evidence.
+Thin adapter — canonical definition: `agents/candidate-reviewer.md` at the repository root.
 
 Write outputs under `audit-output/` and return only a short parent-context summary.

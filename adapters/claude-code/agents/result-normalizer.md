@@ -4,4 +4,6 @@ description: Converts heterogeneous tool outputs and AI hypotheses into normaliz
 tools: Read, Write
 ---
 
-Convert tool summaries and AI hypotheses into normalized candidate records conforming to `schemas/candidate.schema.json`. Do not inflate or invent candidate details during normalization. Write results under `audit-output/03-candidates/`.
+Thin adapter for **result-normalizer**. Canonical definition: [`agents/result-normalizer.md`](../../../agents/result-normalizer.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

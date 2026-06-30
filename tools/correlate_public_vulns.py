@@ -3,17 +3,43 @@
 from __future__ import annotations
 import argparse, json, pathlib, re
 
-def load_findings(path: pathlib.Path):
-    data=json.loads(path.read_text())
-    if isinstance(data, list): return data
-    if 'findings' in data: return data['findings']
-    if 'id' in data: return [data]
-    return []
+from pvas_io import load_findings
 
 def load_records(path: pathlib.Path):
     data=json.loads(path.read_text())
     if isinstance(data, list): return data
     return data.get('records', [])
+
+
+def record_index(records):
+    """Map lowercase tokens to record indices for pre-filtering."""
+    idx: dict[str, set[int]] = {}
+    for i, r in enumerate(records):
+        parts = [
+            r.get('package', ''), r.get('component', ''), r.get('id', ''), r.get('summary', ''),
+        ]
+        cwe = r.get('cwe', [])
+        if isinstance(cwe, list):
+            parts.extend(str(c) for c in cwe)
+        for t in toks(' '.join(str(p) for p in parts)):
+            idx.setdefault(t, set()).add(i)
+    return idx
+
+
+def filter_records(fp, records, idx):
+    keys = toks(fp.get('package', '')) | toks(fp.get('component', ''))
+    for c in fp.get('cwe', []):
+        keys |= toks(str(c))
+    for f in fp.get('files', []):
+        keys |= toks(pathlib.Path(f).name)
+    if not keys:
+        return records
+    indices: set[int] = set()
+    for k in keys:
+        indices |= idx.get(k, set())
+    if not indices:
+        return records
+    return [records[i] for i in sorted(indices)]
 
 def toks(s):
     return set(re.findall(r'[A-Za-z0-9_./+-]{3,}', (s or '').lower()))
@@ -89,13 +115,15 @@ def main():
     args=ap.parse_args()
     findings=load_findings(pathlib.Path(args.findings))
     records=load_records(pathlib.Path(args.records))
+    idx=record_index(records)
     corrs=[]
     for f in findings:
         fp=finding_fp(f)
         if fp['status'] != 'Validated':
             continue
         ranked=[]
-        for r in records:
+        pool=filter_records(fp, records, idx)
+        for r in pool:
             score, level, evidence=score_record(fp,r)
             if level!='M0':
                 ranked.append({'record':r,'score':score,'match_level':level,'match_evidence':evidence})

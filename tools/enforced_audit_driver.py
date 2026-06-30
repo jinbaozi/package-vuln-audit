@@ -53,15 +53,12 @@ def main() -> int:
     if rc != 0:
         return rc
 
-    env_cmd = [sys.executable, 'tools/verify_environment.py', '--profile', args.profile, '--mode', args.mode, '--out', str(env_out)]
+    env_cmd = [sys.executable, 'tools/strict_env_gate.py', '--out', str(env_out),
+               '--profile', args.profile, '--mode', args.mode]
     if args.allow_degraded:
         env_cmd.append('--allow-degraded')
     rc, _ = run(env_cmd, allow_fail=True)
-    run([sys.executable, 'tools/generate_install_plan.py', '--environment-check', str(env_out/'environment-check.json'), '--out', str(env_out)], allow_fail=True)
     if rc != 0 and args.mode == 'strict' and args.install_assist:
-        env = json.loads((env_out/'environment-check.json').read_text())
-        missing = ','.join(env.get('blocking_missing_tools') or env.get('missing_tools') or [])
-        run([sys.executable, 'tools/install_assistant.py', '--tools', missing, '--mode', 'strict', '--dry-run', '--out', str(env_out)], allow_fail=True)
         write_step(out, '00-environment', 'blocked', 'block', outputs=[str(env_out/'environment-check.json'), str(env_out/'install-assistant-decision.json')], issues=['strict required tool missing'])
         return 2
     if rc != 0:
@@ -144,7 +141,7 @@ def main() -> int:
         norm_records = out / 'machine' / 'correlation' / 'normalized-public-records.json'
         run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
         run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', str(norm_records), '--out', str(corr)], allow_fail=False)
-        run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out)], allow_fail=False)
+        run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out), '--skip-final-report'], allow_fail=False)
         rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--out', str(out/'machine/report-completeness.json')], allow_fail=True)
         write_step(out, '08-report', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block',
                    inputs=[args.findings, str(corr)], outputs=[str(corr), str(out/'machine/report-completeness.json')],
@@ -176,12 +173,13 @@ def validate_finding_schema(findings_path: str, out_root: pathlib.Path) -> int:
         return 0
     try:
         schema = json.loads((ROOT / 'schemas' / 'finding.schema.json').read_text())
+        validator = jsonschema.Draft202012Validator(schema)
         findings = json.loads(pathlib.Path(findings_path).read_text())
-        findings_list = findings.get('findings') or findings if isinstance(findings, list) else []
+        findings_list_data = findings.get('findings') or findings if isinstance(findings, list) else []
         errors = []
-        for i, f in enumerate(findings_list):
+        for i, f in enumerate(findings_list_data):
             try:
-                jsonschema.validate(f, schema)
+                validator.validate(f)
             except jsonschema.ValidationError as e:
                 errors.append(f'finding[{i}]: {e.message}')
         result_file = out_root / 'machine' / 'schema-validation-result.json'

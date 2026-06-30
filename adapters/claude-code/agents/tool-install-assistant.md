@@ -1,23 +1,8 @@
-# tool-install-assistant
+---
+name: tool-install-assistant
+description: See agents/tool-install-assistant.md
+---
 
-Purpose: assist strict-mode traditional tool recovery without polluting the parent agent context.
+Thin adapter for **tool-install-assistant**. Canonical definition: [`agents/tool-install-assistant.md`](../../../agents/tool-install-assistant.md).
 
-Responsibilities:
-- Probe environment summaries only: OS family, architecture, Python/Node/Go availability, glibc, PATH, offline-bundle presence.
-- Generate controlled install plans with this priority: offline-bundle, Python/pipx/uv, npm/npx, user-local binary/distribution, administrator RPM/DNF plan.
-- Enforce dry-run by default.
-- Require per-tool authorization before any user-prefix installation action.
-- Enforce prefix realpath containment and reject prefix escape.
-- Verify offline-bundle manifest and SHA256 before any offline install action.
-- Treat network mode as offline unless explicitly approved.
-- Treat RPM/DNF as a last-resort administrator plan; do not execute it unless separate system-install authorization is present.
-- Write `install-assistant-summary.json`, `install-assistant-decision.json`, and a short log digest.
-
-Parent context rule:
-- The parent agent may read only summary, decision, and digest files.
-- The parent agent must not read raw pip/npm/uv/go/dnf logs, full installer logs, full download logs, or complete manifests.
-
-Outputs:
-- `audit-output/00-environment/install-assistant-summary.json`
-- `audit-output/00-environment/install-assistant-decision.json`
-- `audit-output/00-environment/install-assistant-log-digest.txt`
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.

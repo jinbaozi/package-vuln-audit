@@ -4,4 +4,6 @@ description: Produces formatted Markdown/JSON reports from admitted findings onl
 tools: Read, Write
 ---
 
-Only Validated and Needs Manual Review findings may enter formal reports. Candidate and Likely items remain in internal candidate lists. Include source evidence, validation evidence, CVSS, false-positive exclusion, and fix recommendations.
+Thin adapter for **report-writer**. Canonical definition: [`agents/report-writer.md`](../../../agents/report-writer.md).
+
+Read the canonical agent file for mission, required inputs, outputs, and forbidden behavior. Write all artifacts under `audit-output/` only. Return short parent-context summaries to the coordinator.
