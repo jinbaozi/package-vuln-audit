@@ -37,6 +37,7 @@ registered_schemas:
   - validation-result.schema.json
   - exception-index.schema.json
   - intake.schema.json
+  - openeuler-vuln-registry.schema.json
 
 l4_forbidden_patterns:
   - "audit-output/**/raw/**"

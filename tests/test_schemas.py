@@ -30,6 +30,7 @@ def main():
         'report.schema.json':'sample-report.json',
         'exception-index.schema.json':'sample-exception-index.json',
         'intake.schema.json':'sample-intake.json',
+        'openeuler-vuln-registry.schema.json':'sample-openeuler-vuln-registry.json',
     }
     try:
         import jsonschema

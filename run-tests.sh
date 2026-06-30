@@ -26,6 +26,8 @@ python3 -u tests/test_poc_safety_policy.py
 python3 -u tests/test_poc_testcase_generation.py
 python3 -u tests/test_poc_execution_result.py
 python3 -u tests/test_manual_validation_plan.py
+python3 -u tests/test_cvss31_calculator.py
+python3 -u tests/test_import_openeuler_vuln_registry.py
 python3 -u tests/test_public_vuln_correlation.py
 if [[ "${PVAS_RUN_INTEGRATION:-0}" == "1" ]]; then
   timeout 60s python3 -u tests/test_binutils_helpers.py

@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "source": "openEuler-Registry",
+  "data_cutoff": "2026-06-24",
+  "record_count": 5749,
+  "last_updated": "2026-06-30T09:17:43Z",
+  "source_file": "漏洞数据清单.xlsx",
+  "source_file_hash": "2689fc56a8a2522091dcd120baba84f40cd92ec9c8388f872837abe0b6462af8",
+  "imported_at": "2026-06-30T09:17:43Z"
+}

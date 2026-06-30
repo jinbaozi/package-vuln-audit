@@ -26,6 +26,8 @@ REQUIRED_TOOLS = [
     'fetch_public_vuln_sources.py',
     'normalize_public_vuln_records.py',
     'summarize_artifacts.py',
+    'cvss31_calculator.py',
+    'import_openeuler_vuln_registry.py',
     'tool_catalog.py',
     'validate_manifest.py',
     'validate_intake.py',

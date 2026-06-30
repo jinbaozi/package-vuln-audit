@@ -18,3 +18,9 @@ node_modules/
 .docs/superpowers/
 CLAUDE.md
 .claude
+.cursor
+.superpowers
+docs/implementation*
+RELEASE-NOTES*.md
+*.xlsx
+!tests/fixtures/sample-openeuler-registry.xlsx

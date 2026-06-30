@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "source": "openEuler-Registry",
+  "data_cutoff": "2026-06-01",
+  "record_count": 5,
+  "records": [
+    {
+      "cve_id": "CVE-2026-0001",
+      "category": "unaffected",
+      "risk_level": "高危",
+      "affected_branches": ["master"],
+      "package": "pkg-a",
+      "component_location": "iso",
+      "provenance": {
+        "source_file": "sample-openeuler-registry.xlsx",
+        "sheet": "欧拉不受影响漏洞",
+        "sheet_row": 3,
+        "imported_at": "2026-06-30T12:00:00Z"
+      }
+    }
+  ]
+}

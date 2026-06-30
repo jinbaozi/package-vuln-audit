@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "openEuler Vulnerability Registry Bundle",
+  "type": "object",
+  "required": ["schema_version", "source", "data_cutoff", "record_count", "records"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "source": { "type": "string" },
+    "data_cutoff": { "type": "string" },
+    "record_count": { "type": "integer", "minimum": 0 },
+    "last_updated": { "type": "string" },
+    "source_file": { "type": "string" },
+    "source_file_hash": { "type": "string" },
+    "imported_at": { "type": "string" },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/record" }
+    },
+    "cve_index": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/index_entry" }
+      }
+    },
+    "index": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/index_entry" }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": ["cve_id", "category", "package", "provenance"],
+      "properties": {
+        "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d+$" },
+        "category": { "type": "string", "enum": ["unaffected", "suspended", "fixed"] },
+        "risk_level": { "type": "string" },
+        "affected_branches": { "type": "array", "items": { "type": "string" } },
+        "package": { "type": "string" },
+        "component_location": { "type": "string" },
+        "provenance": {
+          "type": "object",
+          "required": ["source_file", "sheet", "sheet_row", "imported_at"],
+          "properties": {
+            "source_file": { "type": "string" },
+            "sheet": { "type": "string" },
+            "sheet_row": { "type": "integer", "minimum": 1 },
+            "imported_at": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "index_entry": {
+      "type": "object",
+      "required": ["cve_id", "category", "package"],
+      "properties": {
+        "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d+$" },
+        "category": { "type": "string", "enum": ["unaffected", "suspended", "fixed"] },
+        "risk_level": { "type": "string" },
+        "package": { "type": "string" },
+        "component_location": { "type": "string" },
+        "affected_branches": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}
