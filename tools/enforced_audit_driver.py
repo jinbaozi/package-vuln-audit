@@ -10,6 +10,11 @@ from __future__ import annotations
 import argparse, json, os, pathlib, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+TOOLS_DIR = ROOT / 'tools'
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from pvas_env import env_flag
 
 
 def run(cmd: list[str], allow_fail: bool=False) -> tuple[int, str]:
@@ -40,8 +45,8 @@ def main() -> int:
     ap.add_argument('--out', default='audit-output')
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'))
     ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'default'), choices=['default','strict'])
-    ap.add_argument('--allow-degraded', action='store_true', default=os.environ.get('PVAS_ALLOW_DEGRADED','0') in {'1','true','yes','on'})
-    ap.add_argument('--install-assist', action='store_true', default=os.environ.get('PVAS_INSTALL_ASSIST','1') in {'1','true','yes','on'})
+    ap.add_argument('--allow-degraded', action='store_true', default=env_flag('PVAS_ALLOW_DEGRADED'))
+    ap.add_argument('--install-assist', action='store_true', default=env_flag('PVAS_INSTALL_ASSIST', default=True))
     ap.add_argument('--max-candidates', default=os.environ.get('PVAS_MAX_CANDIDATES', '20'))
     ap.add_argument('--findings', help='Validated findings JSON for final report gates')
     ap.add_argument('--public-records', help='Normalized public vuln records JSON')
@@ -104,6 +109,7 @@ def main() -> int:
                inputs=[str(out / '01-profile' / 'package-profile.json')],
                outputs=[str(matrix_path)])
 
+    os.environ['PVAS_SKIP_ENV_GATE'] = '1'
     rc, tool_out = run(['bash', 'tools/run_tools.sh', args.source, str(out/'02-tools')], allow_fail=True)
     write_step(out, '03-tool-scan', 'completed' if rc == 0 else 'blocked',
                'continue' if rc == 0 else 'block',

@@ -12,12 +12,7 @@ import sys
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
 
-
-def env_flag(name: str, default: bool = False) -> bool:
-    val = os.environ.get(name)
-    if val is None:
-        return default
-    return val.lower() in {'1', 'true', 'yes', 'on'}
+from pvas_env import env_flag
 
 
 def run_strict_assist(env_out: pathlib.Path, *, dry_run: bool = False) -> int:

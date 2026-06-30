@@ -5,9 +5,9 @@ Supports multi-language POC generation (Python, C, C++, Java, Go, Perl, Shell).
 Each finding gets POC variants in multiple languages under language-specific subdirectories.
 """
 from __future__ import annotations
-import argparse, json, pathlib, hashlib, shutil, os, platform, stat, sys, subprocess, time
+import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time
 
-from pvas_io import load_findings
+from pvas_io import load_findings, sha256_file
 
 # ---------------------------------------------------------------------------
 # Language extension mapping
@@ -333,13 +333,6 @@ POCEOF
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def sha256_file(p):
-    h=hashlib.sha256();
-    with open(p,'rb') as f:
-        for b in iter(lambda:f.read(65536), b''): h.update(b)
-    return h.hexdigest()
-
 
 def get_testcase(f, explicit):
     if explicit: return pathlib.Path(explicit)

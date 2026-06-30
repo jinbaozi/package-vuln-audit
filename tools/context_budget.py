@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-import argparse, fnmatch, json, math, os, pathlib
+import argparse, fnmatch, json, os, pathlib, sys
+
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from budget_common import est_tokens, batch_packets
 
 import manifest_io
 
@@ -26,12 +31,9 @@ ROLE_TARGETS={
   'disclosure-coordinator': (70000, ['validated_finding','maintainer_private_summary','disclosure_policy'], ['raw_tool_log','raw_fuzz_log','raw_source_dump'])
 }
 
-def est_tokens_text(s: str) -> int:
-    return int(math.ceil(len(s) / 3.5))
-
 def count_tokens_file(path: pathlib.Path) -> int:
     try:
-        return est_tokens_text(path.read_text(errors='ignore'))
+        return est_tokens(path.read_text(errors='ignore'))
     except Exception:
         return 0
 
@@ -76,18 +78,6 @@ def packet_entries(packet_dir: pathlib.Path):
         packets.append({'id':p.stem,'file':str(p),'estimated_tokens':tokens,'within_budget':tokens <= PACKET_BUDGET})
     return packets
 
-def batch_packets(packets):
-    batches=[]; cur=[]; cur_tokens=0
-    for pkt in packets:
-        tok=int(pkt.get('estimated_tokens',0))
-        if cur and (len(cur)>=MAX_PACKET_COUNT or cur_tokens + tok > BATCH_BUDGET):
-            batches.append({'batch_id':f'batch-{len(batches)+1:03d}','packet_count':len(cur),'estimated_tokens':cur_tokens,'packets':[x['id'] for x in cur]})
-            cur=[]; cur_tokens=0
-        cur.append(pkt); cur_tokens += tok
-    if cur:
-        batches.append({'batch_id':f'batch-{len(batches)+1:03d}','packet_count':len(cur),'estimated_tokens':cur_tokens,'packets':[x['id'] for x in cur]})
-    return batches
-
 def load_l4_patterns(root: pathlib.Path) -> list[str]:
     manifest = manifest_io.manifest_path(root)
     if not manifest.is_file():
@@ -122,7 +112,7 @@ def decide(max_single, batches):
 def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
     traversal=load_traversal(profile_dir)
     packets=packet_entries(packet_dir)
-    batches=batch_packets(packets)
+    batches=batch_packets(packets, BATCH_BUDGET, MAX_PACKET_COUNT)
     max_batch=max([b['estimated_tokens'] for b in batches] or [0])
     total_packets=sum(p['estimated_tokens'] for p in packets)
     decision, action=decide(max_batch, batches)

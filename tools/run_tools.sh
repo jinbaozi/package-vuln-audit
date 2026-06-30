@@ -12,8 +12,11 @@ ENV_PROFILE="${PVAS_ENV_PROFILE:-standard}"
 ENV_MODE="${PVAS_TOOL_MODE:-default}"
 GATE_ARGS=(--out "$ENV_OUT" --profile "$ENV_PROFILE" --mode "$ENV_MODE")
 if [ "${PVAS_ALLOW_DEGRADED:-0}" = "1" ]; then GATE_ARGS+=(--allow-degraded); fi
-if ! python3 "$SCRIPT_DIR/strict_env_gate.py" "${GATE_ARGS[@]}"; then
-  exit 2
+# Standalone: gate runs by default. Driver sets PVAS_SKIP_ENV_GATE=1 after its own gate.
+if [ "${PVAS_SKIP_ENV_GATE:-0}" != "1" ]; then
+  if ! python3 "$SCRIPT_DIR/strict_env_gate.py" "${GATE_ARGS[@]}"; then
+    exit 2
+  fi
 fi
 PROFILE_DIR="$(dirname "$OUT")/01-profile"
 MATRIX="$PROFILE_DIR/required-tools-matrix.json"

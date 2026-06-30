@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
-import argparse, json, math, pathlib
+import argparse, json, pathlib, sys
+
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from budget_common import est_tokens, batch_packets
 
 DEFAULT_PACKET_BUDGET=8000
 DEFAULT_BATCH_BUDGET=160000
 DEFAULT_MAX_PACKETS=20
 
-def est_tokens(text: str) -> int:
-    return int(math.ceil(len(text) / 3.5))
-
 def slice_file(path, start, end, max_lines, line_cache=None):
-    cache = line_cache if line_cache is not None else {}
     try:
-        key = str(path)
-        if key not in cache:
-            cache[key] = path.read_text(errors='ignore').splitlines()
-        lines = cache[key]
+        p = pathlib.Path(path)
+        start = max(1, start)
+        end = min(end, start + max_lines - 1)
+        lines = []
+        with p.open(errors='ignore') as fh:
+            for i, line in enumerate(fh, start=1):
+                if i < start:
+                    continue
+                if i > end:
+                    break
+                lines.append(f'{i}: {line.rstrip()}')
+        return '\n'.join(lines) if lines else '[source unavailable]'
     except Exception:
         return '[source unavailable]'
-    start=max(1,start); end=min(len(lines),end)
-    if end-start+1>max_lines:
-        end=start+max_lines-1
-    return '\n'.join(f'{i+1}: {lines[i]}' for i in range(start-1,end))
 
 def make_packet_text(c, loc, snippet):
     return f"""# {c.get('id')}: {c.get('title')}
@@ -57,18 +62,6 @@ Return Reject / Candidate / Likely only. Do not claim Validated without validati
 This packet is scoped for a single subagent invocation; do not request full-repository context.
 """
 
-def batch_packets(entries, batch_budget, max_count):
-    batches=[]; cur=[]; cur_tokens=0
-    for e in entries:
-        tok=e['estimated_tokens']
-        if cur and (len(cur)>=max_count or cur_tokens+tok>batch_budget):
-            batches.append({'batch_id':f'batch-{len(batches)+1:03d}','packet_count':len(cur),'estimated_tokens':cur_tokens,'packets':[x['id'] for x in cur]})
-            cur=[]; cur_tokens=0
-        cur.append(e); cur_tokens += tok
-    if cur:
-        batches.append({'batch_id':f'batch-{len(batches)+1:03d}','packet_count':len(cur),'estimated_tokens':cur_tokens,'packets':[x['id'] for x in cur]})
-    return batches
-
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--candidates', default='audit-output/03-candidates/ranked-candidates.json')
@@ -87,18 +80,17 @@ def main():
         candidates=candidates[:args.max_packets]
     out=pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True); src=pathlib.Path(args.source_root)
     entries=[]
-    line_cache={}
     for c in candidates:
         loc=(c.get('source_locations') or [{}])[0]
         line=loc.get('start_line') or 1
         fp=src/loc.get('file','')
         max_lines=args.max_lines
-        snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines, line_cache)
+        snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines)
         md=make_packet_text(c, loc, snippet)
         # Reduce code slice if the packet exceeds budget.
         while est_tokens(md) > args.packet_token_budget and max_lines > 40:
             max_lines=max(40, int(max_lines*0.75))
-            snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines, line_cache)
+            snippet=slice_file(fp, line-args.context_lines, line+args.context_lines, max_lines)
             md=make_packet_text(c, loc, snippet)
         p=out/f"{c.get('id','CAND')}.md"
         p.write_text(md)

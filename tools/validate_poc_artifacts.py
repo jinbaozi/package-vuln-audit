@@ -5,14 +5,11 @@ Supports both single-language and multi-language POC directory structures.
 For multi-language POCs, validates each language variant independently.
 """
 from __future__ import annotations
-import argparse, json, pathlib, re, sys, hashlib
-DENY=[r'\bcurl\b',r'\bwget\b',r'\bnc\b',r'\bnetcat\b',r'\bssh\b',r'\bscp\b',r'\bftp\b',r'\btelnet\b',r'\bsudo\b',r'\bsu\b',r'\bsetcap\b',r'chmod\s+u\+s',r'\|\s*sh\b',r'>\s*/etc/',r'>\s*/usr/',r'>\s*/var/lib/',r'>\s*/root/',r'\b(cp|mv|install)\b[^\n]*(/etc/|/usr/|/var/lib/|/root/)']
+import argparse, json, pathlib, re, sys
 
-def sha256_file(p):
-    h=hashlib.sha256();
-    with open(p,'rb') as f:
-        for b in iter(lambda:f.read(65536), b''): h.update(b)
-    return h.hexdigest()
+from pvas_io import sha256_file
+
+DENY=[r'\bcurl\b',r'\bwget\b',r'\bnc\b',r'\bnetcat\b',r'\bssh\b',r'\bscp\b',r'\bftp\b',r'\btelnet\b',r'\bsudo\b',r'\bsu\b',r'\bsetcap\b',r'chmod\s+u\+s',r'\|\s*sh\b',r'>\s*/etc/',r'>\s*/usr/',r'>\s*/var/lib/',r'>\s*/root/',r'\b(cp|mv|install)\b[^\n]*(/etc/|/usr/|/var/lib/|/root/)']
 
 
 def _check_deny_patterns(text, label):

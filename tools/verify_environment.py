@@ -2,6 +2,7 @@
 """Check traditional tool availability and enforce default/strict execution gates."""
 from __future__ import annotations
 import argparse, json, os, pathlib, shutil, subprocess, sys
+from pvas_env import env_flag
 from tool_catalog import CATALOG, COMMON_BIN_DIRS, PROFILE_TOOLS, STRICT_REQUIRED_TOOLS
 
 STRICT_MODES = {"default", "strict"}
@@ -76,7 +77,7 @@ def main() -> int:
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'), choices=sorted(PROFILE_TOOLS))
     ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'default'), choices=sorted(STRICT_MODES))
     ap.add_argument('--required-tools', default=os.environ.get('PVAS_REQUIRED_TOOLS', ''))
-    ap.add_argument('--allow-degraded', action='store_true', default=os.environ.get('PVAS_ALLOW_DEGRADED', '0') in {'1','true','yes','on'})
+    ap.add_argument('--allow-degraded', action='store_true', default=env_flag('PVAS_ALLOW_DEGRADED'))
     ap.add_argument('--out', default='audit-output/00-environment')
     ap.add_argument('--json-only', action='store_true')
     args = ap.parse_args()

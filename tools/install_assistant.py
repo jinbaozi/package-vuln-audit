@@ -6,6 +6,8 @@ parent agent and keeps raw logs inside an internal directory.
 """
 from __future__ import annotations
 import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, time, urllib.request
+
+from pvas_io import sha256_file
 from tool_catalog import CATALOG, COMMON_BIN_DIRS
 
 NETWORK_MODES = {"offline", "restricted", "online-approved"}
@@ -66,14 +68,6 @@ def download_github_release(tool: str, prefix: pathlib.Path) -> dict:
         return {"success": True, "version": version, "sha256": sha, "path": str(dest)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
-
-
-def sha256_file(path: pathlib.Path) -> str:
-    h = hashlib.sha256()
-    with path.open('rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def safe_prefix(prefix: pathlib.Path, allowed_root: pathlib.Path) -> tuple[bool, str]:

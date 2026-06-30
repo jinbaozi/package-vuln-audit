@@ -30,6 +30,8 @@ REQUIRED_TOOLS = [
     'validate_intake.py',
     'aggregate_exceptions.py',
     'manifest_io.py',
+    'pvas_env.py',
+    'budget_common.py',
     'generate_guides_index.py',
 ]
 REQUIRED_SCHEMAS = [

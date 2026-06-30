@@ -2,9 +2,20 @@
 """Shared JSON I/O helpers for PVAS tools (stdlib only)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
 from typing import Any
+
+
+def sha256_file(path: pathlib.Path | str) -> str:
+    p = pathlib.Path(path)
+    h = hashlib.sha256()
+    with p.open('rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 
 def load_json(
