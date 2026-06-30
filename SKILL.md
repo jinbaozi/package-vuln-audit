@@ -47,6 +47,13 @@ The parent agent coordinates. It should read only structured summaries, selected
 10. Formatted Markdown/JSON reporting.
 11. Progressive disclosure with internal, maintainer-private, and public-after-fix levels.
 
+## Manifest and load tiers (phase 1)
+
+- Registry: `core/manifest.yaml` — stage `step_id`, L0–L4 load tiers, D0–D4 disclosure mapping
+- L1 index: `guides/index.json`
+- Coordinator reads L1 summaries only; never read L4 raw logs (see `core/disclosure/load-tiers.md`)
+- Exception summary: `audit-output/machine/exception-index.json` (L1)
+
 ## Candidate state machine
 
 `Raw Tool Hit` and `AI Hypothesis` are not vulnerabilities.
