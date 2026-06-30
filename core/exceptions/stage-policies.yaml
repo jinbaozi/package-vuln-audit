@@ -1,6 +1,7 @@
-# PVAS driver stage gate policies (Phase 1 skeleton)
+# PVAS driver stage gate policies
+# status: aspirational-phase2
+# Not consumed by driver in Balanced; Phase 2: runtime/gates/run_postflight.py
 # Canonical step_id: enforced_audit_driver write_step values (spec §3.4)
-# Consumed by driver preflight/postflight (Phase 2: runtime/gates/run_postflight.py)
 
 policies:
   - step_id: "00-intake"
@@ -22,15 +23,15 @@ policies:
         path: audit-output/machine/workflow-contract.json
 
   - step_id: "00-environment"
-    audit_output_dir: audit-output/00-intake
+    audit_output_dir: audit-output/00-environment
     preflight:
       - check: artifact_exists
         path: audit-output/00-intake/intake.json
     postflight:
       - check: artifact_exists
-        path: audit-output/00-intake/environment-check.json
+        path: audit-output/00-environment/environment-check.json
       - check: artifact_exists
-        path: audit-output/00-intake/tool-install-plan.json
+        path: audit-output/00-environment/tool-install-plan.json
 
   - step_id: "01-package-profile"
     audit_output_dir: audit-output/01-profile
@@ -50,15 +51,13 @@ policies:
         path: audit-output/01-profile/package-profile.json
     postflight:
       - check: artifact_exists
-        path: audit-output/02-tools/tool-matrix.json
-      - check: schema_valid
-        schema: tool-matrix.schema.json
+        path: audit-output/01-profile/required-tools-matrix.json
 
   - step_id: "03-tool-scan"
     audit_output_dir: audit-output/02-tools
     preflight:
       - check: artifact_exists
-        path: audit-output/02-tools/tool-matrix.json
+        path: audit-output/01-profile/required-tools-matrix.json
     execution:
       record: audit-output/02-tools/tool-execution-attempts.json
       mandatory_tools: [semgrep]

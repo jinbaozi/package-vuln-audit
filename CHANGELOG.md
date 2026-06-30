@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0-alpha11 — Balanced simplification
+
+- Unified env flags (`pvas_env`), budget helpers (`budget_common`), sha256 (`pvas_io`)
+- Single strict env gate on driver path (`PVAS_SKIP_ENV_GATE`)
+- Manifest `registered_schemas` single source; auditable manifest validation step
+- Test harness unified in `tests/tool_runner.py`
+- `pvas_io` adoption expanded to 20+ tools; `emit_gate_result` for gate artifacts
+- Language isolation check merged into `validate_report_completeness`
+- `stage-policies.yaml` path corrections; guides index drift CI
+
 ## 0.10.0-alpha10
 
 - Synced all 19 root agents to Claude Code, OpenCode, and Codex adapters.

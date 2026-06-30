@@ -1,6 +1,6 @@
 {
   "name": "package-vuln-audit-skill",
-  "version": "0.10.0-alpha10",
+  "version": "0.10.0-alpha11",
   "description": "Portable Agent Skill for software-package vulnerability discovery, validation, reporting, CVSS scoring, and progressive disclosure.",
   "compatibility": [
     "Claude Code",
