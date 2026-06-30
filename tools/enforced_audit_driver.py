@@ -19,6 +19,11 @@ def run(cmd: list[str], allow_fail: bool=False) -> tuple[int, str]:
     return p.returncode, p.stdout
 
 
+def refresh_exception_index(out: pathlib.Path) -> None:
+    """Regenerate machine/exception-index.json via aggregate_exceptions."""
+    run([sys.executable, 'tools/aggregate_exceptions.py', '--audit-output', str(out)], allow_fail=True)
+
+
 def write_step(out_root: pathlib.Path, step_id: str, status: str, decision: str, inputs=None, outputs=None, issues=None, limitations=None):
     inputs = inputs or []; outputs = outputs or []; issues = issues or []; limitations = limitations or []
     machine = out_root / 'machine' / 'workflow-steps'; zh = out_root / 'zh-CN' / 'workflow-steps'; en = out_root / 'en-US' / 'workflow-steps'
@@ -45,13 +50,34 @@ def main() -> int:
     args = ap.parse_args()
 
     out = pathlib.Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
     env_out = out / '00-environment'
-    write_step(out, '00-intake', 'completed', 'continue', outputs=[str(out)])
+
+    intake_dir = out / '00-intake'
+    intake_dir.mkdir(parents=True, exist_ok=True)
+    intake_cmd = [
+        sys.executable, 'tools/validate_intake.py',
+        '--intake-dir', str(intake_dir),
+        '--out', str(out / 'machine' / 'intake-validation.json'),
+    ]
+    if args.findings:
+        intake_cmd.append('--require-present')
+    intake_rc, _ = run(intake_cmd, allow_fail=True)
+    if intake_rc != 0:
+        write_step(out, '00-intake', 'blocked', 'block',
+                   outputs=[str(intake_dir)],
+                   issues=['intake preflight failed; see intake-validation.json'])
+        refresh_exception_index(out)
+        return 2
+    write_step(out, '00-intake', 'completed', 'continue', outputs=[str(intake_dir)])
 
     rc, _ = run([sys.executable, 'tools/enforce_workflow_contract.py', '--root', '.', '--out', str(out/'machine/workflow-contract.json')], allow_fail=True)
     write_step(out, '00-workflow-contract', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block', outputs=[str(out/'machine/workflow-contract.json')], issues=[] if rc == 0 else ['workflow contract failed'])
     if rc != 0:
         return rc
+
+    run([sys.executable, 'tools/validate_manifest.py',
+         '--root', '.', '--out', str(out / 'machine' / 'manifest-validation.json')], allow_fail=True)
 
     env_cmd = [sys.executable, 'tools/strict_env_gate.py', '--out', str(env_out),
                '--profile', args.profile, '--mode', args.mode]
@@ -86,6 +112,7 @@ def main() -> int:
                issues=[] if rc == 0 else ['traditional tool scan blocked; see tool-summary.json and tool-execution-attempts.json'],
                limitations=[] if rc == 0 else [tool_out[-1000:]])
     if rc != 0:
+        refresh_exception_index(out)
         return rc
     run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out/'02-tools/raw'), '--out', str(out/'03-candidates/raw-candidates.json')], allow_fail=True)
     run([sys.executable, 'tools/rank_candidates.py', '--candidates', str(out/'03-candidates/raw-candidates.json'), '--out', str(out/'03-candidates/ranked-candidates.json')], allow_fail=True)
@@ -97,17 +124,19 @@ def main() -> int:
     issues = [] if decision in {'safe','warning','split-required'} else [f'post-packet budget decision={decision}']
     write_step(out, '03-candidate-packets', 'completed' if not issues else 'blocked', 'continue' if not issues else 'block', outputs=[str(post_budget)], issues=issues)
     if issues:
+        refresh_exception_index(out)
         return 2
 
     if not args.findings:
         write_step(out, '08-report', 'skipped', 'continue', limitations=['no --findings provided; final report gates not executed'])
         return 0
 
-    schema_rc = validate_finding_schema(args.findings, out)
+    schema_rc = validate_finding_schema(args.findings, out, complete_audit=True)
     write_step(out, '07-schema-validation', 'completed' if schema_rc == 0 else 'failed', 'continue' if schema_rc == 0 else 'block',
                inputs=[args.findings], outputs=[str(out/'machine/schema-validation-result.json')],
                issues=[] if schema_rc == 0 else ['finding JSON failed schema validation'])
     if schema_rc != 0:
+        refresh_exception_index(out)
         return schema_rc
 
     manual_out = out / '04-validation' / 'manual-review'
@@ -126,6 +155,7 @@ def main() -> int:
                outputs=[str(poc_out)],
                issues=[] if poc_v_rc == 0 else ['poc validation failed'])
     if poc_v_rc != 0:
+        refresh_exception_index(out)
         return poc_v_rc
 
     if not args.public_records and args.allow_network and args.fetch_package:
@@ -147,6 +177,7 @@ def main() -> int:
                    inputs=[args.findings, str(corr)], outputs=[str(corr), str(out/'machine/report-completeness.json')],
                    issues=[] if rc == 0 else ['report completeness failed'])
         if rc != 0:
+            refresh_exception_index(out)
             return rc
     else:
         write_step(out, '08-report', 'partial', 'continue', limitations=['no --public-records provided; correlation and bilingual reports skipped'])
@@ -162,14 +193,24 @@ def main() -> int:
     run([sys.executable, 'tools/summarize_artifacts.py', '--audit-output', str(out), '--out', str(out / 'machine' / 'artifact-summary.json')], allow_fail=True)
     write_step(out, '09-artifact-summary', 'completed', 'continue', outputs=[str(out / 'machine' / 'artifact-summary.json')])
 
+    refresh_exception_index(out)
     return 0
 
 
-def validate_finding_schema(findings_path: str, out_root: pathlib.Path) -> int:
+def validate_finding_schema(findings_path: str, out_root: pathlib.Path, *, complete_audit: bool = False) -> int:
     """Validate findings JSON against finding.schema.json using jsonschema."""
+    result_file = out_root / 'machine' / 'schema-validation-result.json'
+
+    def write_result(passed: bool, errors: list[str]) -> None:
+        result_file.parent.mkdir(parents=True, exist_ok=True)
+        result_file.write_text(json.dumps({'passed': passed, 'errors': errors}, indent=2))
+
     try:
         import jsonschema
     except ImportError:
+        if complete_audit:
+            write_result(False, ['EX-SCH-001: jsonschema required for complete audit'])
+            return 1
         return 0
     try:
         schema = json.loads((ROOT / 'schemas' / 'finding.schema.json').read_text())
@@ -182,11 +223,12 @@ def validate_finding_schema(findings_path: str, out_root: pathlib.Path) -> int:
                 validator.validate(f)
             except jsonschema.ValidationError as e:
                 errors.append(f'finding[{i}]: {e.message}')
-        result_file = out_root / 'machine' / 'schema-validation-result.json'
-        result_file.parent.mkdir(parents=True, exist_ok=True)
-        result_file.write_text(json.dumps({'passed': len(errors) == 0, 'errors': errors}, indent=2))
+        write_result(len(errors) == 0, errors)
         return 0 if not errors else 1
     except Exception as e:
+        if complete_audit:
+            write_result(False, [str(e)])
+            return 1
         return 0
 
 if __name__ == '__main__':

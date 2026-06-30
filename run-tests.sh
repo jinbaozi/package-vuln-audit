@@ -5,6 +5,7 @@ python3 -u tests/test_manifest_io.py
 python3 -u tests/test_manifest.py
 python3 -u tests/test_intake_gate.py
 python3 -u tests/test_exception_index.py
+python3 -u tests/test_schema_fail_closed.py
 python3 -u tests/test_context_budget_per_agent.py
 python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_tool_install_plan.py
