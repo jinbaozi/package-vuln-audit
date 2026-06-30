@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import argparse, json, math, os, pathlib
+import argparse, fnmatch, json, math, os, pathlib
+
+import manifest_io
 
 DEFAULT_AGENT_BUDGET=int(os.getenv('PVAS_AGENT_CONTEXT_BUDGET_TOKENS','200000'))
 DEFAULT_TARGET=int(os.getenv('PVAS_AGENT_INPUT_TARGET_TOKENS','140000'))
@@ -86,6 +88,26 @@ def batch_packets(packets):
         batches.append({'batch_id':f'batch-{len(batches)+1:03d}','packet_count':len(cur),'estimated_tokens':cur_tokens,'packets':[x['id'] for x in cur]})
     return batches
 
+def load_l4_patterns(root: pathlib.Path) -> list[str]:
+    manifest = manifest_io.manifest_path(root)
+    if not manifest.is_file():
+        return []
+    return manifest_io.l4_forbidden_patterns(manifest_io.load_manifest(manifest))
+
+def path_hits_l4(path: str, patterns: list[str]) -> bool:
+    norm = path.replace('\\', '/')
+    return any(fnmatch.fnmatch(norm, p) for p in patterns)
+
+def check_coordinator_paths(paths: list[str], root: pathlib.Path) -> list[str]:
+    patterns = load_l4_patterns(root)
+    if not patterns:
+        return []
+    issues = []
+    for path in paths:
+        if path_hits_l4(path, patterns):
+            issues.append(f'coordinator packet contains L4 artifact: {path}')
+    return issues
+
 def decide(max_single, batches):
     if max_single > DEFAULT_AGENT_BUDGET:
         return 'blocked', 'A single invocation would exceed the per-agent 200K hard window.'
@@ -97,14 +119,20 @@ def decide(max_single, batches):
         return 'split-required', 'Split candidate review across independent subagent invocations.'
     return 'safe', 'Proceed with current per-agent context budget.'
 
-def build_budget(profile_dir, packet_dir):
+def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
     traversal=load_traversal(profile_dir)
     packets=packet_entries(packet_dir)
     batches=batch_packets(packets)
     max_batch=max([b['estimated_tokens'] for b in batches] or [0])
     total_packets=sum(p['estimated_tokens'] for p in packets)
     decision, action=decide(max_batch, batches)
-    return {
+    issues = []
+    if check_paths and root is not None:
+        issues = check_coordinator_paths(check_paths, root)
+        if issues:
+            decision = 'blocked'
+            action = 'Remove L4 artifacts from the coordinator packet; coordinator must read L1 summaries only.'
+    budget = {
       'policy': {
         'budget_model': 'per-agent-independent-context',
         'default_agent_context_budget_tokens': DEFAULT_AGENT_BUDGET,
@@ -135,15 +163,24 @@ def build_budget(profile_dir, packet_dir):
       'decision': decision,
       'recommended_action': action
     }
+    if issues:
+        budget['issues'] = issues
+    return budget
 
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--profile-dir', default='audit-output/01-profile')
     ap.add_argument('--packet-dir', default='audit-output/03-candidates/packets')
     ap.add_argument('--out', default='audit-output/01-profile/context-budget.json')
+    ap.add_argument('--root', default=str(pathlib.Path(__file__).resolve().parents[1]))
+    ap.add_argument('--check-paths', default='', help='Comma-separated artifact paths for coordinator packet L4 guard')
     args=ap.parse_args()
-    budget=build_budget(pathlib.Path(args.profile_dir), pathlib.Path(args.packet_dir))
+    check_paths = [p.strip() for p in args.check_paths.split(',') if p.strip()] if args.check_paths else None
+    budget=build_budget(pathlib.Path(args.profile_dir), pathlib.Path(args.packet_dir), check_paths=check_paths, root=pathlib.Path(args.root))
     out=pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(budget, indent=2))
-    print(json.dumps({'decision':budget['decision'],'recommended_action':budget['recommended_action']}, indent=2))
+    summary = {'decision': budget['decision'], 'recommended_action': budget['recommended_action']}
+    if budget.get('issues'):
+        summary['issues'] = budget['issues']
+    print(json.dumps(summary, indent=2))
 
 if __name__=='__main__': main()

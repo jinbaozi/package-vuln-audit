@@ -50,6 +50,34 @@ def test_make_packets_emits_budget_metadata():
         assert len(idx['batches']) == 3
         assert all('estimated_tokens' in p for p in idx['packets'])
 
+def test_coordinator_l4_path_blocked_when_manifest_present():
+    print("[context-test] l4-path", flush=True)
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        profile = td / 'profile'
+        profile.mkdir()
+        packets = td / 'packets'
+        packets.mkdir()
+        (profile / 'traversal-manifest.json').write_text(json.dumps({
+            'all_files_count': 1,
+            'source_files_count': 1,
+            'excluded_dirs': [],
+            'large_files_skipped': 0,
+            'truncated': False,
+        }))
+        out = td / 'context-budget.json'
+        subprocess.check_call([
+            sys.executable, str(ROOT / 'tools' / 'context_budget.py'),
+            '--profile-dir', str(profile),
+            '--packet-dir', str(packets),
+            '--out', str(out),
+            '--root', str(ROOT),
+            '--check-paths', 'audit-output/02-tools/raw/semgrep.json',
+        ])
+        budget = json.loads(out.read_text())
+        assert budget['decision'] == 'blocked'
+        assert any('coordinator packet contains L4 artifact' in issue for issue in budget.get('issues', []))
+
 def test_docs_do_not_claim_shared_200k():
     print("[context-test] docs", flush=True)
     forbidden=['workflow shares one 200k','shared 200k context','global 200k context','total context budget: 200k']
@@ -61,6 +89,7 @@ if __name__ == '__main__':
     test_profile_excludes_and_budget()
     test_packet_batching_allows_aggregate_over_200k()
     test_make_packets_emits_budget_metadata()
+    test_coordinator_l4_path_blocked_when_manifest_present()
     test_docs_do_not_claim_shared_200k()
     print('context budget per-agent tests passed', flush=True)
     os._exit(0)
