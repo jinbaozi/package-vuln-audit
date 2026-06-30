@@ -1,5 +1,7 @@
 # package-vuln-audit-skill
 
+**当前版本：** `0.10.0-alpha10`（见 `skill.json`）
+
 `package-vuln-audit-skill` 是一个面向软件包源码的防御性漏洞审计 Agent Skill。它把传统安全工具、AI 辅助源码分析、子 agent 编排、验证证据、CVSS 评分、PoC/回归测试材料、中文主报告和渐进式披露流程组合成一套可复用的审计工作流。
 
 本项目不是“自动宣称漏洞”的扫描器。它的目标是帮助审计人员在授权范围内系统化地发现、评审、验证和报告软件包漏洞，并确保每个结论都能追溯到真实源码和验证证据。
@@ -37,7 +39,7 @@
 
 ## 支持的平台
 
-核心规则以根目录 `SKILL.md`、`AGENTS.md`、`workflows/`、`references/`、`tools/`、`schemas/` 为准。平台适配器只是入口和提示词映射。
+核心规则以根目录 `SKILL.md`、`AGENTS.md`、`core/`、`guides/`、`workflows/`、`references/`、`tools/`、`schemas/` 为准。Phase 1 已引入 `core/manifest.yaml` 与 `guides/index.json`，但 `workflows/` 与 `schemas/` 物理路径尚未迁移（见分层重构 spec）。平台适配器只是入口和提示词映射。
 
 - Claude Code：`adapters/claude-code/`
 - Codex：`adapters/codex/`
@@ -61,7 +63,29 @@ python3 tools/enforced_audit_driver.py \
 - `full`：更完整的工具覆盖，需要显式传入 `--profile full`，或设置 `PVAS_ENV_PROFILE=full`。
 - `binutils`：偏 C/C++、二进制解析器、构建和 sanitizer 验证场景。
 
-完整审计推荐使用 `tools/enforced_audit_driver.py`，因为它会执行工作流契约检查、环境检查、工具矩阵、Context Budget、候选 packet、PoC、公开漏洞关联和报告完整性门禁。
+完整审计推荐使用 `tools/enforced_audit_driver.py`，因为它会执行：工作流契约检查、intake preflight（`--findings` 路径）、manifest 校验（warn）、环境检查、工具矩阵、Context Budget、候选 packet 生成、finding schema 校验（complete audit 下 **fail-closed**，需 `jsonschema`）、PoC、公开漏洞关联、报告完整性门禁，以及 `exception-index.json` 汇总。
+
+### Complete audit（`--findings`）
+
+在机械阶段完成后，提供 findings JSON 以触发最终报告门禁。`--findings` 路径会启用 intake 强制校验，需事先写入：
+
+```text
+audit-output/00-intake/scope.md
+audit-output/00-intake/intake.json   # authorization、scope_summary、source_path、network_policy 等
+```
+
+示例：
+
+```bash
+python3 tools/enforced_audit_driver.py \
+  --source /path/to/source-package \
+  --out audit-output \
+  --profile standard \
+  --findings audit-output/05-findings/finding-index.json \
+  --public-records audit-output/machine/correlation/normalized-public-records.json
+```
+
+### full profile
 
 如需使用完整工具覆盖，显式选择 `full` profile：
 
@@ -71,6 +95,23 @@ python3 tools/enforced_audit_driver.py \
   --out audit-output \
   --profile full
 ```
+
+## 架构与 Manifest（Phase 1）
+
+Phase 1 在**不迁移** `tools/`、`workflows/` 的前提下，增加 manifest 驱动的加载层级与异常汇总：
+
+| 路径 | 用途 |
+|------|------|
+| `core/manifest.yaml` | L0–L4 加载层级、D0–D4 披露映射、driver `step_id` 与产物注册 |
+| `guides/index.json` | L1 阶段索引（由 `workflows/` 生成） |
+| `core/disclosure/load-tiers.md` | Agent 加载层级规范 |
+| `core/disclosure/finding-levels.md` | Finding 披露层级规范 |
+| `core/exceptions/` | 异常模型与 stage 策略 |
+| `audit-output/machine/exception-index.json` | 异常汇总（L1，coordinator 可读） |
+
+相关 gate 工具：`tools/validate_manifest.py`、`tools/validate_intake.py`、`tools/aggregate_exceptions.py`。
+
+`step_id` 对照表见 `docs/superpowers/specs/2026-06-30-pvas-layered-refactor-design.md` §3.4 或 `guides/index.json`。
 
 ## 完整审计流程
 
@@ -85,9 +126,30 @@ python3 tools/enforced_audit_driver.py \
 7. `06-report`：生成机器报告、中文主报告、英文报告和最终汇总。
 8. `07-disclosure`：生成维护者私下披露和修复后公开材料。
 
-父 agent 应保持上下文干净：只读取摘要、schema 化产物、候选 packet、验证摘要和最终报告；原始工具日志、fuzz 日志、大量源码切片保留在磁盘，不应塞入父上下文。
+父 agent（coordinator）应保持上下文干净，**仅读取 L1 摘要**（与 `AGENTS.md` 一致），例如：
+
+- `audit-output/00-intake/scope.md`
+- `audit-output/01-profile/package-profile.json`
+- `audit-output/02-tools/tool-summary.json`
+- `audit-output/03-candidates/candidate-summary.json`
+- `audit-output/04-validation/validation-summary.json`
+- `audit-output/05-findings/finding-index.json`
+- `audit-output/machine/exception-index.json`
+- 最终报告与披露草稿
+
+**禁止**将 L4 产物（原始 tool log、`02-tools/raw/`、全部 candidate packet、全量源码切片、fuzz 日志）塞入 coordinator 上下文。候选评审须委派 subagent，按 packet 批次处理。
+
+### 异常汇总与 complete audit 门禁
+
+driver 在 `--findings` 路径末尾写入 `audit-output/machine/exception-index.json`，汇总 blocked/recoverable/partial 阶段与 mandatory 工具异常。coordinator 通过该文件感知异常，无需读取 L4 原始日志。
+
+- intake 不清或无效 → `00-intake` blocked（`validate_intake.py`）
+- complete audit 缺 `jsonschema` → schema 校验 blocked（`EX-SCH-001`）
+- mandatory 工具（含 `semgrep`）未成功 → 记入 `halted_stages`
 
 ## 传统工具策略
+
+包画像与工具执行产物见上文「完整审计流程」；矩阵与扫描命令见「常用命令速查」。
 
 包画像阶段会生成：
 
@@ -310,9 +372,26 @@ python3 tools/generate_manual_validation_plan.py \
 
 ## 报告输出
 
-人读报告以简体中文为主，机器产物保持 JSON 结构。
+人读报告以简体中文为主，机器产物保持 JSON 结构。报告路径因调用方式而异：
 
-常见输出：
+| 场景 | 报告根目录 | 典型 final summary |
+|------|-----------|-------------------|
+| **`enforced_audit_driver`（推荐）** | `audit-output/`（`--out` 所指目录） | `audit-output/zh-CN/final-summary-report.md`、`audit-output/final-summary-report.md` |
+| **Standalone / workflow 文档** | `audit-output/06-report/`（`--out` 显式指定） | `audit-output/06-report/zh-CN/final-summary-report.md` |
+
+**Driver 路径**（`publish_bilingual_reports` / `generate_final_report` 的 `--out` 为 audit 根）：
+
+```text
+audit-output/machine/report.json          # 经 publish 写入（若执行了关联路径）
+audit-output/machine/final-report.json
+audit-output/zh-CN/final-summary-report.md
+audit-output/zh-CN/04-findings/
+audit-output/zh-CN/05-内部安全报告/internal-security-report.md
+audit-output/en-US/
+audit-output/machine/exception-index.json
+```
+
+**Standalone 路径**（`workflows/08-report.md` 示例，`--out audit-output/06-report`）：
 
 ```text
 audit-output/06-report/machine/report.json
@@ -322,6 +401,8 @@ audit-output/06-report/zh-CN/04-findings/
 audit-output/06-report/zh-CN/05-内部安全报告/internal-security-report.md
 audit-output/06-report/en-US/
 ```
+
+> **已知偏差：** driver 当前将 final report 写入 audit 根目录，而非 `06-report/` 子目录；workflow 文档仍使用 `06-report` 作为 standalone 约定。Phase 2 计划统一路径（见分层重构 spec）。
 
 最终汇总报告会聚合：
 
@@ -445,6 +526,16 @@ python3 tools/context_budget.py \
   --out audit-output/01-profile/context-budget.json
 ```
 
+检查 coordinator 任务包是否误含 L4 路径（读取 `core/manifest.yaml` 中的 `l4_forbidden_patterns`）：
+
+```bash
+python3 tools/context_budget.py \
+  --profile-dir audit-output/01-profile \
+  --packet-dir audit-output/03-candidates/packets \
+  --check-paths audit-output/02-tools/raw/semgrep.json \
+  --out audit-output/01-profile/context-budget.json
+```
+
 约束：
 
 - 父 agent 只读摘要。
@@ -460,31 +551,23 @@ python3 tools/context_budget.py \
 python3 tools/verify_environment.py --profile standard --out audit-output/00-environment
 ```
 
-项目画像：
+项目画像与工具矩阵、扫描：见「传统工具策略」；常用命令：
 
 ```bash
 bash tools/profile_project.sh /path/to/source audit-output/01-profile
-```
 
-生成工具矩阵：
-
-```bash
 python3 tools/generate_tool_matrix.py \
   --package-profile audit-output/01-profile/package-profile.json \
   --profile standard \
   --out audit-output/01-profile/required-tools-matrix.json
-```
 
-将 `--profile standard` 改为 `--profile full` 即可生成 full 工具矩阵。
-
-执行工具矩阵：
-
-```bash
 python3 tools/run_tool_matrix.py \
   --matrix audit-output/01-profile/required-tools-matrix.json \
   --source /path/to/source \
   --out audit-output/02-tools
 ```
+
+将 `--profile standard` 改为 `full` 可生成 full 工具矩阵。
 
 生成候选 packet：
 
@@ -496,13 +579,21 @@ python3 tools/make_ai_packets.py \
   --max-packets 20
 ```
 
-生成最终报告：
+生成最终报告（standalone；driver 路径见「报告输出」）：
 
 ```bash
 python3 tools/generate_final_report.py \
   --audit-root audit-output \
   --findings audit-output/05-findings/finding-index.json \
   --out audit-output/06-report
+```
+
+Manifest / intake / 异常汇总：
+
+```bash
+python3 tools/validate_manifest.py --root .
+python3 tools/validate_intake.py --intake-dir audit-output/00-intake
+python3 tools/aggregate_exceptions.py --audit-output audit-output
 ```
 
 运行测试：
@@ -542,7 +633,20 @@ audit-output/04-validation/poc-tests/FINDING-*/README.md
 
 ### 没有最终汇总报告
 
-确认已提供 findings，并且报告门禁通过：
+确认已提供 `--findings`，并且报告门禁通过。`--report-root` 须与报告实际写入目录一致：
+
+**Driver 路径**（报告在 audit 根）：
+
+```bash
+python3 tools/validate_report_completeness.py \
+  --findings audit-output/05-findings/finding-index.json \
+  --correlation audit-output/machine/correlation/public-vuln-correlation.json \
+  --report-root audit-output \
+  --poc-root audit-output/04-validation/poc-tests \
+  --manual-root audit-output/04-validation/manual-review
+```
+
+**Standalone 路径**（报告在 `06-report/`）：
 
 ```bash
 python3 tools/validate_report_completeness.py \
@@ -552,6 +656,8 @@ python3 tools/validate_report_completeness.py \
   --poc-root audit-output/04-validation/poc-tests \
   --manual-root audit-output/04-validation/manual-review
 ```
+
+Driver 写入的 final summary 通常在 `audit-output/zh-CN/final-summary-report.md`，而非 `06-report/` 下。
 
 ### 只有人工复核项，没有 Validated
 
@@ -563,6 +669,8 @@ python3 tools/validate_report_completeness.py \
 .
 ├── SKILL.md                         # Skill 入口和核心规则
 ├── AGENTS.md                        # 通用 agent 规则
+├── core/                            # manifest、L/D 披露、异常策略（Phase 1）
+├── guides/                          # L1 index.json（Phase 1）
 ├── workflows/                       # 00-09 工作流说明
 ├── agents/                          # 平台中立 agent 角色定义
 ├── adapters/                        # Claude Code / Codex / opencode 适配器
@@ -584,7 +692,7 @@ python3 tools/validate_report_completeness.py \
 ./run-tests.sh
 ```
 
-该命令会执行 schema、Context Budget、工具矩阵、semgrep 门禁、PoC、Manual Review、报告完整性、公开漏洞关联、脚本语法和 Python 编译检查。
+该命令会执行 schema、manifest、intake gate、exception-index、schema fail-closed、Context Budget（含 L4 路径拦截）、工具矩阵、semgrep 门禁、PoC、Manual Review、报告完整性、公开漏洞关联、脚本语法和 Python 编译检查。新增测试包括 `test_manifest_io.py`、`test_manifest.py`、`test_intake_gate.py`、`test_exception_index.py`、`test_schema_fail_closed.py`。
 
 ## 参考文档
 
@@ -593,4 +701,6 @@ python3 tools/validate_report_completeness.py \
 - `docs/runbooks/public-vulnerability-correlation.md`
 - `docs/runbooks/context-budget-guard.md`
 - `docs/superpowers/specs/2026-06-26-audit-workflow-gates-design.md`
+- `docs/superpowers/specs/2026-06-30-pvas-layered-refactor-design.md`
 - `docs/superpowers/plans/2026-06-26-audit-workflow-gates.md`
+- `docs/superpowers/plans/2026-06-30-pvas-layered-refactor-phase1.md`
