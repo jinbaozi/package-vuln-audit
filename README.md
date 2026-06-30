@@ -57,11 +57,20 @@ python3 tools/enforced_audit_driver.py \
 常用 profile：
 
 - `minimal`：最小工具集合，适合快速探索。
-- `standard`：默认审计基线。
-- `full`：更完整的工具覆盖。
+- `standard`：默认审计基线；未显式指定时不会自动启用 `full`。
+- `full`：更完整的工具覆盖，需要显式传入 `--profile full`，或设置 `PVAS_ENV_PROFILE=full`。
 - `binutils`：偏 C/C++、二进制解析器、构建和 sanitizer 验证场景。
 
 完整审计推荐使用 `tools/enforced_audit_driver.py`，因为它会执行工作流契约检查、环境检查、工具矩阵、Context Budget、候选 packet、PoC、公开漏洞关联和报告完整性门禁。
+
+如需使用完整工具覆盖，显式选择 `full` profile：
+
+```bash
+python3 tools/enforced_audit_driver.py \
+  --source /path/to/source-package \
+  --out audit-output \
+  --profile full
+```
 
 ## 完整审计流程
 
@@ -101,6 +110,26 @@ audit-output/02-tools/raw/
 - `not-applicable`：项目画像证明该工具不适用，并记录理由。
 
 `failed`、`timeout`、`not-installed`、`malformed-output`、`partial-output` 只是中间状态，不能作为完整审计中的最终降级理由。
+
+### full 工具覆盖
+
+默认 profile 是 `standard`。完整工具覆盖不会自动启用；需要在命令中显式传入 `--profile full`，或通过环境变量设置 `PVAS_ENV_PROFILE=full`。
+
+`full` profile 当前工具集合为：
+
+- `rg`
+- `semgrep`
+- `cppcheck`
+- `osv-scanner`
+- `npm`
+- `codeql`
+- `joern`
+- `syft`
+- `grype`
+- `trivy`
+- `afl-fuzz`
+
+这些工具是否实际运行，仍取决于本机安装状态、项目画像是否适用，以及 strict/default 模式下的阻断或降级策略。
 
 ### semgrep 强制要求
 
@@ -198,6 +227,22 @@ audit-output/04-validation/poc-tests/FINDING-*/
 - `README.md`：复现步骤。
 - `poc-manifest.json`：机器可校验元数据。
 - `poc-run-result.json`：实际执行结果，必须为 passed。
+
+### PoC 语言选择
+
+默认 PoC 生成语言为 `python`, `c`, `cpp`, `java`, `go`。生成器还会根据 finding 证据和 package profile 自动选择可用模板或运行时，包括 `perl`, `sh`, `rust`, `ruby`, `php`, `javascript`, `m4` 等。
+
+如需覆盖自动选择，可显式指定语言列表：
+
+```bash
+python3 tools/generate_poc_testcase.py \
+  --findings audit-output/05-findings/finding-index.json \
+  --generate-from-finding \
+  --languages python,c,cpp,java,go \
+  --out audit-output/04-validation/poc-tests
+```
+
+`Validated` finding 才能生成正式 PoC。`Needs Manual Review` 只允许生成 draft/unverified 草案或人工验证材料，不能作为已验证 PoC 使用。
 
 生成 PoC：
 
@@ -429,6 +474,8 @@ python3 tools/generate_tool_matrix.py \
   --profile standard \
   --out audit-output/01-profile/required-tools-matrix.json
 ```
+
+将 `--profile standard` 改为 `--profile full` 即可生成 full 工具矩阵。
 
 执行工具矩阵：
 
