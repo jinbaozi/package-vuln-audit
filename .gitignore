@@ -15,7 +15,7 @@ __pycache__/
 node_modules/
 .DS_Store
 .superpowers/
-.docs/superpowers/
+docs/superpowers/
 CLAUDE.md
 .claude
 .cursor
