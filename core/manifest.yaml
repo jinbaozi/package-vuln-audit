@@ -44,6 +44,8 @@ l4_forbidden_patterns:
   - "audit-output/**/packets/**"
   - "audit-output/**/all-files.txt"
   - "audit-output/**/source-files.txt"
+  - "offline-bundle/vuln-db/openeuler/cve-index.json"
+  - "offline-bundle/vuln-db/openeuler/records.json"
 
 stages:
   - step_id: "00-intake"
@@ -114,6 +116,12 @@ artifacts:
   - id: templates
     path_pattern: templates/**
     load_tier: L3
+  - id: public-vuln-correlation
+    path_pattern: audit-output/machine/correlation/public-vuln-correlation.json
+    load_tier: L1
+  - id: apply-correlation-result
+    path_pattern: audit-output/machine/correlation/apply-correlation-result.json
+    load_tier: L1
 
 exception_aggregation:
   index_path: audit-output/machine/exception-index.json

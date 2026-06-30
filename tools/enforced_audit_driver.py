@@ -7,10 +7,12 @@ from one place. Heavy security judgment remains delegated to subagents; this
 script enforces artifact presence and machine-checkable decisions.
 """
 from __future__ import annotations
-import argparse, json, os, pathlib, subprocess, sys
+import argparse, json, os, pathlib, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOOLS_DIR = ROOT / 'tools'
+OPENEULER_INDEX = ROOT / 'offline-bundle' / 'vuln-db' / 'openeuler' / 'cve-index.json'
+OPENEULER_MANIFEST = ROOT / 'offline-bundle' / 'vuln-db' / 'openeuler' / 'manifest.json'
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
@@ -180,15 +182,45 @@ def main() -> int:
 
     if args.public_records:
         corr = out/'machine/correlation/public-vuln-correlation.json'
-        run([sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(out/'machine/correlation/offline-db-freshness.json')], allow_fail=True)
+        apply_result = out / 'machine' / 'correlation' / 'apply-correlation-result.json'
+        freshness_cmd = [
+            sys.executable, 'tools/check_offline_db_freshness.py',
+            '--out', str(out/'machine/correlation/offline-db-freshness.json'),
+        ]
+        if OPENEULER_MANIFEST.is_file():
+            freshness_cmd.extend(['--extra-manifest', str(OPENEULER_MANIFEST)])
+        run(freshness_cmd, allow_fail=True)
         norm_records = out / 'machine' / 'correlation' / 'normalized-public-records.json'
         run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
-        run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', str(norm_records), '--out', str(corr)], allow_fail=False)
+        correlate_cmd = [
+            sys.executable, 'tools/correlate_public_vulns.py',
+            '--findings', args.findings,
+            '--records', str(norm_records),
+            '--openeuler-index', str(OPENEULER_INDEX),
+            '--out', str(corr),
+        ]
+        run(correlate_cmd, allow_fail=False)
+        run([
+            sys.executable, 'tools/apply_correlation_to_findings.py',
+            '--findings', args.findings,
+            '--correlation', str(corr),
+            '--out', args.findings,
+        ], allow_fail=False)
+        cvss_issues = validate_cvss31_findings(args.findings)
+        write_step(
+            out, '07-cvss31-validation',
+            'completed' if not cvss_issues else 'partial',
+            'continue',
+            inputs=[args.findings],
+            outputs=[],
+            limitations=cvss_issues or [],
+        )
         run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out), '--skip-final-report'], allow_fail=False)
         rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--out', str(out/'machine/report-completeness.json')], allow_fail=True)
         write_step(out, '08-report', 'completed' if rc == 0 else 'failed', 'continue' if rc == 0 else 'block',
-                   inputs=[args.findings, str(corr)], outputs=[str(corr), str(out/'machine/report-completeness.json')],
-                   issues=[] if rc == 0 else ['report completeness failed'])
+                   inputs=[args.findings, str(corr)], outputs=[str(corr), str(apply_result), str(out/'machine/report-completeness.json')],
+                   issues=[] if rc == 0 else ['report completeness failed'],
+                   limitations=cvss_issues or [])
         if rc != 0:
             refresh_exception_index(out)
             return rc
@@ -208,6 +240,35 @@ def main() -> int:
 
     refresh_exception_index(out)
     return 0
+
+
+def validate_cvss31_findings(findings_path: str) -> list[str]:
+    """Validate CVSS v3.1 blocks for Validated findings; return warning messages."""
+    raw = load_json(findings_path, required=True)
+    findings_list_data = raw.get('findings') if isinstance(raw, dict) and 'findings' in raw else (
+        raw if isinstance(raw, list) else []
+    )
+    issues: list[str] = []
+    for f in findings_list_data:
+        if f.get('status') != 'Validated':
+            continue
+        cvss = f.get('cvss') or {}
+        if cvss.get('version') != '3.1':
+            continue
+        fid = f.get('id', '?')
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+            json.dump({'cvss': cvss}, tf)
+            tf_path = tf.name
+        try:
+            rc, out = run([
+                sys.executable, 'tools/cvss31_calculator.py',
+                '--validate', '--in', tf_path,
+            ], allow_fail=True)
+            if rc != 0:
+                issues.append(f'{fid}: CVSS v3.1 validation failed: {out.strip()[-500:]}')
+        finally:
+            pathlib.Path(tf_path).unlink(missing_ok=True)
+    return issues
 
 
 def validate_finding_schema(findings_path: str, out_root: pathlib.Path, *, complete_audit: bool = False) -> int:

@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.10.0-alpha11 — Balanced simplification
+## 0.10.0-alpha11 — Balanced simplification + CVSS 3.1 + openEuler registry
 
+### Balanced simplification
 - Unified env flags (`pvas_env`), budget helpers (`budget_common`), sha256 (`pvas_io`)
 - Single strict env gate on driver path (`PVAS_SKIP_ENV_GATE`)
 - Manifest `registered_schemas` single source; auditable manifest validation step
@@ -9,6 +10,17 @@
 - `pvas_io` adoption expanded to 20+ tools; `emit_gate_result` for gate artifacts
 - Language isolation check merged into `validate_report_completeness`
 - `stage-policies.yaml` path corrections; guides index drift CI
+
+### CVSS 3.1
+- **Changed:** Default CVSS v3.1 (was v4.0); new `tools/cvss31_calculator.py` aligned with FIRST spec / cvssjs
+- Added `references/cvss31-scoring-guide.md`; cvss-scorer must run calculator `--validate`
+- Driver CVSS validation step (warn-only) for Validated findings with 3.1 vectors
+
+### openEuler CVE registry + public correlation
+- **Added:** `tools/import_openeuler_vuln_registry.py` + offline bundle under `offline-bundle/vuln-db/openeuler/`
+- **Added:** M3-CVE path (CVE exact match in openEuler-Registry → `publicly_disclosed`)
+- **Added:** `tools/apply_correlation_to_findings.py` (writes `disclosure_status` + refs; does not escalate `disclosure_level`)
+- D2 internal report: openEuler disposition column; manifest L4/L1 bindings for progressive disclosure
 
 ## 0.10.0-alpha10
 

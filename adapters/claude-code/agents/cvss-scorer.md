@@ -1,6 +1,6 @@
 ---
 name: cvss-scorer
-description: Scores Likely/Validated candidates using CVSS v4.0 with uncertainty tracking.
+description: Scores Likely/Validated candidates using CVSS v3.1; must run cvss31_calculator --validate.
 tools: Read, Write
 ---
 

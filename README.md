@@ -1,706 +1,569 @@
 # package-vuln-audit-skill
 
-**当前版本：** `0.10.0-alpha10`（见 `skill.json`）
+> 面向授权软件包源码漏洞审计的防御性 Agent Skill。
+>
+> 它把传统安全工具、AI 辅助源码分析、subagent 编排、候选评审、验证证据、CVSS 评分、PoC/回归测试材料、中文报告与渐进式披露流程组织成一套可复用、可审查、可交付的审计工作流。
 
-`package-vuln-audit-skill` 是一个面向软件包源码的防御性漏洞审计 Agent Skill。它把传统安全工具、AI 辅助源码分析、子 agent 编排、验证证据、CVSS 评分、PoC/回归测试材料、中文主报告和渐进式披露流程组合成一套可复用的审计工作流。
+![Status](https://img.shields.io/badge/status-0.10.0--alpha10-orange)
+![Type](https://img.shields.io/badge/type-Agent%20Skill-blue)
+![Platforms](https://img.shields.io/badge/platform-Claude%20Code%20%7C%20Codex%20%7C%20opencode-purple)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-本项目不是“自动宣称漏洞”的扫描器。它的目标是帮助审计人员在授权范围内系统化地发现、评审、验证和报告软件包漏洞，并确保每个结论都能追溯到真实源码和验证证据。
+`package-vuln-audit-skill` 不是“自动宣称漏洞”的扫描器，也不是攻击链或武器化 exploit 生成框架。它的目标是在授权范围内，帮助审计人员把源码审计、传统工具结果、AI 假设、人工评审、验证证据、报告输出和披露材料纳入同一条可追踪证据链。
 
-## 适用场景
+---
+
+## 目录
+
+- [1. 项目概览](#1-项目概览)
+  - [1.1 适用场景](#11-适用场景)
+  - [1.2 不适用场景](#12-不适用场景)
+  - [1.3 核心能力](#13-核心能力)
+- [2. 在 AI 工具中使用](#2-在-ai-工具中使用)
+  - [2.1 Claude Code](#21-claude-code)
+  - [2.2 opencode](#22-opencode)
+  - [2.3 Codex](#23-codex)
+  - [2.4 推荐提示词](#24-推荐提示词)
+- [3. 审计工作流](#3-审计工作流)
+  - [3.1 分阶段流程](#31-分阶段流程)
+  - [3.2 候选状态机](#32-候选状态机)
+  - [3.3 证据准入规则](#33-证据准入规则)
+- [4. 产物与报告](#4-产物与报告)
+  - [4.1 输出目录](#41-输出目录)
+  - [4.2 报告类型](#42-报告类型)
+  - [4.3 PoC、回归测试与人工复核](#43-poc回归测试与人工复核)
+- [5. 工具、规则与扩展](#5-工具规则与扩展)
+  - [5.1 Profile](#51-profile)
+  - [5.2 传统工具策略](#52-传统工具策略)
+  - [5.3 Agents 与上下文隔离](#53-agents-与上下文隔离)
+  - [5.4 Schemas 与模板](#54-schemas-与模板)
+- [6. 维护与安全边界](#6-维护与安全边界)
+  - [6.1 项目结构](#61-项目结构)
+  - [6.2 开发验证](#62-开发验证)
+  - [6.3 安全边界](#63-安全边界)
+  - [6.4 License](#64-license)
+
+---
+
+## 1. 项目概览
+
+`package-vuln-audit-skill` 是一个平台中立的 Agent Skill。它适合安装到 Claude Code、Codex、opencode 或其他兼容 Agent Skill / repository instruction 的 AI 编程代理环境中。
+
+它以 `SKILL.md`、`AGENTS.md`、`workflows/`、`agents/`、`schemas/`、`templates/` 和 `references/` 为核心，将审计任务拆分为若干独立阶段，并要求每个阶段输出可审查、可复核、可机器校验的产物。
+
+### 1.1 适用场景
+
+适合使用本 Skill 的场景包括：
 
 - 对本地源码包、开源项目 checkout、内部组件仓库进行授权漏洞审计。
 - 对依赖漏洞、解析器漏洞、命令行工具漏洞、构建系统漏洞、认证/加密逻辑缺陷等进行系统化分析。
 - 将传统工具结果、AI 假设、人工评审和验证证据统一整理为结构化产物。
-- 为已验证问题生成本地 PoC/回归测试包。
-- 为需要人工确认的问题生成验证计划，方便后续审阅和复现。
-- 生成中文优先的人读报告，同时保留机器 JSON 和英文披露材料。
+- 为已验证问题生成本地 PoC / 回归测试材料。
+- 为无法自动确认但证据有价值的问题生成人工验证计划。
+- 生成中文优先的人读报告，同时保留机器 JSON 产物和英文披露材料。
+- 将已验证 finding 与已配置的公开漏洞数据源进行关联。
 
-## 不适用场景
+### 1.2 不适用场景
 
-- 未授权的第三方系统扫描。
+本项目不适用于以下场景：
+
+- 未授权第三方系统扫描。
 - 远程目标利用、攻击链开发、持久化、规避或武器化 exploit 生成。
 - 没有源码或没有合法审计权限的目标。
 - 将工具告警或 AI 假设直接当作漏洞结论。
 - 在未验证、未协调的情况下生成公开 advisory 或公开 PoC。
+- 承诺“自动发现所有漏洞”或“自动确认 0-day”。
 
-## 安全边界
+### 1.3 核心能力
 
-本 Skill 只用于授权防御性源码审计。
+| 能力 | 说明 |
+|---|---|
+| 授权范围确认 | 在 intake 阶段记录目标、版本、授权、网络策略、工具权限和披露策略。 |
+| 包画像 | 识别语言、构建系统、输入面、高风险模块和适用 recipe。 |
+| 工具基线 | 对传统工具结果进行执行、归一化和摘要输出。 |
+| AI 假设 | 基于源码切片、recipe 和上下文预算生成候选漏洞假设。 |
+| 候选评审 | 将工具命中、AI 假设和 fuzz/sanitizer 反馈纳入统一状态机。 |
+| 本地验证 | 对 Likely 候选进行本地验证、静态反证、sanitizer/fuzz/testcase 验证。 |
+| 报告输出 | 输出中文主报告、机器 JSON、英文披露材料和最终摘要。 |
+| 渐进式披露 | 按内部报告、维护者私下披露、修复后公开 advisory 的流程组织材料。 |
 
-必须遵守以下规则：
+---
 
-- 不编造文件、函数、行号、调用链、CVE、CVSS、PoC 或漏洞。
-- 工具输出只是候选线索，不是漏洞事实。
-- AI 假设必须经过源码证据和验证流程。
-- `Candidate` 和 `Likely` 不能作为最终漏洞报告。
-- 只有 `Validated` 和明确标记的 `Needs Manual Review` 可以进入正式人读报告。
-- 正式可执行 PoC 包只允许用于 `Validated` finding 的本地复现和回归测试。
-- `Needs Manual Review` 只生成安全的人工验证计划和测试方法，不生成正式 PoC 包。
+## 2. 在 AI 工具中使用
 
-## 支持的平台
+本 README 面向 AI 工具使用者，不直接暴露底层工具脚本的逐条调用方式。底层脚本、schemas 和模板由 Agent Skill 在执行过程中调度，用户主要通过 Claude Code、opencode 或 Codex 的项目级指令和命令入口使用本 Skill。
 
-核心规则以根目录 `SKILL.md`、`AGENTS.md`、`core/`、`guides/`、`workflows/`、`references/`、`tools/`、`schemas/` 为准。Phase 1 已引入 `core/manifest.yaml` 与 `guides/index.json`，但 `workflows/` 与 `schemas/` 物理路径尚未迁移（见分层重构 spec）。平台适配器只是入口和提示词映射。
+### 2.1 Claude Code
 
-- Claude Code：`adapters/claude-code/`
-- Codex：`adapters/codex/`
-- opencode：`adapters/opencode/`
-
-## 快速开始
-
-在本仓库根目录中，针对某个待审计源码目录运行完整审计驱动器：
-
-```bash
-python3 tools/enforced_audit_driver.py \
-  --source /path/to/source-package \
-  --out audit-output \
-  --profile standard
-```
-
-常用 profile：
-
-- `minimal`：最小工具集合，适合快速探索。
-- `standard`：默认审计基线；未显式指定时不会自动启用 `full`。
-- `full`：更完整的工具覆盖，需要显式传入 `--profile full`，或设置 `PVAS_ENV_PROFILE=full`。
-- `binutils`：偏 C/C++、二进制解析器、构建和 sanitizer 验证场景。
-
-完整审计推荐使用 `tools/enforced_audit_driver.py`，因为它会执行：工作流契约检查、intake preflight（`--findings` 路径）、manifest 校验（warn）、环境检查、工具矩阵、Context Budget、候选 packet 生成、finding schema 校验（complete audit 下 **fail-closed**，需 `jsonschema`）、PoC、公开漏洞关联、报告完整性门禁，以及 `exception-index.json` 汇总。
-
-### Complete audit（`--findings`）
-
-在机械阶段完成后，提供 findings JSON 以触发最终报告门禁。`--findings` 路径会启用 intake 强制校验，需事先写入：
+安装适配器后，目标仓库中会出现以下关键入口：
 
 ```text
-audit-output/00-intake/scope.md
-audit-output/00-intake/intake.json   # authorization、scope_summary、source_path、network_policy 等
+.claude/skills/package-vuln-audit/
+.claude/commands/package-vuln-audit.md
+.claude/agents/
+CLAUDE.md
 ```
 
-示例：
-
-```bash
-python3 tools/enforced_audit_driver.py \
-  --source /path/to/source-package \
-  --out audit-output \
-  --profile standard \
-  --findings audit-output/05-findings/finding-index.json \
-  --public-records audit-output/machine/correlation/normalized-public-records.json
-```
-
-### full profile
-
-如需使用完整工具覆盖，显式选择 `full` profile：
-
-```bash
-python3 tools/enforced_audit_driver.py \
-  --source /path/to/source-package \
-  --out audit-output \
-  --profile full
-```
-
-## 架构与 Manifest（Phase 1）
-
-Phase 1 在**不迁移** `tools/`、`workflows/` 的前提下，增加 manifest 驱动的加载层级与异常汇总：
-
-| 路径 | 用途 |
-|------|------|
-| `core/manifest.yaml` | L0–L4 加载层级、D0–D4 披露映射、driver `step_id` 与产物注册 |
-| `guides/index.json` | L1 阶段索引（由 `workflows/` 生成） |
-| `core/disclosure/load-tiers.md` | Agent 加载层级规范 |
-| `core/disclosure/finding-levels.md` | Finding 披露层级规范 |
-| `core/exceptions/` | 异常模型与 stage 策略 |
-| `audit-output/machine/exception-index.json` | 异常汇总（L1，coordinator 可读） |
-
-相关 gate 工具：`tools/validate_manifest.py`、`tools/validate_intake.py`、`tools/aggregate_exceptions.py`。
-
-`step_id` 对照表见 `docs/superpowers/specs/2026-06-30-pvas-layered-refactor-design.md` §3.4 或 `guides/index.json`。
-
-## 完整审计流程
-
-完整流程按阶段写入 `audit-output/`：
-
-1. `00-intake`：授权、范围、版本、工具权限、网络策略和披露策略。
-2. `01-profile`：识别语言、构建系统、输入面、高风险模块、recipe 和工具矩阵。
-3. `02-tools`：按工具矩阵执行传统工具扫描。
-4. `03-candidates`：归一化工具结果、AI 假设、候选排序和 packet 生成。
-5. `04-validation`：验证 `Likely`、生成 PoC 包或人工验证计划。
-6. `05-findings`：保存 finding、CVSS 和最终证据结构。
-7. `06-report`：生成机器报告、中文主报告、英文报告和最终汇总。
-8. `07-disclosure`：生成维护者私下披露和修复后公开材料。
-
-父 agent（coordinator）应保持上下文干净，**仅读取 L1 摘要**（与 `AGENTS.md` 一致），例如：
-
-- `audit-output/00-intake/scope.md`
-- `audit-output/01-profile/package-profile.json`
-- `audit-output/02-tools/tool-summary.json`
-- `audit-output/03-candidates/candidate-summary.json`
-- `audit-output/04-validation/validation-summary.json`
-- `audit-output/05-findings/finding-index.json`
-- `audit-output/machine/exception-index.json`
-- 最终报告与披露草稿
-
-**禁止**将 L4 产物（原始 tool log、`02-tools/raw/`、全部 candidate packet、全量源码切片、fuzz 日志）塞入 coordinator 上下文。候选评审须委派 subagent，按 packet 批次处理。
-
-### 异常汇总与 complete audit 门禁
-
-driver 在 `--findings` 路径末尾写入 `audit-output/machine/exception-index.json`，汇总 blocked/recoverable/partial 阶段与 mandatory 工具异常。coordinator 通过该文件感知异常，无需读取 L4 原始日志。
-
-- intake 不清或无效 → `00-intake` blocked（`validate_intake.py`）
-- complete audit 缺 `jsonschema` → schema 校验 blocked（`EX-SCH-001`）
-- mandatory 工具（含 `semgrep`）未成功 → 记入 `halted_stages`
-
-## 传统工具策略
-
-包画像与工具执行产物见上文「完整审计流程」；矩阵与扫描命令见「常用命令速查」。
-
-包画像阶段会生成：
+推荐使用方式：
 
 ```text
-audit-output/01-profile/required-tools-matrix.json
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20
 ```
 
-工具执行阶段会生成：
+也可以按阶段执行：
 
 ```text
-audit-output/02-tools/tool-summary.json
-audit-output/02-tools/tool-execution-attempts.json
-audit-output/02-tools/raw/
+/package-profile
+/package-vuln-audit
+/hypothesis-hunt
+/candidate-review
+/validate
 ```
 
-工具最终状态只能是：
+Claude Code 适配器要求：
 
-- `completed`：成功执行并保留输出。
-- `blocked`：计划内工具应执行但无法完成，完整审计被阻断。
-- `not-applicable`：项目画像证明该工具不适用，并记录理由。
+- 根规则以 `SKILL.md` 和 `AGENTS.md` 为准。
+- 父会话只读取摘要、索引、candidate packet、验证摘要和最终报告。
+- 原始工具日志、fuzz 日志、大量源码切片交给 subagent 处理。
+- 除非用户明确进入 patch 模式，否则不得修改目标源码。
+- PoC / testcase 只允许服务于 `Validated` finding 的本地复现和回归测试。
 
-`failed`、`timeout`、`not-installed`、`malformed-output`、`partial-output` 只是中间状态，不能作为完整审计中的最终降级理由。
+### 2.2 opencode
 
-### full 工具覆盖
-
-默认 profile 是 `standard`。完整工具覆盖不会自动启用；需要在命令中显式传入 `--profile full`，或通过环境变量设置 `PVAS_ENV_PROFILE=full`。
-
-`full` profile 当前工具集合为：
-
-- `rg`
-- `semgrep`
-- `cppcheck`
-- `osv-scanner`
-- `npm`
-- `codeql`
-- `joern`
-- `syft`
-- `grype`
-- `trivy`
-- `afl-fuzz`
-
-这些工具是否实际运行，仍取决于本机安装状态、项目画像是否适用，以及 strict/default 模式下的阻断或降级策略。
-
-### semgrep 强制要求
-
-完整审计中 `semgrep` 是 mandatory 工具。
-
-如果 `semgrep` 缺失、超时、执行失败或输出不可用，流程必须进入恢复或阻断，不能静默降级。恢复方式包括安装助手、扩大超时、拆分扫描范围、切换本地规则集或要求用户补充规则集。
-
-## 工具安装和缺失处理
-
-先运行环境检查：
-
-```bash
-python3 tools/verify_environment.py \
-  --profile standard \
-  --out audit-output/00-environment
-```
-
-生成安装计划：
-
-```bash
-python3 tools/generate_install_plan.py \
-  --environment-check audit-output/00-environment/environment-check.json \
-  --out audit-output/00-environment
-```
-
-如果严格模式下缺少强制工具，可进入安装助手：
-
-```bash
-python3 tools/install_assistant.py \
-  --tools semgrep,osv-scanner \
-  --mode strict \
-  --dry-run \
-  --out audit-output/00-environment
-```
-
-安装策略默认保守：
-
-- 默认不自动安装。
-- 优先使用 offline bundle、Python/pipx/uv、npm/npx、用户目录二进制。
-- 默认避免 `sudo`、系统包管理器、`/usr/local/bin` 和 `curl | sh`。
-- 只有显式授权后才允许写入用户可控前缀，例如 `~/.pvas`。
-
-## 候选状态机
-
-工具结果和 AI 假设都不是漏洞。状态机如下：
+安装适配器后，目标仓库中会出现以下关键入口：
 
 ```text
-Raw Tool Hit -> T-CAND
-AI Hypothesis -> A-CAND
-Fuzz/Sanitizer Feedback -> F-CAND
-T-CAND/A-CAND/F-CAND -> Candidate Review -> Rejected | Candidate | Likely | Needs Manual Review
-Likely -> Validation -> Validated | Rejected | Needs Manual Review
-Validated -> CVSS Scoring -> Internal Report -> Maintainer Private Disclosure -> Public Advisory After Fix
+.opencode/opencode.json
+.opencode/commands/package-vuln-audit.md
+.opencode/agents/
+.opencode/skills/package-vuln-audit/
+```
+
+推荐使用方式：
+
+```text
+请使用 package-vuln-audit 工作流审计当前仓库。
+审计范围：当前工作区。
+输出目录：audit-output。
+profile：standard。
+要求：保持父上下文干净，只读取摘要和 schema 化产物；不要把 raw log、SARIF、fuzz 输出直接塞入主上下文。
+```
+
+opencode 适配器提供 `coordinator` 主 agent，并将高噪声任务拆给多个 subagent，例如：
+
+- `@package-profiler`：包画像与 recipe 选择。
+- `@tool-runner`：授权工具执行与摘要。
+- `@hypothesis-hunter`：AI 漏洞假设生成。
+- `@candidate-reviewer`：候选证据评审。
+- `@validator`：本地验证、sanitizer、fuzz replay、静态反证。
+- `@cvss-scorer`：CVSS v3.1 评分（须 `cvss31_calculator --validate`）。
+- `@report-writer`：从准入 finding 生成报告。
+- `@public-vuln-correlator`：公开漏洞关联。
+- `@tool-install-assistant`：受控工具安装辅助。
+
+### 2.3 Codex
+
+Codex 适配器主要依赖目标仓库根目录的 `AGENTS.md` 和 `.codex/skills/package-vuln-audit/`。
+
+安装适配器后，目标仓库中会出现以下关键入口：
+
+```text
+AGENTS.md
+.codex/skills/package-vuln-audit/
+```
+
+推荐使用方式：
+
+```text
+请按 AGENTS.md 中的 package-vuln-audit 规则，对当前仓库做一次授权防御性源码漏洞审计。
+
+要求：
+1. 不要直接读取全仓库原始日志或大规模源码内容到主上下文。
+2. 如果没有原生 subagent，请用独立任务包模拟 subagent。
+3. 只将摘要、候选 packet、验证结果、finding 索引和最终报告返回到主上下文。
+4. Candidate 和 Likely 不能作为最终漏洞结论。
+5. Validated finding 必须包含源码证据、验证证据、误报排除、CVSS 和公开漏洞关联结论。
+```
+
+Codex 如果没有原生 subagent，应通过“独立任务包 + 独立调用 + 摘要回传”的方式模拟 subagent，避免父上下文被工具日志、扫描结果和大规模源码内容污染。
+
+### 2.4 推荐提示词
+
+#### 完整审计
+
+```text
+使用 package-vuln-audit-skill 对当前项目做一次授权防御性漏洞审计。
+
+审计目标：当前仓库
+输出目录：audit-output
+profile：standard
+候选数量上限：20
+
+要求：
+- 严格读取 SKILL.md、AGENTS.md、workflows、agents、schemas、templates 和 references。
+- 不要只阅读 workflow 描述后就生成报告。
+- 传统工具缺失时，不要静默跳过；按 strict/default 策略阻断、降级或进入受控安装辅助。
+- 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
+- 只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
+- 每个 Validated finding 必须进行公开漏洞关联。
+- 最终输出中文主报告、机器 JSON、英文披露材料和剩余风险说明。
+```
+
+#### 严格模式审计
+
+```text
+使用 package-vuln-audit-skill 对当前项目做严格模式审计。
+
+要求：
+- required 工具缺失时暂停审计，不得静默跳过。
+- 进入工具安装辅助时，只读取安装摘要和决策结果，不读取完整安装日志。
+- 默认不使用 sudo，不改系统组件，不自动执行系统包管理器。
+- 如需安装工具，优先 offline bundle、用户目录安装和受控前缀。
+- 所有阻断、降级和人工复核项都必须写入最终报告。
+```
+
+#### 只做报告整理
+
+```text
+读取 audit-output 中已有的审计产物，使用 package-vuln-audit-skill 生成最终报告。
+
+要求：
+- 不重新扫描源码。
+- 只读取 summary、finding index、validation result、CVSS、public vulnerability correlation 和 disclosure artifacts。
+- 区分 Validated Findings 与 Needs Manual Review。
+- 中文主报告应可直接用于内部安全评审。
+- 英文披露材料应面向维护者私下沟通，不包含未协调公开的武器化细节。
+```
+
+---
+
+## 3. 审计工作流
+
+### 3.1 分阶段流程
+
+完整审计按阶段组织，核心流程如下：
+
+```text
+授权与范围确认
+  ↓
+包画像与 recipe 选择
+  ↓
+工具基线与结果摘要
+  ↓
+候选归一化与 AI 假设生成
+  ↓
+候选评审与排序
+  ↓
+本地验证 / 静态反证 / 人工复核计划
+  ↓
+CVSS 评分与 finding 固化
+  ↓
+中文报告 / 英文披露 / 公开漏洞关联
+  ↓
+渐进式披露材料
+```
+
+对应 workflow：
+
+| 阶段 | 文件 | 作用 |
+|---|---|---|
+| 00 | `workflows/00-intake.md` | 授权、范围、版本、权限、网络策略、披露策略。 |
+| 01 | `workflows/01-package-profile.md` | 语言、构建系统、输入面、高风险模块和 recipe 选择。 |
+| 02 | `workflows/02-scope-selection.md` | 选择审计范围，避免无边界全仓库读取。 |
+| 03 | `workflows/03-tool-scan.md` | 传统工具基线与工具摘要。 |
+| 04 | `workflows/04-ai-hypothesis.md` | AI 辅助漏洞假设生成。 |
+| 05 | `workflows/05-candidate-review.md` | 候选证据评审与状态更新。 |
+| 06 | `workflows/06-validation.md` | 本地验证、反证、PoC/回归材料或人工验证计划。 |
+| 07 | `workflows/07-cvss-scoring.md` | CVSS v3.1 评分和理由。 |
+| 08 | `workflows/08-report.md` | 机器报告、中文主报告、英文报告。 |
+| 09 | `workflows/09-progressive-disclosure.md` | 维护者私下披露与修复后公开材料。 |
+
+### 3.2 候选状态机
+
+工具结果和 AI 假设都不是漏洞事实。所有候选必须进入状态机：
+
+```text
+Raw Tool Hit  → T-CAND
+AI Hypothesis → A-CAND
+Fuzz/Sanitizer Feedback → F-CAND
+
+T-CAND / A-CAND / F-CAND
+  → Candidate Review
+  → Rejected | Candidate | Likely | Needs Manual Review
+
+Likely
+  → Validation
+  → Validated | Rejected | Needs Manual Review
+
+Validated
+  → CVSS Scoring
+  → Internal Report
+  → Maintainer Private Disclosure
+  → Public Advisory After Fix
 ```
 
 状态含义：
 
-- `Raw Tool Hit`：原始工具命中。
-- `AI Hypothesis`：AI 提出的源码假设。
-- `Candidate`：有价值但证据仍不足。
-- `Likely`：证据较强，值得进入验证。
-- `Needs Manual Review`：自动验证不足，需要人工确认。
-- `Validated`：已通过本地验证，满足最终 finding 准入条件。
-- `Rejected`：证据不足或已排除。
+| 状态 | 含义 | 是否可作为最终漏洞 |
+|---|---|---|
+| `Raw Tool Hit` | 原始工具命中。 | 否 |
+| `AI Hypothesis` | AI 提出的源码假设。 | 否 |
+| `Candidate` | 有价值但证据不足。 | 否 |
+| `Likely` | 证据较强，值得验证。 | 否 |
+| `Needs Manual Review` | 自动验证不足，需要人工确认。 | 可进入报告，但必须明确标注为人工复核项 |
+| `Validated` | 已通过本地验证，满足 finding 准入条件。 | 是 |
+| `Rejected` | 证据不足或已排除。 | 否 |
 
-## Validated finding 要求
+### 3.3 证据准入规则
 
 每个 `Validated` finding 必须包含：
 
-- 真实源码路径、函数名、行号范围。
+- 真实源码路径、函数名和行号范围。
 - 不可信输入源或攻击者可控字段。
 - sink 或危险操作。
 - source-to-sink 路径或明确可达性论证。
-- 验证证据，例如 sanitizer、fuzz、测试用例、单元测试或静态反证结果。
-- PoC 执行结果。
+- 本地验证证据，例如 sanitizer、fuzz、测试用例、单元测试、静态反证结果。
 - 误报排除说明。
 - 修复建议和回归测试建议。
-- CVSS v4.0 评分和理由。
-- 披露级别。
+- CVSS v3.1 评分和理由。
+- 公开漏洞关联结论。
+- 披露级别与披露建议。
 
-## PoC 和复现材料
+禁止将以下内容直接写成漏洞结论：
 
-正式 PoC 包只为 `Validated` finding 生成，路径为：
+- 单条工具告警。
+- 未验证的 AI 猜测。
+- 缺少源码证据的调用链。
+- 缺少触发条件的崩溃信息。
+- 缺少公开来源的 CVE / CVSS / 公开披露状态。
+
+---
+
+## 4. 产物与报告
+
+### 4.1 输出目录
+
+默认审计输出目录为 `audit-output/`。推荐结构如下：
 
 ```text
-audit-output/04-validation/poc-tests/FINDING-*/
+audit-output/
+├── 00-intake/                  # 授权、范围、策略
+├── 01-profile/                 # 包画像、recipe、工具矩阵
+├── 02-tools/                   # 工具摘要与原始工具输出索引
+├── 03-candidates/              # 候选、排序、AI packet
+├── 04-validation/              # 验证结果、PoC/回归测试、人工复核计划
+├── 05-findings/                # finding 索引、CVSS、最终证据结构
+├── 06-report/                  # 中文报告、英文报告、机器 JSON
+├── 07-disclosure/              # 维护者披露和公开材料
+└── machine/                    # 跨阶段机器产物，例如公开漏洞关联
 ```
 
-每个 PoC 包至少包含：
+父 agent 不应把这些目录中的原始大文件全部读入上下文。推荐读取顺序是：
 
-- `reproduce.sh`：本地复现脚本，必须使用 timeout。
-- `input-description.md`：输入说明、SHA256、用途。
-- `expected-vulnerable.txt`：脆弱版本预期行为。
-- `expected-fixed.txt`：修复版本预期行为。
-- `README.md`：复现步骤。
-- `poc-manifest.json`：机器可校验元数据。
-- `poc-run-result.json`：实际执行结果，必须为 passed。
+1. 阶段 summary。
+2. schema 化 JSON。
+3. candidate packet。
+4. validation result。
+5. finding index。
+6. final report。
 
-### PoC 语言选择
+### 4.2 报告类型
 
-默认 PoC 生成语言为 `python`, `c`, `cpp`, `java`, `go`。生成器还会根据 finding 证据和 package profile 自动选择可用模板或运行时，包括 `perl`, `sh`, `rust`, `ruby`, `php`, `javascript`, `m4` 等。
+| 报告 | 用途 |
+|---|---|
+| 中文主报告 | 内部安全评审、研发沟通、管理层汇报。 |
+| 机器 JSON | 自动化校验、二次处理、CI/归档。 |
+| 英文披露材料 | 面向上游维护者的私下沟通。 |
+| 公开 advisory 草案 | 修复后、协调后再进入公开阶段。 |
+| 人工复核计划 | 对 `Needs Manual Review` 项提供安全验证路径。 |
 
-如需覆盖自动选择，可显式指定语言列表：
+最终报告必须区分：
 
-```bash
-python3 tools/generate_poc_testcase.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --generate-from-finding \
-  --languages python,c,cpp,java,go \
-  --out audit-output/04-validation/poc-tests
-```
+- `Validated Findings`
+- `Needs Manual Review`
+- `Rejected / False Positive`
+- 工具阻断与降级情况
+- 剩余风险
+- 公开漏洞关联状态
+- 后续人工跟进清单
 
-`Validated` finding 才能生成正式 PoC。`Needs Manual Review` 只允许生成 draft/unverified 草案或人工验证材料，不能作为已验证 PoC 使用。
+### 4.3 PoC、回归测试与人工复核
 
-生成 PoC：
-
-```bash
-python3 tools/generate_poc_testcase.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --generate-from-finding \
-  --out audit-output/04-validation/poc-tests
-```
-
-校验 PoC：
-
-```bash
-python3 tools/validate_poc_artifacts.py \
-  --poc-root audit-output/04-validation/poc-tests
-```
+正式 PoC / testcase 包只允许为 `Validated` finding 生成，用途限定为授权本地复现和回归测试。
 
 PoC 安全限制：
 
-- 仅限授权本地验证和回归测试。
 - 不访问第三方目标。
-- 不使用网络工具。
-- 不使用 `sudo`，不写系统目录。
+- 不执行远程利用。
 - 不包含持久化、规避、提权或武器化逻辑。
-- 未经修复后公开授权，不应在公开报告中包含 PoC 字节或可武器化细节。
+- 不写系统目录。
+- 不要求管理员权限。
+- 不在未协调修复前公开可武器化细节。
 
-## Needs Manual Review
+`Needs Manual Review` 是一等报告对象，但不是已验证漏洞。它用于记录证据有价值但自动验证不足的问题，例如：
 
-`Needs Manual Review` 是一等报告对象，但不是已验证漏洞。
-
-它用于记录证据有价值但自动验证不足的问题，例如：
-
-- 依赖特殊语料。
 - 构建环境缺失。
 - 触发条件需要人工确认。
 - 自动 PoC 不稳定。
-- 需要人工判断业务逻辑或配置前提。
+- 依赖特殊语料或配置。
+- 业务逻辑或部署前提需要人工判断。
 
-人工验证计划输出到：
+`Needs Manual Review` 只生成安全的人工验证计划，不生成正式 PoC 包。
 
-```text
-audit-output/04-validation/manual-review/MANUAL-*/manual-validation-plan.md
-audit-output/04-validation/manual-review/MANUAL-*/manual-validation-plan.json
-```
+---
 
-生成命令：
+## 5. 工具、规则与扩展
 
-```bash
-python3 tools/generate_manual_validation_plan.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --out audit-output/04-validation/manual-review
-```
+### 5.1 Profile
 
-人工验证计划包含：
+profile 用于控制审计深度和工具覆盖。常用 profile：
 
-- 源码证据。
-- 复现假设。
-- 阻断原因。
-- 建议构建命令。
-- 建议测试方法。
-- 输入形态或数据要求。
-- 预期可观察信号。
-- 安全限制。
-- 升级为 `Validated` 的条件。
+| Profile | 用途 | 说明 |
+|---|---|---|
+| `minimal` | 快速探索 | 最小工具集合，适合初步了解项目。 |
+| `standard` | 默认审计 | 常规源码包审计基线。 |
+| `full` | 深度审计 | 更完整的工具覆盖，需要显式选择。 |
+| `binutils` | C/C++、解析器、二进制工具链场景 | 偏构建、sanitizer、fuzz、二进制工具链审计。 |
 
-## 报告输出
+profile 不等于“所有工具一定运行”。工具是否运行取决于：
 
-人读报告以简体中文为主，机器产物保持 JSON 结构。报告路径因调用方式而异：
+- 本机是否已安装。
+- 当前项目画像是否适用。
+- 用户授权的工具范围。
+- strict/default 模式。
+- 网络策略与安装策略。
+- 工具输出是否可用、完整、可解析。
 
-| 场景 | 报告根目录 | 典型 final summary |
-|------|-----------|-------------------|
-| **`enforced_audit_driver`（推荐）** | `audit-output/`（`--out` 所指目录） | `audit-output/zh-CN/final-summary-report.md`、`audit-output/final-summary-report.md` |
-| **Standalone / workflow 文档** | `audit-output/06-report/`（`--out` 显式指定） | `audit-output/06-report/zh-CN/final-summary-report.md` |
+### 5.2 传统工具策略
 
-**Driver 路径**（`publish_bilingual_reports` / `generate_final_report` 的 `--out` 为 audit 根）：
+传统工具结果是候选线索，不是漏洞事实。
 
-```text
-audit-output/machine/report.json          # 经 publish 写入（若执行了关联路径）
-audit-output/machine/final-report.json
-audit-output/zh-CN/final-summary-report.md
-audit-output/zh-CN/04-findings/
-audit-output/zh-CN/05-内部安全报告/internal-security-report.md
-audit-output/en-US/
-audit-output/machine/exception-index.json
-```
+工具最终状态只能归入：
 
-**Standalone 路径**（`workflows/08-report.md` 示例，`--out audit-output/06-report`）：
+| 状态 | 含义 |
+|---|---|
+| `completed` | 成功执行并保留可用输出。 |
+| `blocked` | 计划内工具应执行但无法完成，完整审计被阻断。 |
+| `not-applicable` | 项目画像证明该工具不适用，并记录理由。 |
 
-```text
-audit-output/06-report/machine/report.json
-audit-output/06-report/machine/final-report.json
-audit-output/06-report/zh-CN/final-summary-report.md
-audit-output/06-report/zh-CN/04-findings/
-audit-output/06-report/zh-CN/05-内部安全报告/internal-security-report.md
-audit-output/06-report/en-US/
-```
+以下状态只能作为中间状态，不能作为完整审计中的最终静默降级理由：
 
-> **已知偏差：** driver 当前将 final report 写入 audit 根目录，而非 `06-report/` 子目录；workflow 文档仍使用 `06-report` 作为 standalone 约定。Phase 2 计划统一路径（见分层重构 spec）。
+- `failed`
+- `timeout`
+- `not-installed`
+- `malformed-output`
+- `partial-output`
 
-最终汇总报告会聚合：
+严格模式下，required 工具缺失时必须暂停审计或进入受控安装辅助流程。安装辅助策略默认保守：
 
-- 审计范围和授权。
-- 包画像和 selected recipes。
-- 工具矩阵状态，特别是 `semgrep`。
-- 候选漏斗。
-- `Validated Findings`。
-- `Needs Manual Review`。
-- PoC 产物索引。
-- 人工验证计划索引。
-- 公开漏洞关联。
-- CVSS 摘要。
-- 阶段结论、阻断问题、剩余风险和人工跟进清单。
+- 默认不自动安装。
+- 默认不使用管理员权限。
+- 默认不改系统组件。
+- 默认不直接执行系统包管理器。
+- 优先 offline bundle、用户目录安装、受控前缀和可验证来源。
+- 父 agent 只读取安装摘要、安装计划和决策结果，不读取完整安装日志。
 
-## 公开漏洞关联
+### 5.3 Agents 与上下文隔离
 
-对 `Validated` finding 可以和配置的公开漏洞数据源进行关联，例如 NVD、OSV 或离线漏洞库。
+本 Skill 通过 agent / subagent 角色拆分审计任务。父 agent 负责协调，不负责吞入所有原始材料。
 
-常用命令：
+| 类别 | 典型角色 |
+|---|---|
+| 协调与范围 | `coordinator`、`package-profiler`、`scope-selector` |
+| 工具与归一化 | `tool-runner`、`result-normalizer`、`tool-install-assistant` |
+| 候选与验证 | `hypothesis-hunter`、`candidate-reviewer`、`validator` |
+| 评分与修复 | `cvss-scorer`、`patch-advisor` |
+| PoC 与报告 | `poc-safety-reviewer`、`poc-testcase-generator`、`report-writer` |
+| 披露与关联 | `public-vuln-correlator`、`disclosure-coordinator`、`disclosure-status-reviewer` |
+| 双语输出 | `bilingual-report-publisher`、`translation-reviewer` |
 
-```bash
-python3 tools/normalize_public_vuln_records.py \
-  --input /path/to/public-records \
-  --out audit-output/machine/correlation/normalized-public-records.json
+上下文隔离原则：
 
-python3 tools/correlate_public_vulns.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --records audit-output/machine/correlation/normalized-public-records.json \
-  --out audit-output/machine/correlation/public-vuln-correlation.json
-```
+- 父 agent 只读摘要、索引、packet 和最终报告。
+- 高噪声任务交给 subagent。
+- 原始工具日志保留在磁盘，不进入父上下文。
+- 每个 candidate 尽量单独评审，避免不同候选证据互相污染。
+- candidate packet 生成后必须重新执行 Context Budget Guard。
 
-报告不能使用“绝对未公开”这类结论；只能表述为“未在已配置公开数据源中发现匹配记录”。
+### 5.4 Schemas 与模板
 
-## 安装到目标项目
+本项目通过 JSON Schema 固化关键产物结构，避免报告完全依赖自然语言自由发挥。
 
-可以把本 Skill 安装到待审计项目中：
+核心 schema 类型包括：
 
-```bash
-/path/to/package-vuln-audit-skill/install/install.sh \
-  --target /path/to/repo \
-  --platform all \
-  --mode copy \
-  --force
+- candidate
+- finding
+- validation result
+- CVSS
+- report
+- tool summary
+- environment check
+- tool install plan
+- public vulnerability correlation
+- bilingual output
+- PoC testcase
+- manual validation plan
 
-/path/to/package-vuln-audit-skill/install/verify-install.sh \
-  --target /path/to/repo \
-  --platform all
-```
+模板用于生成：
 
-单平台安装：
+- 中文内部报告。
+- 英文维护者披露材料。
+- 修复后公开 advisory。
+- finding 详情页。
+- PoC README。
+- 工具安装计划。
+- 人工验证计划。
 
-```bash
-install/install.sh --target /path/to/repo --platform claude-code --mode copy --force
-install/install.sh --target /path/to/repo --platform codex --mode copy --force
-install/install.sh --target /path/to/repo --platform opencode --mode copy --force
-```
+---
 
-更多安装细节见：
+## 6. 维护与安全边界
 
-- `adapters/claude-code/INSTALL.md`
-- `adapters/codex/INSTALL.md`
-- `adapters/opencode/INSTALL.md`
-- `docs/runbooks/install-and-migration.md`
-
-## 平台使用方式
-
-### Claude Code
-
-安装后可使用命令：
+### 6.1 项目结构
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output
-/package-profile source_path=. output_dir=audit-output
-/hypothesis-hunt profile=audit-output/01-profile/package-profile.json
-/candidate-review candidate=audit-output/03-candidates/CAND-001.md
-/validate candidate=audit-output/03-candidates/CAND-001.md
+package-vuln-audit/
+├── SKILL.md                 # Skill 总入口与用途说明
+├── AGENTS.md                # 全局 agent 规则、安全边界、状态机
+├── skill.json               # Skill 元数据、版本、兼容平台
+├── adapters/                # Claude Code / Codex / opencode 适配器
+├── agents/                  # 平台中立 subagent 角色定义
+├── workflows/               # 00-09 审计阶段定义
+├── recipes/                 # 不同包类型和风险面的审计 recipe
+├── references/              # 上下文卫生、安装策略、披露策略等参考规则
+├── schemas/                 # 机器产物 JSON Schema
+├── templates/               # 报告、披露、finding、PoC 模板
+├── tools/                   # 底层执行、校验、归一化和报告辅助工具
+├── install/                 # 适配器安装与验证辅助
+├── examples/                # 示例审计目标与样例材料
+├── tests/                   # 回归测试与规则校验
+└── docs/                    # 运行手册、补充文档和迁移说明
 ```
 
-### Codex
+### 6.2 开发验证
 
-Codex 通过 `AGENTS.md` 和 `.codex/skills/package-vuln-audit/` 使用本 Skill。若环境没有原生 subagent，可用新任务调用模拟 subagent：每个任务读取独立 packet，产出 schema 化结果，父 agent 只读取摘要。
+维护者修改 workflow、agent、schema、template 或 adapter 后，应执行项目测试入口，并至少检查：
 
-### opencode
+- workflow、commands、tools、schemas、templates 是否一致。
+- adapter 是否仍能找到核心 skill 文件。
+- candidate / finding / validation / report schema 是否兼容。
+- Context Budget Guard 是否仍在 candidate packet 之后执行。
+- strict mode 下 required 工具缺失是否会阻断或进入安装辅助。
+- 最终报告是否包含公开漏洞关联、披露状态、双语产物和人工复核项。
+- PoC 生成策略是否仍只服务于 `Validated` finding。
 
-opencode 通过 `.opencode/opencode.json`、`.opencode/agents/`、`.opencode/commands/` 使用本 Skill。它最接近“主 agent + subagent 编排”的原始模型。
+### 6.3 安全边界
 
-## Binutils 示例
+必须遵守：
 
-GNU Binutils 源码树可使用示例脚本：
+- 仅用于授权防御性源码审计。
+- 不编造文件、函数、行号、调用链、CVE、CVSS、PoC 或漏洞。
+- 不把工具输出或 AI 假设直接作为漏洞事实。
+- `Candidate` 和 `Likely` 不能作为最终漏洞报告。
+- `Needs Manual Review` 必须明确标注为人工复核项。
+- `Validated` finding 必须有源码证据、验证证据、误报排除和公开漏洞关联。
+- 不生成远程攻击、持久化、规避、提权或武器化 exploit 内容。
+- 不使用“绝对未公开”表述；只能写“未在已配置公开数据源中发现匹配记录”。
 
-```bash
-examples/binutils/run-binutils-audit.sh \
-  /path/to/binutils \
-  /path/to/audit-output
-```
+### 6.4 License
 
-sanitizer 构建和输入验证：
-
-```bash
-tools/build_binutils_asan.sh \
-  /path/to/binutils \
-  /path/to/binutils/build-asan
-
-tools/validate_binutils_input.sh \
-  /path/to/binutils/build-asan \
-  testcase.elf \
-  /path/to/audit-output/04-validation/binutils
-```
-
-## Context Budget Guard
-
-本 Skill 使用“每个 agent / subagent 独立上下文预算”的模型。每次调用默认硬上限为 200K tokens，但这不是推荐输入大小。
-
-生成预算报告：
-
-```bash
-python3 tools/context_budget.py \
-  --profile-dir audit-output/01-profile \
-  --packet-dir audit-output/03-candidates/packets \
-  --out audit-output/01-profile/context-budget.json
-```
-
-检查 coordinator 任务包是否误含 L4 路径（读取 `core/manifest.yaml` 中的 `l4_forbidden_patterns`）：
-
-```bash
-python3 tools/context_budget.py \
-  --profile-dir audit-output/01-profile \
-  --packet-dir audit-output/03-candidates/packets \
-  --check-paths audit-output/02-tools/raw/semgrep.json \
-  --out audit-output/01-profile/context-budget.json
-```
-
-约束：
-
-- 父 agent 只读摘要。
-- 不读取完整仓库、完整原始日志或完整 fuzz 输出。
-- 候选评审按 packet 和批次拆分。
-- 单个 subagent 输入超过预算时必须拆分或阻断。
-
-## 常用命令速查
-
-环境检查：
-
-```bash
-python3 tools/verify_environment.py --profile standard --out audit-output/00-environment
-```
-
-项目画像与工具矩阵、扫描：见「传统工具策略」；常用命令：
-
-```bash
-bash tools/profile_project.sh /path/to/source audit-output/01-profile
-
-python3 tools/generate_tool_matrix.py \
-  --package-profile audit-output/01-profile/package-profile.json \
-  --profile standard \
-  --out audit-output/01-profile/required-tools-matrix.json
-
-python3 tools/run_tool_matrix.py \
-  --matrix audit-output/01-profile/required-tools-matrix.json \
-  --source /path/to/source \
-  --out audit-output/02-tools
-```
-
-将 `--profile standard` 改为 `full` 可生成 full 工具矩阵。
-
-生成候选 packet：
-
-```bash
-python3 tools/make_ai_packets.py \
-  --candidates audit-output/03-candidates/ranked-candidates.json \
-  --source-root /path/to/source \
-  --out audit-output/03-candidates/packets \
-  --max-packets 20
-```
-
-生成最终报告（standalone；driver 路径见「报告输出」）：
-
-```bash
-python3 tools/generate_final_report.py \
-  --audit-root audit-output \
-  --findings audit-output/05-findings/finding-index.json \
-  --out audit-output/06-report
-```
-
-Manifest / intake / 异常汇总：
-
-```bash
-python3 tools/validate_manifest.py --root .
-python3 tools/validate_intake.py --intake-dir audit-output/00-intake
-python3 tools/aggregate_exceptions.py --audit-output audit-output
-```
-
-运行测试：
-
-```bash
-./run-tests.sh
-```
-
-## 故障排查
-
-### `semgrep` 缺失导致完整审计阻断
-
-这是预期行为。完整审计要求 `semgrep` 成功执行。请检查：
-
-```bash
-python3 tools/verify_environment.py --profile standard --out audit-output/00-environment
-python3 tools/generate_install_plan.py --environment-check audit-output/00-environment/environment-check.json --out audit-output/00-environment
-```
-
-如需安装，优先使用 offline bundle 或用户目录安装方案。
-
-### 工具状态为 `not-applicable`
-
-这表示项目画像证明该工具不适用，例如非 Node 项目跳过 `npm audit`。该状态必须有证据和理由，不能用来掩盖工具失败。
-
-### PoC 校验失败
-
-检查：
-
-```text
-audit-output/04-validation/poc-tests/FINDING-*/poc-manifest.json
-audit-output/04-validation/poc-tests/FINDING-*/poc-run-result.json
-audit-output/04-validation/poc-tests/FINDING-*/README.md
-```
-
-`poc-run-result.json` 必须显示 `status: passed` 且 `exit_code: 0`，否则不能进入 `Validated`。
-
-### 没有最终汇总报告
-
-确认已提供 `--findings`，并且报告门禁通过。`--report-root` 须与报告实际写入目录一致：
-
-**Driver 路径**（报告在 audit 根）：
-
-```bash
-python3 tools/validate_report_completeness.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --correlation audit-output/machine/correlation/public-vuln-correlation.json \
-  --report-root audit-output \
-  --poc-root audit-output/04-validation/poc-tests \
-  --manual-root audit-output/04-validation/manual-review
-```
-
-**Standalone 路径**（报告在 `06-report/`）：
-
-```bash
-python3 tools/validate_report_completeness.py \
-  --findings audit-output/05-findings/finding-index.json \
-  --correlation audit-output/machine/correlation/public-vuln-correlation.json \
-  --report-root audit-output/06-report \
-  --poc-root audit-output/04-validation/poc-tests \
-  --manual-root audit-output/04-validation/manual-review
-```
-
-Driver 写入的 final summary 通常在 `audit-output/zh-CN/final-summary-report.md`，而非 `06-report/` 下。
-
-### 只有人工复核项，没有 Validated
-
-这是允许的。此时最终汇总报告会展示 `Needs Manual Review`，并提供人工验证计划。它们不是已确认漏洞，也不会生成正式 PoC 包。
-
-## 目录概览
-
-```text
-.
-├── SKILL.md                         # Skill 入口和核心规则
-├── AGENTS.md                        # 通用 agent 规则
-├── core/                            # manifest、L/D 披露、异常策略（Phase 1）
-├── guides/                          # L1 index.json（Phase 1）
-├── workflows/                       # 00-09 工作流说明
-├── agents/                          # 平台中立 agent 角色定义
-├── adapters/                        # Claude Code / Codex / opencode 适配器
-├── recipes/                         # 不同项目类型的审计 recipe
-├── references/                      # 策略和证据标准
-├── schemas/                         # 机器产物 schema
-├── templates/                       # 报告和披露模板
-├── tools/                           # 执行、归一化、验证、报告脚本
-├── tests/                           # 单元和集成测试
-├── examples/                        # 示例项目和 Binutils runbook
-└── docs/                            # runbook、设计文档和实施计划
-```
-
-## 开发验证
-
-提交前至少运行：
-
-```bash
-./run-tests.sh
-```
-
-该命令会执行 schema、manifest、intake gate、exception-index、schema fail-closed、Context Budget（含 L4 路径拦截）、工具矩阵、semgrep 门禁、PoC、Manual Review、报告完整性、公开漏洞关联、脚本语法和 Python 编译检查。新增测试包括 `test_manifest_io.py`、`test_manifest.py`、`test_intake_gate.py`、`test_exception_index.py`、`test_schema_fail_closed.py`。
-
-## 参考文档
-
-- `docs/runbooks/tool-availability-advisor.md`
-- `docs/runbooks/validated-poc-testcases.md`
-- `docs/runbooks/public-vulnerability-correlation.md`
-- `docs/runbooks/context-budget-guard.md`
-- `docs/superpowers/specs/2026-06-26-audit-workflow-gates-design.md`
-- `docs/superpowers/specs/2026-06-30-pvas-layered-refactor-design.md`
-- `docs/superpowers/plans/2026-06-26-audit-workflow-gates.md`
-- `docs/superpowers/plans/2026-06-30-pvas-layered-refactor-phase1.md`
+本项目使用 MIT License。详见 `LICENSE`。

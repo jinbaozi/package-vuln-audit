@@ -3,12 +3,62 @@
 from __future__ import annotations
 import argparse, json, pathlib, re
 
-from pvas_io import load_findings
+from pvas_io import extract_cve_ids, load_findings
+
+DEFAULT_OPENEULER_INDEX = pathlib.Path('offline-bundle/vuln-db/openeuler/cve-index.json')
+
 
 def load_records(path: pathlib.Path):
     data=json.loads(path.read_text())
     if isinstance(data, list): return data
     return data.get('records', [])
+
+
+def load_openeuler_index(path: pathlib.Path | None) -> dict:
+    if path is None or not path.is_file():
+        return {}
+    data = json.loads(path.read_text())
+    index = data.get('index', {})
+    return index if isinstance(index, dict) else {}
+
+
+def resolve_openeuler_index(arg: str) -> pathlib.Path | None:
+    if arg:
+        p = pathlib.Path(arg)
+        return p if p.is_file() else None
+    if DEFAULT_OPENEULER_INDEX.is_file():
+        return DEFAULT_OPENEULER_INDEX
+    return None
+
+
+def openeuler_match(finding: dict, index: dict) -> dict | None:
+    for cve_id in extract_cve_ids(finding):
+        hits = index.get(cve_id, [])
+        if not hits:
+            continue
+        matched = []
+        for h in hits:
+            if not isinstance(h, dict):
+                continue
+            matched.append({
+                'source': 'openEuler-Registry',
+                'id': cve_id,
+                'category': h.get('category'),
+                'package': h.get('package'),
+                'risk_level': h.get('risk_level'),
+                'component_location': h.get('component_location'),
+                'affected_branches': h.get('affected_branches', []),
+                'match_level': 'M3',
+                'match_evidence': ['cve-exact', 'openeuler-registry'],
+                'confidence': 1.0,
+            })
+        if matched:
+            return {
+                'status': 'publicly_disclosed',
+                'match_level': 'M3',
+                'matched_records': matched,
+            }
+    return None
 
 
 def record_index(records):
@@ -112,14 +162,35 @@ def main():
     ap.add_argument('--records', required=True)
     ap.add_argument('--out', default='audit-output/machine/correlation/public-vuln-correlation.json')
     ap.add_argument('--checked-sources', default='NVD,OSV,GHSA,CVE,CISA-KEV')
+    ap.add_argument(
+        '--openeuler-index',
+        default='',
+        help='openEuler cve-index.json (default: offline-bundle path if present)',
+    )
     args=ap.parse_args()
     findings=load_findings(pathlib.Path(args.findings))
     records=load_records(pathlib.Path(args.records))
     idx=record_index(records)
+    checked_sources=[s.strip() for s in args.checked_sources.split(',') if s.strip()]
+    if 'openEuler-Registry' not in checked_sources:
+        checked_sources.append('openEuler-Registry')
+    oe_path = resolve_openeuler_index(args.openeuler_index)
+    openeuler_index = load_openeuler_index(oe_path)
     corrs=[]
     for f in findings:
         fp=finding_fp(f)
         if fp['status'] != 'Validated':
+            continue
+        oe = openeuler_match(f, openeuler_index) if openeuler_index else None
+        if oe:
+            corrs.append({
+                'finding_id': fp['id'],
+                'status': oe['status'],
+                'match_level': oe['match_level'],
+                'matched_records': oe['matched_records'],
+                'checked_sources': checked_sources,
+                'limitations': [],
+            })
             continue
         ranked=[]
         pool=filter_records(fp, records, idx)
@@ -140,8 +211,8 @@ def main():
             } for m in ranked[:3]]
         else:
             level='M0'; status='not_found_in_configured_sources'; matched=[]
-        corrs.append({'finding_id':fp['id'],'status':status,'match_level':level,'matched_records':matched,'checked_sources':[s.strip() for s in args.checked_sources.split(',') if s.strip()],'limitations':[]})
+        corrs.append({'finding_id':fp['id'],'status':status,'match_level':level,'matched_records':matched,'checked_sources':checked_sources,'limitations':[]})
     out=pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({'checked_sources':[s.strip() for s in args.checked_sources.split(',') if s.strip()],'correlations':corrs}, indent=2))
+    out.write_text(json.dumps({'checked_sources':checked_sources,'correlations':corrs}, indent=2))
     print(f'[PVAS-CORRELATION] wrote {out}')
 if __name__=='__main__': main()

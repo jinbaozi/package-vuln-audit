@@ -11,6 +11,28 @@ def zh_status(s):
     return {'publicly_disclosed':'已在公开标准来源中匹配到披露记录','possibly_public':'疑似可关联公开记录','not_found_in_configured_sources':'未在已配置公开数据源中发现匹配记录','unknown':'未知'}.get(s,s)
 
 
+OPENEULER_CATEGORY_ZH = {'unaffected': '不受影响', 'suspended': '挂起', 'fixed': '已修复'}
+OPENEULER_CATEGORY_EN = {'unaffected': 'unaffected', 'suspended': 'suspended', 'fixed': 'fixed'}
+
+
+def openeuler_disposition(f, c, en=False):
+    """Return openEuler-Registry category from matched_records or finding refs."""
+    mapping = OPENEULER_CATEGORY_EN if en else OPENEULER_CATEGORY_ZH
+    for refs in (
+        flatten_refs(f.get('public_vulnerability_references')),
+        (c or {}).get('matched_records') or [],
+    ):
+        for r in refs:
+            if not isinstance(r, dict):
+                continue
+            if r.get('source') != 'openEuler-Registry':
+                continue
+            cat = r.get('category')
+            if cat:
+                return mapping.get(str(cat).lower(), str(cat))
+    return '—' if en else '—'
+
+
 def zh_type(t):
     return {'tool':'传统工具','ai':'AI大模型','manual':'人工审查','fuzz':'模糊测试'}.get(t,t)
 
@@ -163,6 +185,8 @@ def disclosure_summary(findings, cm):
             'evidence_summary': '; '.join(x[2] for x in matched if x[2]) or 'No matched public record in configured sources.',
             'limitations': c.get('limitations', []) or ([] if c else ['missing correlation artifact']),
             'discovery_method_summary': discovery_summary_str(dm),
+            'openeuler_disposition_en': openeuler_disposition(f, c, en=True),
+            'openeuler_disposition_zh': openeuler_disposition(f, c, en=False),
         })
     return rows
 
@@ -228,10 +252,10 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
             lines.append('- No candidate items.')
         lines.extend(['', '## Rejected Summary', '', 'See finding-index.json for rejected items.', ''])
         lines.extend(['## Public Disclosure Status and Standard Source Summary', '',
-            '| Finding ID | Disclosure Status | Match Level | Standard Source | Record ID | Evidence Summary | Limitations | Discovery Method |',
-            '|---|---|---|---|---|---|---|---|'])
+            '| Finding ID | Disclosure Status | Match Level | Standard Source | Record ID | openEuler disposition | Evidence Summary | Limitations | Discovery Method |',
+            '|---|---|---|---|---|---|---|---|---|'])
         for r in summary:
-            lines.append(f"| {r['finding_id']} | {r['status']} | {r['match_level']} | {', '.join(r['standard_sources']) or 'configured sources checked'} | {', '.join(r['record_ids']) or '—'} | {r['evidence_summary'].replace('|','/')} | {'; '.join(r['limitations']) or '—'} | {r['discovery_method_summary']} |")
+            lines.append(f"| {r['finding_id']} | {r['status']} | {r['match_level']} | {', '.join(r['standard_sources']) or 'configured sources checked'} | {', '.join(r['record_ids']) or '—'} | {r['openeuler_disposition_en']} | {r['evidence_summary'].replace('|','/')} | {'; '.join(r['limitations']) or '—'} | {r['discovery_method_summary']} |")
         lines.append('')
         lines.append('## Tool Coverage')
         lines.append('See audit-output/02-tools/tool-summary.json for complete tool coverage details.')
@@ -294,11 +318,11 @@ def write_internal_report(path: pathlib.Path, findings, summary, en=False):
             lines.append('- 无候选项目。')
         lines.extend(['', '## 已拒绝问题摘要', '', '参见 finding-index.json。', ''])
         lines.extend(['## 公开披露状态与标准来源汇总表', '',
-            '| Finding ID | 公开披露状态 | 匹配等级 | 标准来源 | 记录 ID | 证据摘要 | 限制说明 | 发现方法 |',
-            '|---|---|---|---|---|---|---|---|'])
+            '| Finding ID | 公开披露状态 | 匹配等级 | 标准来源 | 记录 ID | 欧拉处置状态 | 证据摘要 | 限制说明 | 发现方法 |',
+            '|---|---|---|---|---|---|---|---|---|'])
         for r in summary:
             zs=zh_status(r['status'])
-            lines.append(f"| {r['finding_id']} | {zs} | {r['match_level']} | {', '.join(r['standard_sources']) or '已配置来源'} | {', '.join(r['record_ids']) or '—'} | {r['evidence_summary'].replace('|','/')} | {'；'.join(r['limitations']) or '—'} | {r['discovery_method_summary']} |")
+            lines.append(f"| {r['finding_id']} | {zs} | {r['match_level']} | {', '.join(r['standard_sources']) or '已配置来源'} | {', '.join(r['record_ids']) or '—'} | {r['openeuler_disposition_zh']} | {r['evidence_summary'].replace('|','/')} | {'；'.join(r['limitations']) or '—'} | {r['discovery_method_summary']} |")
         lines.append('')
         lines.append('## 工具覆盖')
         lines.append('详见 audit-output/02-tools/tool-summary.json。')

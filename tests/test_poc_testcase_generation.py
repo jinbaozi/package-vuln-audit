@@ -19,7 +19,7 @@ def make_finding(status='Validated', fid='FINDING-001', lang_ext='.c', testcase=
             'expected_vulnerable': 'vulnerable output',
             'expected_fixed': 'fixed output',
         },
-        'cvss': {'base_score': 7.5, 'severity': 'High', 'vector': 'CVSS:4.0/...'},
+        'cvss': {'version': '3.1', 'base_score': 3.3, 'severity': 'Low', 'vector': 'CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:L'},
         'fix_recommendation': 'fix the buffer overflow',
         'disclosure_level': 'D3-maintainer-private',
         'discovery_method': [{'type': 'tool', 'tool_name': 'semgrep', 'description': 'fixture'}],

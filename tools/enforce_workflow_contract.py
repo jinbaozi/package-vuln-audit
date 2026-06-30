@@ -28,6 +28,7 @@ REQUIRED_TOOLS = [
     'summarize_artifacts.py',
     'cvss31_calculator.py',
     'import_openeuler_vuln_registry.py',
+    'apply_correlation_to_findings.py',
     'tool_catalog.py',
     'validate_manifest.py',
     'validate_intake.py',

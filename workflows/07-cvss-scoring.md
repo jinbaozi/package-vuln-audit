@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Assign CVSS v4.0 scores only to Likely or Validated issues, and mark provisional scores clearly.
+Assign CVSS v3.1 scores only to Likely or Validated issues, and mark provisional scores clearly. See `references/cvss31-scoring-guide.md`.
 
 ## Inputs
 
@@ -18,6 +18,14 @@ Assign CVSS v4.0 scores only to Likely or Validated issues, and mark provisional
 
 - read finding/validation evidence
 - write cvss artifact
+- `tools/cvss31_calculator.py` (compute and `--validate`)
+
+## Required steps
+
+1. Produce CVSS vector and per-metric rationale (Likely → provisional; Validated → final).
+2. Run `python3 tools/cvss31_calculator.py --vector '<vector>'` to obtain base_score and severity; do not hand-compute.
+3. Write artifact under `audit-output/05-findings/CVSS-*.json`.
+4. Run `python3 tools/cvss31_calculator.py --validate --in <artifact>`; fix mismatches before proceeding.
 
 ## Outputs
 

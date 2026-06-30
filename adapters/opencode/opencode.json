@@ -59,7 +59,7 @@
       }
     },
     "cvss-scorer": {
-      "description": "Subagent: CVSS v4.0 scoring for Likely/Validated items.",
+      "description": "Subagent: CVSS v3.1 scoring for Likely/Validated items; use cvss31_calculator --validate.",
       "mode": "subagent",
       "tools": {
         "read": true,

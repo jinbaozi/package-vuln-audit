@@ -71,7 +71,7 @@ Every report must include for each Validated finding:
 2. **Public vulnerability references** (source, id, url, match_level)
 3. **Discovery method** (tool name / AI hypothesis ref / manual review with description)
 4. **PoC artifact index** (generated-script / manifest / testcase-file / readme with paths)
-5. **CVSS** (v4.0 vector, score, severity)
+5. **CVSS** (v3.1 vector, score, severity; calculator-validated)
 6. **Source code evidence** (file, function, line range)
 7. **Source-to-sink path**
 8. **Fix recommendation**

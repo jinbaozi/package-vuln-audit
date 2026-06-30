@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+import re
 from typing import Any
+
+CVE_RE = re.compile(r'CVE-\d{4}-\d+', re.I)
 
 
 def sha256_file(path: pathlib.Path | str) -> str:
@@ -73,6 +76,25 @@ def corr_map(data: Any) -> dict[str, dict]:
     if not isinstance(data, dict):
         return {}
     return {c.get('finding_id'): c for c in data.get('correlations', [])}
+
+
+def extract_cve_ids(finding: dict) -> list[str]:
+    ids: list[str] = []
+    for r in finding.get('public_vulnerability_references') or []:
+        if isinstance(r, dict) and r.get('id'):
+            ids.extend(CVE_RE.findall(str(r['id'])))
+    blob = ' '.join(str(finding.get(k, '')) for k in (
+        'title', 'summary', 'root_cause', 'security_impact'))
+    blob += ' ' + json.dumps(finding.get('validation') or {})
+    ids.extend(CVE_RE.findall(blob))
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in ids:
+        cu = c.upper()
+        if cu not in seen:
+            seen.add(cu)
+            out.append(cu)
+    return out
 
 
 VALID_GATE_STATUSES = frozenset({'passed', 'failed', 'blocked'})

@@ -82,7 +82,7 @@ A final finding must include all of the following:
 
 ## CVSS policy
 
-Use CVSS v4.0 by default. Candidate issues do not receive final CVSS scores. Likely issues may receive provisional severity. Validated issues may receive final CVSS scoring with vector, score, severity, rationale, and uncertainty. CVSS severity is not the same as operational risk.
+Use CVSS v3.1 by default. Follow `references/cvss31-scoring-guide.md`. Candidate issues do not receive final CVSS scores. Likely issues may receive provisional severity. Validated issues may receive final CVSS scoring with vector, score, severity, rationale, and uncertainty. Validate scores with `tools/cvss31_calculator.py --validate`. CVSS severity is not the same as operational risk. Do not substitute openEuler `risk_level` for CVSS.
 
 ## Report outputs
 

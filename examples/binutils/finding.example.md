@@ -27,9 +27,10 @@ malformed local object input -> parser state -> missing validation -> dangerous 
 - Result: `<real result required>`
 
 ## CVSS
-- Version: CVSS v4.0
+- Version: CVSS v3.1
 - Status: provisional until maintainer confirmation
-- Vector: `<real vector required>`
+- Vector: `CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:L` (example only; replace with evidence-based vector)
+- Calculator: validate with `tools/cvss31_calculator.py --validate`
 
 ## Fix Recommendation
 Add bounds/type validation, reject malformed input gracefully, and add a regression testcase.

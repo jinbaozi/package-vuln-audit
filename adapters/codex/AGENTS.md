@@ -17,7 +17,7 @@ Codex may not always expose native subagents. When subagents are unavailable, si
 - `validator` → `audit-output/04-validation/VAL-*.md/json`
 - `poc-safety-reviewer` → safety verdict on PoC proposals
 - `poc-testcase-generator` → `audit-output/04-validation/poc-tests/`
-- `cvss-scorer` → CVSS block in finding JSON
+- `cvss-scorer` → CVSS v3.1 block in finding JSON (validate with `cvss31_calculator.py --validate`)
 - `patch-advisor` → fix recommendations under `audit-output/`
 - `report-writer` → `audit-output/06-report/`
 - `bilingual-report-publisher` → `audit-output/zh-CN/`, `audit-output/en-US/`
