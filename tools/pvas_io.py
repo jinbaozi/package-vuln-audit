@@ -97,6 +97,27 @@ def extract_cve_ids(finding: dict) -> list[str]:
     return out
 
 
+def resolve_output_path(path_str: str | pathlib.Path, *, is_dir: bool = False, default_name: str = "output.json") -> pathlib.Path:
+    """Resolve a CLI --out argument to a file or directory path.
+
+    When is_dir=True: ensure the path is a directory, create it, return it.
+    When is_dir=False: ensure parent exists, return the path.
+                      If path_str has no file extension and is_dir=False,
+                      append default_name so it's treated as a directory.
+
+    This provides a single convention across all PVAS tools for --out semantics.
+    """
+    p = pathlib.Path(path_str)
+    if is_dir:
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    if p.suffix:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    p.mkdir(parents=True, exist_ok=True)
+    return p / default_name
+
+
 VALID_GATE_STATUSES = frozenset({'passed', 'failed', 'blocked'})
 
 

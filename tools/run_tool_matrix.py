@@ -22,14 +22,16 @@ TIMEOUT_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(ms|s|m|h)?\s*$", re.I)
 LOCAL_DB_TOOLS = {"codeql", "grype", "trivy", "syft"}
 
 
-def expand_command(command: list[str], source: pathlib.Path, raw: pathlib.Path) -> list[str]:
-    return [part.replace("<source>", str(source)).replace("<raw>", str(raw)) for part in command]
+def expand_command(command: list[str], source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> list[str]:
+    source_str = " ".join(str(f) for f in file_list) if file_list else str(source)
+    return [part.replace("<source>", source_str).replace("<raw>", str(raw)) for part in command]
 
 
-def expand_env(env: dict[str, str], source: pathlib.Path, raw: pathlib.Path) -> dict[str, str]:
+def expand_env(env: dict[str, str], source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> dict[str, str]:
+    source_str = " ".join(str(f) for f in file_list) if file_list else str(source)
     expanded: dict[str, str] = {}
     for key, value in env.items():
-        expanded[key] = value.replace("<source>", str(source)).replace("<raw>", str(raw))
+        expanded[key] = value.replace("<source>", source_str).replace("<raw>", str(raw))
     return expanded
 
 
@@ -115,7 +117,29 @@ def semgrep_json_status(raw: pathlib.Path, stdout_path: pathlib.Path) -> tuple[s
     return "completed", "", str(semgrep_json)
 
 
-def preflight_tool(tool: dict, raw: pathlib.Path) -> tuple[dict | None, list[dict]]:
+MANIFEST_PATTERNS = [
+    "package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    "Cargo.toml", "Cargo.lock",
+    "requirements.txt", "Pipfile", "Pipfile.lock", "poetry.lock",
+    "Gemfile", "Gemfile.lock",
+    "go.mod", "go.sum",
+    "pom.xml", "build.gradle", "gradle.lockfile",
+    "composer.json", "composer.lock",
+    "nuget.config", "packages.lock.json",
+]
+
+
+def _check_osv_applicable(source: pathlib.Path) -> tuple[str | None, str | None]:
+    """Check if source tree has package manifests that osv-scanner can scan.
+    Returns (status, reason) or (None, None) if applicable."""
+    for pattern in MANIFEST_PATTERNS:
+        matches = list(source.rglob(pattern))
+        if matches:
+            return None, None
+    return "not-applicable", f"no package manifests found in {source}; osv-scanner requires lockfiles"
+
+
+def preflight_tool(tool: dict, raw: pathlib.Path, source: pathlib.Path | None = None) -> tuple[dict | None, list[dict]]:
     name = tool["name"]
     attempts: list[dict] = []
     if tool.get("applicability") == "not-applicable":
@@ -130,6 +154,20 @@ def preflight_tool(tool: dict, raw: pathlib.Path) -> tuple[dict | None, list[dic
             "watchdog_events": [],
             "network_used": False,
         }, attempts
+    if name == "osv-scanner" and source is not None:
+        osv_status, osv_reason = _check_osv_applicable(source)
+        if osv_status:
+            return {
+                "name": name,
+                "status": osv_status,
+                "output": "",
+                "reason": osv_reason or "no package manifests detected",
+                "notes": tool.get("evidence", ""),
+                "strict_decision": "continue",
+                "coverage_impact": "none",
+                "watchdog_events": [],
+                "network_used": False,
+            }, attempts
     raw.mkdir(parents=True, exist_ok=True)
     return None, attempts
 
@@ -185,15 +223,15 @@ def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.P
         return None, int((time.monotonic() - start) * 1000), watchdog_events, "spawn-failed"
 
 
-def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path) -> tuple[dict, list[dict]]:
+def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> tuple[dict, list[dict]]:
     name = tool["name"]
     binary = tool["binary"]
-    row, attempts = preflight_tool(tool, raw)
+    row, attempts = preflight_tool(tool, raw, source=source if name == "osv-scanner" else None)
     if row:
         return row, attempts
 
-    command = expand_command(tool["command"], source, raw)
-    env = expand_env(tool.get("env") or {}, source, raw)
+    command = expand_command(tool["command"], source, raw, file_list=file_list)
+    env = expand_env(tool.get("env") or {}, source, raw, file_list=file_list)
     network_used = bool(tool.get("network_required") and command_mentions_remote_semgrep(command))
     if shutil.which(binary) is None:
         reason = "not-installed"
@@ -304,16 +342,40 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path) -> tuple[dict, 
     }, attempts
 
 
+def _load_file_list(path: str) -> list[pathlib.Path]:
+    files: list[pathlib.Path] = []
+    p = pathlib.Path(path)
+    if not p.exists():
+        return files
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            fp = pathlib.Path(line)
+            if fp.exists():
+                files.append(fp)
+    return files
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--matrix", required=True)
     ap.add_argument("--source", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--file-list", default=None,
+                    help="Path to text file listing source files to scan (one per line). "
+                         "When provided, replaces <source> with these files instead of the full source root.")
     args = ap.parse_args()
 
     matrix_path = pathlib.Path(args.matrix)
     source = pathlib.Path(args.source)
     out = pathlib.Path(args.out)
+    file_list: list[pathlib.Path] | None = None
+    if args.file_list:
+        file_list = _load_file_list(args.file_list)
+        if file_list:
+            print(f"[PVAS-TOOL-MATRIX] scope-limited scan: {len(file_list)} file(s) from {args.file_list}")
+        else:
+            print(f"[PVAS-TOOL-MATRIX] --file-list {args.file_list} provided but no readable files found; using full source root")
     raw = out / "raw"
     try:
         raw.mkdir(parents=True, exist_ok=True)
@@ -334,7 +396,7 @@ def main() -> int:
     abnormal = []
     incomplete = []
     for tool in matrix.get("tools", []):
-        row, tool_attempts = run_one(tool, source, raw)
+        row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
         rows.append(row)
         attempts.extend(tool_attempts)
         if row["status"] in ABNORMAL_STATUSES:

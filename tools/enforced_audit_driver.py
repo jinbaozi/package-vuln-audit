@@ -390,7 +390,7 @@ def main() -> int:
         rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)], allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=[tool_out[-1000:] or 'AI hypothesis task preparation failed'])
-        rc, tool_out = run([sys.executable, 'tools/generate_ai_hypotheses.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        rc, tool_out = run([sys.executable, 'tools/exec_ai_hypothesis_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypothesis generation failed'])
     def post_ai_hypothesis():
         rc, tool_out = run([sys.executable, 'tools/validate_hypotheses.py', '--hypotheses', str(out / '03-candidates/ai-hypotheses.json'), '--out', str(out / '03-candidates/ai-hypotheses-validation.json')], allow_fail=True)
@@ -407,7 +407,7 @@ def main() -> int:
             summary = {'candidates': [], 'not_applicable': True, 'reason': 'no ranked candidates require review'}
             write_json(out / '03-candidates/candidate-summary.json', summary)
             return StageResult(True, not_applicable=True, outputs=[str(out / '03-candidates/candidate-summary.json')])
-        rc, tool_out = run([sys.executable, 'tools/run_candidate_reviews.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--review-dir', str(out / '03-candidates/reviews'), '--summary-out', str(out / '03-candidates/candidate-summary.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        rc, tool_out = run([sys.executable, 'tools/exec_candidate_review_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--review-dir', str(out / '03-candidates/reviews'), '--summary-out', str(out / '03-candidates/candidate-summary.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'candidate review execution failed'], outputs=[str(out / '03-candidates/candidate-summary.json')])
     def post_reviews():
         if not _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates):
@@ -430,14 +430,30 @@ def main() -> int:
         schema_rc = validate_finding_schema(args.findings, out, complete_audit=True)
         if schema_rc != 0:
             return StageResult(False, issues=['finding JSON failed schema validation'])
-        validation_result = out / '04-validation' / 'validation-result-summary.json'
-        rc, tool_out = run([sys.executable, 'tools/validate_validation_results.py', '--findings', args.findings, '--out', str(validation_result)], allow_fail=True)
+
+        findings_out = out / '04-validation' / 'updated-findings.json'
+        validation_root = out / '04-validation'
+        val_cmd = [sys.executable, 'tools/exec_validation_agent.py',
+                   '--findings', args.findings,
+                   '--packet-dir', str(out / '03-candidates/packets'),
+                   '--source-root', args.source,
+                   '--candidate-summary', str(out / '03-candidates/candidate-summary.json'),
+                   '--out', str(validation_root),
+                   '--findings-out', str(findings_out)]
+        if env_flag('ALLOW_VALIDATION_RUN'):
+            val_cmd.append('--allow-run')
+        exec_rc, exec_out = run(val_cmd, allow_fail=True)
+        if exec_rc != 0:
+            return StageResult(False, issues=[exec_out[-1000:] or 'validation agent execution failed'])
+
+        validation_result = validation_root / 'validation-result-summary.json'
+        rc, tool_out = run([sys.executable, 'tools/validate_validation_results.py', '--findings', str(findings_out), '--out', str(validation_result)], allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=[tool_out[-1000:] or 'validation result evidence failed'])
-        manual_out = out / '04-validation' / 'manual-review'
-        run([sys.executable, 'tools/generate_manual_validation_plan.py', '--findings', args.findings, '--out', str(manual_out)], allow_fail=False)
-        poc_out = out / '04-validation' / 'poc-tests'
-        run([sys.executable, 'tools/generate_poc_testcase.py', '--findings', args.findings, '--generate-from-finding', '--out', str(poc_out)], allow_fail=True)
+        manual_out = validation_root / 'manual-review'
+        run([sys.executable, 'tools/generate_manual_validation_plan.py', '--findings', str(findings_out), '--out', str(manual_out)], allow_fail=False)
+        poc_out = validation_root / 'poc-tests'
+        run([sys.executable, 'tools/generate_poc_testcase.py', '--findings', str(findings_out), '--generate-from-finding', '--out', str(poc_out)], allow_fail=True)
         poc_v_rc, _ = run([sys.executable, 'tools/validate_poc_artifacts.py', '--poc-root', str(poc_out)], allow_fail=True)
         if poc_v_rc != 0:
             return StageResult(False, issues=['poc validation failed'])

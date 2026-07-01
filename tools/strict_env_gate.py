@@ -13,7 +13,7 @@ TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
 
 from pvas_env import env_flag
-from pvas_io import load_json
+from pvas_io import load_json, resolve_output_path
 
 
 def run_strict_assist(env_out: pathlib.Path, *, dry_run: bool = False) -> int:
@@ -79,8 +79,7 @@ def main() -> int:
     ap.add_argument('--assist-only', action='store_true',
                     help='Skip verify; only run install assistant from existing check')
     args = ap.parse_args()
-    env_out = pathlib.Path(args.out)
-    env_out.mkdir(parents=True, exist_ok=True)
+    env_out = resolve_output_path(args.out, is_dir=True)
     if args.assist_only:
         return run_strict_assist(env_out, dry_run=env_flag('PVAS_INSTALL_DRY_RUN'))
     return verify_and_gate(

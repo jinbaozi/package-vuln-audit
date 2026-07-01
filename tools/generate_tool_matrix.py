@@ -19,6 +19,13 @@ SEMGRP_EVIDENCE = "complete-audit baseline required by workflow gate design"
 NETWORK_POLICY_VALUES = {"offline", "restricted", "online-approved"}
 
 
+def is_c_cpp_project(profile: dict) -> bool:
+    langs = {str(x).lower() for x in profile.get("primary_language", [])}
+    build = {str(x).lower() for x in profile.get("build_system", [])}
+    files = " ".join(str(x).lower() for x in profile.get("build_files", []))
+    return bool(langs & {"c", "c++", "cpp", "c/c++"}) or "makefile" in files or "configure" in files or "autotools" in build
+
+
 def is_node_project(profile: dict) -> bool:
     build = {str(x).lower() for x in profile.get("build_system", [])}
     langs = {str(x).lower() for x in profile.get("primary_language", [])}
@@ -56,7 +63,7 @@ def local_semgrep_config() -> pathlib.Path | None:
     return None
 
 
-def command_template(name: str, *, network_policy: str, allow_network: bool) -> list[str]:
+def command_template(name: str, *, network_policy: str, allow_network: bool, package_profile: dict | None = None) -> list[str]:
     if name == "rg":
         return ["rg", "-n", "strcpy|strcat|sprintf|vsprintf|memcpy|memmove|malloc|calloc|realloc|free|system\\(|popen\\(|mktemp|tmpnam|open\\(|unlink\\(", "<source>"]
     if name == "semgrep":
@@ -65,6 +72,9 @@ def command_template(name: str, *, network_policy: str, allow_network: bool) -> 
             return ["semgrep", "scan", "--config", str(local_config), "--json", "--output", "<raw>/semgrep.json", "<source>"]
         if network_policy == "online-approved" and allow_network:
             return ["semgrep", "scan", "--config", "auto", "--json", "--output", "<raw>/semgrep.json", "<source>"]
+        is_c_cpp = package_profile is not None and is_c_cpp_project(package_profile)
+        if is_c_cpp:
+            return ["semgrep", "scan", "--config", "p/c", "--json", "--output", "<raw>/semgrep.json", "<source>"]
         return ["semgrep", "scan", "--json", "--output", "<raw>/semgrep.json", "<source>"]
     if name == "cppcheck":
         return ["cppcheck", "--enable=warning,style,performance,portability", "--template=gcc", "<source>"]
@@ -85,7 +95,7 @@ def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries:
     for name in names:
         applicability, evidence, allow_degraded = tool_applicability(name, package_profile, env_profile)
         meta = CATALOG[name]
-        command = command_template(name, network_policy=network_policy, allow_network=allow_network)
+        command = command_template(name, network_policy=network_policy, allow_network=allow_network, package_profile=package_profile)
         env = {}
         if name == "semgrep":
             env_base = out_root / "00-environment" if out_root else pathlib.Path("<raw>").parent / "00-environment"

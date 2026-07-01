@@ -75,7 +75,12 @@ def validate_manifest(root: pathlib.Path, manifest_path: pathlib.Path) -> dict:
 
     xc_errs, xc_warns = manifest_io.crosscheck_schemas(root, manifest)
     errors.extend(xc_errs)
-    warnings.extend(xc_warns)
+    # Schema files on disk not in registered_schemas must block validation
+    for w in xc_warns:
+        if 'not registered in manifest' in w:
+            errors.append(w)
+        else:
+            warnings.append(w)
 
     return {
         'status': 'failed' if errors else 'passed',

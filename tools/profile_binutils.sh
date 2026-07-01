@@ -17,6 +17,9 @@ for d in binutils bfd opcodes gas ld gold gprof libctf libsframe; do
 done
 sort -u "$OUT/binutils-source-files.txt" | head -n "$MAX_SOURCE_FILES" > "$OUT/binutils-source-files.tmp"
 mv "$OUT/binutils-source-files.tmp" "$OUT/binutils-source-files.txt"
+# Symlink at predictable location for run_tools.sh --file-list discovery
+PROFILE_ROOT="$(dirname "$OUT")"
+ln -sf "binutils/binutils-source-files.txt" "$PROFILE_ROOT/binutils-source-files.txt"
 
 python3 "$SCRIPT_DIR/profile_manifest.py" binutils-manifest "$SRC" "$OUT" \
   --max-source "$MAX_SOURCE_FILES" --max-bytes "$MAX_FILE_BYTES" --exclude-dirs "$EXCLUDE_DIRS"

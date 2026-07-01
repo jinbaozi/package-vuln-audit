@@ -48,3 +48,10 @@ Public advisory drafts must omit sensitive reproduction details (PoC scripts, te
 ## Parent context rule
 
 The parent agent should read only the declared output summary files from this workflow. Raw logs, full source scans, and large intermediate artifacts must stay in workflow-specific `audit-output/` subdirectories.
+
+## 多语言输出要求
+
+每个步骤完成后，必须生成 `machine/`、`zh-CN/`、`en-US/` 三份阶段性结论：
+- `machine/`：JSON 格式的结构化步骤输出摘要
+- `zh-CN/`：中文自然语言步骤结论
+- `en-US/`：英文自然语言步骤结论
