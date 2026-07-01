@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 from datetime import datetime, timezone
@@ -12,12 +11,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from pvas_io import load_json, write_json
 
-MANDATORY_HALT_STEPS = frozenset({'03-tool-scan', '07-schema-validation', '07-poc-generation'})
-
 STEP_AUDIT_DIRS = {
+    '00-intake': '00-intake',
+    '00-environment': '00-environment',
+    '01-package-profile': '01-profile',
+    '02-scope-selection': '01-profile',
     '03-tool-scan': '02-tools',
-    '07-schema-validation': 'machine',
-    '07-poc-generation': '04-validation',
+    '04-ai-hypothesis': '03-candidates',
+    '05-candidate-review': '03-candidates',
+    '06-validation': '04-validation',
+    '07-cvss-scoring': '05-findings',
+    '08-report': '06-report',
+    '09-progressive-disclosure': '07-disclosure',
+    '00-workflow-contract': 'machine',
+    '00-manifest-validation': 'machine',
 }
 
 
@@ -30,8 +37,8 @@ def _empty_index() -> dict:
         'generated_at': _iso_now(),
         'pipeline_decision': 'continue',
         'summary': {
-            'blocked_count': 0,
-            'recoverable_count': 0,
+            'failed_after_retries_count': 0,
+            'recovered_count': 0,
             'not_applicable_count': 0,
             'manual_review_count': 0,
         },
@@ -79,37 +86,57 @@ def _scan_workflow_steps(audit_output: pathlib.Path) -> tuple[list[dict], list[s
             continue
         step_id = step.get('step_id') or step_path.stem
         status = step.get('status', '')
-        decision = step.get('decision', '')
         limitations = step.get('limitations') or []
-
-        if status in {'blocked', 'failed'} and decision == 'block':
+        issues = step.get('blocking_issues') or []
+        if status == 'failed-after-retries':
             if step_id not in halted_stages:
                 halted_stages.append(step_id)
-            issues = step.get('blocking_issues') or []
-            message = '; '.join(str(i) for i in issues) if issues else f'{step_id} {status}'
+            message = '; '.join(str(i) for i in issues) if issues else step.get('last_error_summary') or f'{step_id} failed after retries'
             events.append({
-                'id': f'EX-{step_id}-blocked',
+                'id': f'EX-{step_id}-failed-after-retries',
                 'step_id': step_id,
                 'audit_output_dir': STEP_AUDIT_DIRS.get(step_id, ''),
-                'class': 'blocked',
-                'code': f'{step_id}.blocked',
+                'class': 'failed-after-retries',
+                'code': f'{step_id}.failed-after-retries',
                 'message': message,
-                'final_decision': 'block',
+                'final_decision': 'failed',
+                'attempt_count': step.get('attempt_count', 0),
+                'last_error_summary': step.get('last_error_summary', ''),
+                'recovery_actions': step.get('recovery_actions') or [],
+                'artifact_refs': step.get('artifact_refs') or step.get('outputs_written') or [],
             })
             continue
-
-        if status == 'partial':
+        if status == 'completed-with-recovery':
+            events.append({
+                'id': f'EX-{step_id}-recovered',
+                'step_id': step_id,
+                'audit_output_dir': STEP_AUDIT_DIRS.get(step_id, ''),
+                'class': 'recovered',
+                'code': f'{step_id}.completed-with-recovery',
+                'message': step.get('last_error_summary') or f'{step_id} recovered after retry',
+                'final_decision': 'continue',
+                'attempt_count': step.get('attempt_count', 0),
+                'last_error_summary': step.get('last_error_summary', ''),
+                'recovery_actions': step.get('recovery_actions') or [],
+                'artifact_refs': step.get('artifact_refs') or step.get('outputs_written') or [],
+            })
+            continue
+        if status == 'not-applicable':
             if step_id not in partial_stages:
                 partial_stages.append(step_id)
-            if limitations:
-                events.append({
-                    'id': f'EX-{step_id}-partial',
-                    'step_id': step_id,
-                    'class': 'recoverable',
-                    'code': f'{step_id}.partial',
-                    'message': '; '.join(str(x) for x in limitations),
-                    'final_decision': 'continue',
-                })
+            events.append({
+                'id': f'EX-{step_id}-not-applicable',
+                'step_id': step_id,
+                'audit_output_dir': STEP_AUDIT_DIRS.get(step_id, ''),
+                'class': 'not-applicable',
+                'code': f'{step_id}.not-applicable',
+                'message': '; '.join(str(x) for x in limitations) if limitations else 'stage executed and determined not applicable',
+                'final_decision': 'continue',
+                'attempt_count': step.get('attempt_count', 0),
+                'last_error_summary': step.get('last_error_summary', ''),
+                'recovery_actions': step.get('recovery_actions') or [],
+                'artifact_refs': step.get('artifact_refs') or step.get('outputs_written') or [],
+            })
     return events, halted_stages, partial_stages
 
 
@@ -118,15 +145,17 @@ def _schema_validation_events(audit_output: pathlib.Path) -> list[dict]:
     if not isinstance(result, dict) or result.get('passed') is not False:
         return []
     errors = result.get('errors') or []
-    message = '; '.join(str(e) for e in errors) if errors else 'schema validation failed'
     return [{
         'id': 'EX-SCH-002',
-        'step_id': '07-schema-validation',
+        'step_id': '06-validation',
         'audit_output_dir': 'machine',
-        'class': 'blocked',
+        'class': 'failed-after-retries',
         'code': 'EX-SCH-002',
-        'message': message,
-        'final_decision': 'block',
+        'message': '; '.join(str(e) for e in errors) if errors else 'schema validation failed',
+        'final_decision': 'failed',
+        'attempt_count': 0,
+        'last_error_summary': '; '.join(str(e) for e in errors),
+        'recovery_actions': ['regenerate upstream finding JSON and rerun schema validation'],
         'artifact_refs': ['audit-output/machine/schema-validation-result.json'],
     }]
 
@@ -137,9 +166,7 @@ def _tool_summary_events(audit_output: pathlib.Path) -> list[dict]:
         return []
     events: list[dict] = []
     for tool in summary.get('tools') or []:
-        if not isinstance(tool, dict):
-            continue
-        if tool.get('status') != 'not-applicable':
+        if not isinstance(tool, dict) or tool.get('status') != 'not-applicable':
             continue
         name = tool.get('name') or 'unknown'
         reason = tool.get('reason') or tool.get('notes') or 'not applicable to this project'
@@ -151,29 +178,26 @@ def _tool_summary_events(audit_output: pathlib.Path) -> list[dict]:
             'code': f'tool.{name}.not-applicable',
             'message': str(reason),
             'final_decision': 'continue',
+            'attempt_count': 1,
+            'last_error_summary': '',
+            'recovery_actions': [],
             'artifact_refs': ['audit-output/02-tools/tool-summary.json'],
         })
     return events
 
 
 def _summary_from_events(events: list[dict], manual_review_count: int) -> dict:
-    blocked = sum(1 for e in events if e.get('class') == 'blocked')
-    recoverable = sum(1 for e in events if e.get('class') == 'recoverable')
-    not_applicable = sum(1 for e in events if e.get('class') == 'not-applicable')
     return {
-        'blocked_count': blocked,
-        'recoverable_count': recoverable,
-        'not_applicable_count': not_applicable,
+        'failed_after_retries_count': sum(1 for e in events if e.get('class') == 'failed-after-retries'),
+        'recovered_count': sum(1 for e in events if e.get('class') == 'recovered'),
+        'not_applicable_count': sum(1 for e in events if e.get('class') == 'not-applicable'),
         'manual_review_count': manual_review_count,
     }
 
 
-def _pipeline_decision(halted_stages: list[str], events: list[dict]) -> str:
-    if MANDATORY_HALT_STEPS.intersection(halted_stages):
-        return 'halt'
-    for event in events:
-        if event.get('class') == 'blocked' and event.get('final_decision') != 'completed':
-            return 'halt'
+def _pipeline_decision(events: list[dict]) -> str:
+    if any(e.get('class') == 'failed-after-retries' for e in events):
+        return 'failed'
     return 'continue'
 
 
@@ -187,20 +211,15 @@ def aggregate_exceptions(audit_output: pathlib.Path, *, merge: bool = True) -> d
             base['partial_stages'] = list(existing.get('partial_stages') or [])
 
     step_events, halted, partial = _scan_workflow_steps(audit_output)
-    schema_events = _schema_validation_events(audit_output)
-    tool_events = _tool_summary_events(audit_output)
-    new_events = step_events + schema_events + tool_events
-
+    new_events = step_events + _schema_validation_events(audit_output) + _tool_summary_events(audit_output)
     events = _merge_events(base['events'], new_events) if merge else new_events
-
     halted_stages = sorted(set(base['halted_stages']) | set(halted))
     partial_stages = sorted(set(base['partial_stages']) | set(partial))
-
     manual_review_count = _count_manual_review(audit_output)
 
     return {
         'generated_at': _iso_now(),
-        'pipeline_decision': _pipeline_decision(halted_stages, events),
+        'pipeline_decision': _pipeline_decision(events),
         'summary': _summary_from_events(events, manual_review_count),
         'events': events,
         'halted_stages': halted_stages,
@@ -214,13 +233,11 @@ def main() -> int:
     ap.add_argument('--out', help='Output path (default: <audit-output>/machine/exception-index.json)')
     ap.add_argument('--merge', action=argparse.BooleanOptionalAction, default=True)
     args = ap.parse_args()
-
     audit_output = pathlib.Path(args.audit_output)
     out_path = pathlib.Path(args.out) if args.out else audit_output / 'machine' / 'exception-index.json'
-
     index = aggregate_exceptions(audit_output, merge=args.merge)
     write_json(out_path, index)
-    print(json.dumps({'pipeline_decision': index['pipeline_decision'], 'out': str(out_path)}))
+    print({'pipeline_decision': index['pipeline_decision'], 'out': str(out_path)})
     return 0
 
 

@@ -283,7 +283,11 @@ def build_risk_overview(findings):
         if low > 0:
             lines.append(f'- 🟢 **Low**: {low} finding(s) — monitor and address')
         if not any([critical, high, medium, low]):
-            lines.append('- ✅ No significant vulnerabilities found')
+            needs_review = any(finding_status(f) == 'Needs Manual Review' for f in findings)
+            if needs_review:
+                lines.append('- Needs Manual Review items remain unresolved; no significant-vulnerability conclusion is emitted.')
+            else:
+                lines.append('- No validated high-impact vulnerabilities are represented in the current findings set.')
 
     return '\n'.join(lines)
 
@@ -506,10 +510,10 @@ def build_tool_scan_content(environment, tool_summary):
 
 def build_ai_hypothesis_content(hypotheses):
     if not hypotheses:
-        return 'No AI hypotheses generated.'
+        return 'AI hypothesis artifact missing; enforced driver must fail before final report generation.'
     hyps = hypotheses if isinstance(hypotheses, list) else hypotheses.get('hypotheses', [])
     if not hyps:
-        return 'No AI hypotheses generated.'
+        return 'AI hypothesis artifact is empty; enforced driver must fail before final report generation.'
     parts = [f'**Total Hypotheses Generated:** {len(hyps)}', '']
     for h in hyps:
         hid = h.get('id', '?')
@@ -636,6 +640,28 @@ def gather_disclosure_stats(findings, correlations):
     return matched, not_found, sources
 
 
+
+def build_workflow_summary(audit_root):
+    expected = [
+        '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
+        '04-ai-hypothesis', '05-candidate-review', '06-validation',
+        '07-cvss-scoring', '08-report', '09-progressive-disclosure',
+    ]
+    rows = ['| Workflow | Status | Attempts | Decision | Issues |', '|---|---|---:|---|---|']
+    steps_dir = audit_root / 'machine' / 'workflow-steps'
+    for step_id in expected:
+        step = load_json(steps_dir / f'{step_id}.json', {})
+        if not isinstance(step, dict) or not step:
+            rows.append(f'| `{step_id}` | missing | 0 | failed | workflow step artifact missing |')
+            continue
+        issues = step.get('blocking_issues') or step.get('limitations') or []
+        issue_text = '; '.join(str(x).replace('|', '\\|') for x in issues) if issues else 'none'
+        rows.append(
+            f"| `{step_id}` | {step.get('status', '?')} | {step.get('attempt_count', 0)} | "
+            f"{step.get('decision', '?')} | {issue_text} |"
+        )
+    return '\n'.join(rows)
+
 def render_template(template_path: pathlib.Path, values: dict) -> str:
     template = template_path.read_text()
     for key, val in values.items():
@@ -700,6 +726,7 @@ def main() -> int:
 
     values = {
         'executive_summary': build_executive_summary(findings, tool_list, environment, intake, profile, stats),
+        'workflow_execution_summary': build_workflow_summary(audit_root),
         'public_matched_count': str(matched_count),
         'public_not_found_count': str(not_found_count),
         'sources_checked': fmt_list(sorted(sources_set)) if sources_set else 'configured sources checked',

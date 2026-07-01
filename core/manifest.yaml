@@ -55,37 +55,39 @@ stages:
   - step_id: "00-workflow-contract"
     workflow_doc: null
     audit_output_dir: audit-output/machine
+  - step_id: "00-manifest-validation"
+    workflow_doc: null
+    audit_output_dir: audit-output/machine
   - step_id: "00-environment"
     workflow_doc: workflows/00-intake.md
-    audit_output_dir: audit-output/00-intake
+    audit_output_dir: audit-output/00-environment
   - step_id: "01-package-profile"
     workflow_doc: workflows/01-package-profile.md
     audit_output_dir: audit-output/01-profile
-  - step_id: "02-tool-matrix"
-    workflow_doc: workflows/03-tool-scan.md
-    audit_output_dir: audit-output/02-tools
+  - step_id: "02-scope-selection"
+    workflow_doc: workflows/02-scope-selection.md
+    audit_output_dir: audit-output/01-profile
   - step_id: "03-tool-scan"
     workflow_doc: workflows/03-tool-scan.md
     audit_output_dir: audit-output/02-tools
-  - step_id: "03-candidate-packets"
+  - step_id: "04-ai-hypothesis"
     workflow_doc: workflows/04-ai-hypothesis.md
     audit_output_dir: audit-output/03-candidates
-  - step_id: "07-schema-validation"
-    audit_output_dir: audit-output/machine
-  - step_id: "07-manual-validation-plans"
+  - step_id: "05-candidate-review"
+    workflow_doc: workflows/05-candidate-review.md
+    audit_output_dir: audit-output/03-candidates
+  - step_id: "06-validation"
     workflow_doc: workflows/06-validation.md
     audit_output_dir: audit-output/04-validation
-  - step_id: "07-poc-generation"
-    workflow_doc: workflows/06-validation.md
-    audit_output_dir: audit-output/04-validation
-  - step_id: "08-fetch-public-sources"
-    audit_output_dir: audit-output/machine/correlation
+  - step_id: "07-cvss-scoring"
+    workflow_doc: workflows/07-cvss-scoring.md
+    audit_output_dir: audit-output/05-findings
   - step_id: "08-report"
     workflow_doc: workflows/08-report.md
     audit_output_dir: audit-output/06-report
-  - step_id: "09-artifact-summary"
+  - step_id: "09-progressive-disclosure"
     workflow_doc: workflows/09-progressive-disclosure.md
-    audit_output_dir: audit-output/machine
+    audit_output_dir: audit-output/07-disclosure
 
 artifacts:
   - id: scope-md
@@ -103,13 +105,13 @@ artifacts:
     schema: tool-summary.schema.json
     step_id: "03-tool-scan"
     exception_policy:
-      on_blocked: halt_pipeline
+      on_failed_after_retries: fail_pipeline
       on_recoverable: record_and_continue
   - id: exception-index
     path_pattern: audit-output/machine/exception-index.json
     load_tier: L1
     schema: exception-index.schema.json
-    step_id: "09-artifact-summary"
+    step_id: "09-progressive-disclosure"
   - id: recipes
     path_pattern: recipes/**
     load_tier: L3

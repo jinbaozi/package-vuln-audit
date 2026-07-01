@@ -2,18 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Exception Index",
   "type": "object",
-  "required": ["generated_at", "pipeline_decision", "summary", "events", "halted_stages", "partial_stages"],
+  "required": [
+    "generated_at",
+    "pipeline_decision",
+    "summary",
+    "events",
+    "halted_stages",
+    "partial_stages"
+  ],
   "properties": {
-    "generated_at": { "type": "string" },
-    "pipeline_decision": { "enum": ["continue", "halt"] },
+    "generated_at": {
+      "type": "string"
+    },
+    "pipeline_decision": {
+      "enum": [
+        "continue",
+        "failed"
+      ]
+    },
     "summary": {
       "type": "object",
-      "required": ["blocked_count", "recoverable_count", "not_applicable_count", "manual_review_count"],
+      "required": [
+        "failed_after_retries_count",
+        "recovered_count",
+        "not_applicable_count",
+        "manual_review_count"
+      ],
       "properties": {
-        "blocked_count": { "type": "integer", "minimum": 0 },
-        "recoverable_count": { "type": "integer", "minimum": 0 },
-        "not_applicable_count": { "type": "integer", "minimum": 0 },
-        "manual_review_count": { "type": "integer", "minimum": 0 }
+        "failed_after_retries_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recovered_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_applicable_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_review_count": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "additionalProperties": false
     },
@@ -21,23 +52,76 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "step_id", "class", "code", "message", "final_decision"],
+        "required": [
+          "id",
+          "step_id",
+          "class",
+          "code",
+          "message",
+          "final_decision"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "step_id": { "type": "string" },
-          "audit_output_dir": { "type": "string" },
-          "class": { "enum": ["recoverable", "blocked", "not-applicable", "manual-review"] },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "recovery_actions": { "type": "array", "items": { "type": "string" } },
-          "final_decision": { "type": "string" },
-          "artifact_refs": { "type": "array", "items": { "type": "string" } }
+          "id": {
+            "type": "string"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "audit_output_dir": {
+            "type": "string"
+          },
+          "class": {
+            "enum": [
+              "failed-after-retries",
+              "recovered",
+              "not-applicable",
+              "manual-review"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "recovery_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "final_decision": {
+            "type": "string"
+          },
+          "artifact_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "attempt_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_error_summary": {
+            "type": "string"
+          }
         },
         "additionalProperties": true
       }
     },
-    "halted_stages": { "type": "array", "items": { "type": "string" } },
-    "partial_stages": { "type": "array", "items": { "type": "string" } }
+    "halted_stages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "partial_stages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
   },
   "additionalProperties": false
 }

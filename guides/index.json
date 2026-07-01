@@ -15,6 +15,12 @@
       "load_tier": "L2"
     },
     {
+      "step_id": "00-manifest-validation",
+      "workflow_doc": null,
+      "title": "00 Manifest Validation",
+      "load_tier": "L2"
+    },
+    {
       "step_id": "00-environment",
       "workflow_doc": "workflows/00-intake.md",
       "title": "00 Intake",
@@ -27,9 +33,9 @@
       "load_tier": "L2"
     },
     {
-      "step_id": "02-tool-matrix",
-      "workflow_doc": "workflows/03-tool-scan.md",
-      "title": "03 Tool Scan",
+      "step_id": "02-scope-selection",
+      "workflow_doc": "workflows/02-scope-selection.md",
+      "title": "02 Scope Selection",
       "load_tier": "L2"
     },
     {
@@ -39,33 +45,27 @@
       "load_tier": "L2"
     },
     {
-      "step_id": "03-candidate-packets",
+      "step_id": "04-ai-hypothesis",
       "workflow_doc": "workflows/04-ai-hypothesis.md",
       "title": "04 AI Hypothesis",
       "load_tier": "L2"
     },
     {
-      "step_id": "07-schema-validation",
-      "workflow_doc": null,
-      "title": "07 Schema Validation",
+      "step_id": "05-candidate-review",
+      "workflow_doc": "workflows/05-candidate-review.md",
+      "title": "05 Candidate Review",
       "load_tier": "L2"
     },
     {
-      "step_id": "07-manual-validation-plans",
+      "step_id": "06-validation",
       "workflow_doc": "workflows/06-validation.md",
       "title": "06 Validation",
       "load_tier": "L2"
     },
     {
-      "step_id": "07-poc-generation",
-      "workflow_doc": "workflows/06-validation.md",
-      "title": "06 Validation",
-      "load_tier": "L2"
-    },
-    {
-      "step_id": "08-fetch-public-sources",
-      "workflow_doc": null,
-      "title": "08 Fetch Public Sources",
+      "step_id": "07-cvss-scoring",
+      "workflow_doc": "workflows/07-cvss-scoring.md",
+      "title": "07 CVSS Scoring",
       "load_tier": "L2"
     },
     {
@@ -75,7 +75,7 @@
       "load_tier": "L2"
     },
     {
-      "step_id": "09-artifact-summary",
+      "step_id": "09-progressive-disclosure",
       "workflow_doc": "workflows/09-progressive-disclosure.md",
       "title": "09 Progressive Disclosure",
       "load_tier": "L2"

@@ -2,24 +2,33 @@
   "generated_at": "2026-06-30T12:00:00Z",
   "pipeline_decision": "continue",
   "summary": {
-    "blocked_count": 0,
-    "recoverable_count": 1,
-    "not_applicable_count": 2,
-    "manual_review_count": 3
+    "failed_after_retries_count": 0,
+    "recovered_count": 0,
+    "not_applicable_count": 1,
+    "manual_review_count": 0
   },
   "events": [
     {
       "id": "EX-03-tool-scan-semgrep",
       "step_id": "03-tool-scan",
       "audit_output_dir": "02-tools",
-      "class": "recoverable",
+      "class": "not-applicable",
       "code": "semgrep.timeout",
       "message": "semgrep exceeded 120s; retried with increased timeout",
-      "recovery_actions": ["increase-timeout", "retry"],
+      "recovery_actions": [
+        "increase-timeout",
+        "retry"
+      ],
       "final_decision": "completed",
-      "artifact_refs": ["audit-output/02-tools/tool-execution-attempts.json"]
+      "artifact_refs": [
+        "audit-output/02-tools/tool-execution-attempts.json"
+      ],
+      "attempt_count": 1,
+      "last_error_summary": ""
     }
   ],
   "halted_stages": [],
-  "partial_stages": ["08-report"]
+  "partial_stages": [
+    "08-report"
+  ]
 }

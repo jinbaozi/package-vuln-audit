@@ -19,6 +19,10 @@
 
 ---
 
+## Workflow Execution Summary
+
+{{workflow_execution_summary}}
+
 ## Audit Funnel Statistics
 
 {{funnel_table}}

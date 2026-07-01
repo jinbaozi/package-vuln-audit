@@ -1,145 +1,150 @@
 # PVAS driver stage gate policies
-# status: aspirational-phase2
-# Not consumed by driver in Balanced; Phase 2: runtime/gates/run_postflight.py
-# Canonical step_id: enforced_audit_driver write_step values (spec §3.4)
+# Canonical business workflows are 00-09. System gates remain pre-business gates.
+
+retry_policy: &default_retry
+  max_attempts: 3
+  retry_count: 2
+  terminal_failure: failed-after-retries
+  recovery_actions:
+    - create missing output directories and retry
+    - rerun transient command failures
+    - regenerate upstream task packets without altering business data
+
+allowed_terminal_statuses:
+  - completed
+  - completed-with-recovery
+  - not-applicable
+  - failed-after-retries
 
 policies:
   - step_id: "00-intake"
     audit_output_dir: audit-output/00-intake
+    retry_policy: *default_retry
     preflight: []
+    execution: [validate_intake]
     postflight:
-      - check: artifact_exists
-        path: audit-output/00-intake/scope.md
-      - check: artifact_exists
-        path: audit-output/00-intake/intake.json
+      - {check: artifact_exists, path: audit-output/00-intake/intake.json}
+      - {check: artifact_exists, path: audit-output/machine/intake-validation.json}
+    required_artifacts:
+      - audit-output/00-intake/intake.json
+      - audit-output/machine/intake-validation.json
 
   - step_id: "00-workflow-contract"
     audit_output_dir: audit-output/machine
-    preflight:
-      - check: artifact_exists
-        path: audit-output/00-intake/intake.json
-    postflight:
-      - check: artifact_exists
-        path: audit-output/machine/workflow-contract.json
+    retry_policy: *default_retry
+    execution: [enforce_workflow_contract]
+    required_artifacts: [audit-output/machine/workflow-contract.json]
+
+  - step_id: "00-manifest-validation"
+    audit_output_dir: audit-output/machine
+    retry_policy: *default_retry
+    execution: [validate_manifest]
+    required_artifacts: [audit-output/machine/manifest-validation.json]
 
   - step_id: "00-environment"
     audit_output_dir: audit-output/00-environment
+    retry_policy: *default_retry
     preflight:
-      - check: artifact_exists
-        path: audit-output/00-intake/intake.json
-    postflight:
-      - check: artifact_exists
-        path: audit-output/00-environment/environment-check.json
-      - check: artifact_exists
-        path: audit-output/00-environment/tool-install-plan.json
+      - {check: artifact_exists, path: audit-output/00-intake/intake.json}
+    execution: [strict_env_gate]
+    required_artifacts: [audit-output/00-environment/environment-check.json]
 
   - step_id: "01-package-profile"
     audit_output_dir: audit-output/01-profile
+    retry_policy: *default_retry
     preflight:
-      - check: artifact_exists
-        path: audit-output/00-intake/intake.json
-    postflight:
-      - check: artifact_exists
-        path: audit-output/01-profile/package-profile.json
-      - check: artifact_exists
-        path: audit-output/01-profile/context-budget.json
+      - {check: artifact_exists, path: audit-output/00-intake/intake.json}
+    execution: [profile_project]
+    required_artifacts:
+      - audit-output/01-profile/package-profile.json
+      - audit-output/01-profile/context-budget.json
 
-  - step_id: "02-tool-matrix"
-    audit_output_dir: audit-output/02-tools
+  - step_id: "02-scope-selection"
+    audit_output_dir: audit-output/01-profile
+    retry_policy: *default_retry
     preflight:
-      - check: artifact_exists
-        path: audit-output/01-profile/package-profile.json
-    postflight:
-      - check: artifact_exists
-        path: audit-output/01-profile/required-tools-matrix.json
+      - {check: artifact_exists, path: audit-output/01-profile/package-profile.json}
+    execution: [select_scope, generate_tool_matrix]
+    required_artifacts:
+      - audit-output/01-profile/selected-scope.json
+      - audit-output/01-profile/selected-recipes.md
+      - audit-output/01-profile/required-tools-matrix.json
 
   - step_id: "03-tool-scan"
     audit_output_dir: audit-output/02-tools
+    retry_policy: *default_retry
     preflight:
-      - check: artifact_exists
-        path: audit-output/01-profile/required-tools-matrix.json
-    execution:
-      record: audit-output/02-tools/tool-execution-attempts.json
-      mandatory_tools: [semgrep]
+      - {check: artifact_exists, path: audit-output/01-profile/required-tools-matrix.json}
+    execution: [run_tools]
     postflight:
-      - check: no_mandatory_blocked
-        artifact: audit-output/02-tools/tool-summary.json
+      - {check: no_abnormal_tools, artifact: audit-output/02-tools/tool-summary.json}
+    required_artifacts:
+      - audit-output/02-tools/tool-summary.json
 
-  - step_id: "03-candidate-packets"
+  - step_id: "04-ai-hypothesis"
     audit_output_dir: audit-output/03-candidates
+    retry_policy: *default_retry
     preflight:
-      - check: artifact_exists
-        path: audit-output/02-tools/tool-summary.json
-      - check: no_mandatory_blocked
-        artifact: audit-output/02-tools/tool-summary.json
-    postflight:
-      - check: artifact_exists
-        path: audit-output/03-candidates/raw-candidates.json
-      - check: artifact_exists
-        path: audit-output/03-candidates/ranked-candidates.json
-      - check: artifact_exists
-        path: audit-output/03-candidates/context-budget-post-packet.json
-
-  - step_id: "07-schema-validation"
-    audit_output_dir: audit-output/machine
-    preflight:
-      - check: input_provided
-        name: findings
-    postflight:
-      - check: artifact_exists
-        path: audit-output/machine/schema-validation-result.json
-      - check: schema_validation_passed
-        artifact: audit-output/machine/schema-validation-result.json
-
-  - step_id: "07-manual-validation-plans"
-    audit_output_dir: audit-output/04-validation
-    preflight:
-      - check: input_provided
-        name: findings
-    postflight:
-      - check: artifact_exists
-        path: audit-output/04-validation/manual-review
-
-  - step_id: "07-poc-generation"
-    audit_output_dir: audit-output/04-validation
-    preflight:
-      - check: input_provided
-        name: findings
+      - {check: artifact_exists, path: audit-output/02-tools/tool-summary.json}
+      - {check: artifact_exists, path: audit-output/01-profile/selected-scope.json}
     execution:
-      record: audit-output/04-validation/poc-tests
+      - normalize_results
+      - rank_candidates
+      - make_ai_packets
+      - prepare_ai_hypothesis_task
     postflight:
-      - check: artifact_exists
-        path: audit-output/04-validation/poc-tests
-      - check: poc_validation_passed
-        artifact: audit-output/04-validation/poc-tests
+      - {check: validate_hypotheses, artifact: audit-output/03-candidates/ai-hypotheses.json}
+    required_artifacts:
+      - audit-output/03-candidates/ranked-candidates.json
+      - audit-output/03-candidates/ai-hypotheses.json
 
-  - step_id: "08-fetch-public-sources"
-    audit_output_dir: audit-output/machine/correlation
+  - step_id: "05-candidate-review"
+    audit_output_dir: audit-output/03-candidates
+    retry_policy: *default_retry
     preflight:
-      - check: network_authorized
-        flag: allow-network
-    execution:
-      record: audit-output/machine/correlation/fetched-records
+      - {check: artifact_exists, path: audit-output/03-candidates/ranked-candidates.json}
+      - {check: artifact_exists, path: audit-output/03-candidates/ai-hypotheses.json}
     postflight:
-      - check: artifact_exists
-        path: audit-output/machine/correlation/fetched-records
+      - {check: validate_candidate_reviews, artifact: audit-output/03-candidates/reviews}
+    required_artifacts:
+      - audit-output/03-candidates/candidate-review-validation.json
+
+  - step_id: "06-validation"
+    audit_output_dir: audit-output/04-validation
+    retry_policy: *default_retry
+    execution:
+      - validate_finding_schema
+      - generate_manual_validation_plan
+      - generate_poc_testcase
+      - validate_poc_artifacts
+    required_artifacts:
+      - audit-output/04-validation/validation-summary.json
+
+  - step_id: "07-cvss-scoring"
+    audit_output_dir: audit-output/05-findings
+    retry_policy: *default_retry
+    execution: [cvss31_calculator]
+    required_artifacts:
+      - audit-output/05-findings/cvss-summary.json
 
   - step_id: "08-report"
     audit_output_dir: audit-output/06-report
-    preflight:
-      - check: input_provided
-        name: findings
-    postflight:
-      - check: artifact_exists
-        path: audit-output/machine/report-completeness.json
-      - check: report_completeness_passed
-        artifact: audit-output/machine/report-completeness.json
+    retry_policy: *default_retry
+    execution:
+      - publish_bilingual_reports
+      - generate_final_report
+      - validate_report_completeness
+    required_artifacts:
+      - audit-output/06-report/machine
+      - audit-output/06-report/zh-CN
+      - audit-output/06-report/en-US
 
-  - step_id: "09-artifact-summary"
-    audit_output_dir: audit-output/machine
-    preflight: []
-    postflight:
-      - check: artifact_exists
-        path: audit-output/machine/artifact-summary.json
-    report_gate:
-      emit_to: audit-output/machine/exception-index.json
+  - step_id: "09-progressive-disclosure"
+    audit_output_dir: audit-output/07-disclosure
+    retry_policy: *default_retry
+    execution:
+      - summarize_artifacts
+      - generate_disclosure_summary
+    required_artifacts:
+      - audit-output/machine/artifact-summary.json
+      - audit-output/07-disclosure/disclosure-summary.json

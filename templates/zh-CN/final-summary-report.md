@@ -19,6 +19,10 @@
 
 ---
 
+## Workflow Execution Summary
+
+{{workflow_execution_summary}}
+
 ## 审计漏斗统计
 
 {{funnel_table}}
