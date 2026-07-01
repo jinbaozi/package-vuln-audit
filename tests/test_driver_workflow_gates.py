@@ -31,9 +31,18 @@ def test_driver_calls_validate_intake_and_aggregate_exceptions():
     assert "exception-index.json" in text
 
 
+def test_driver_only_blocks_abnormal_tool_scan_after_env_gate():
+    text = (ROOT / "tools" / "enforced_audit_driver.py").read_text()
+    assert "tool_scan_decision" in text
+    assert "status') == 'abnormal'" in text
+    assert "traditional tool scan abnormal" in text
+    assert "continue-needs-manual-review" not in text
+
+
 if __name__ == "__main__":
     test_driver_generates_tool_matrix_before_running_tools()
     test_driver_uses_validation_poc_path()
     test_driver_blocks_failed_poc_validation()
     test_driver_calls_validate_intake_and_aggregate_exceptions()
+    test_driver_only_blocks_abnormal_tool_scan_after_env_gate()
     print("driver workflow gate tests passed")

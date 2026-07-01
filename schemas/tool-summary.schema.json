@@ -23,6 +23,10 @@
           },
           "status": {
             "enum": [
+              "abnormal",
+              "completed-with-findings",
+              "incomplete",
+              "not-applicable",
               "not-installed",
               "skipped",
               "completed",
@@ -34,9 +38,24 @@
           },
           "notes": {
             "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "strict_decision": {
+            "type": "string"
+          },
+          "coverage_impact": {
+            "type": ["string", "array", "object"]
+          },
+          "watchdog_events": {
+            "type": "array"
+          },
+          "network_used": {
+            "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       }
     },
     "raw_outputs": {
@@ -57,7 +76,19 @@
       "items": {
         "type": "string"
       }
+    },
+    "strict_decision": {
+      "type": "string"
+    },
+    "coverage_impact": {
+      "type": "array"
+    },
+    "incomplete_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }

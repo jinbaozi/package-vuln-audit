@@ -42,6 +42,25 @@ def write_step(out_root: pathlib.Path, step_id: str, status: str, decision: str,
     (en / f'{step_id}.md').write_text(f'# {step_id}\n\n- Status: {status}\n- Decision: {decision}\n- Outputs: {", ".join(outputs) if outputs else "none"}\n- Limitations: {"; ".join(limitations) if limitations else "none"}\n')
 
 
+def intake_network_policy(intake_dir: pathlib.Path) -> str:
+    data = load_json(intake_dir / 'intake.json', default={})
+    policy = data.get('network_policy') if isinstance(data, dict) else None
+    return policy if policy in {'offline', 'restricted', 'online-approved'} else 'restricted'
+
+
+def tool_scan_decision(summary_path: pathlib.Path) -> tuple[bool, list[str]]:
+    summary = load_json(summary_path, default={})
+    tools = summary.get('tools') if isinstance(summary, dict) else []
+    abnormal = [t.get('name', '?') for t in tools if isinstance(t, dict) and t.get('status') == 'abnormal']
+    limitations = []
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        if t.get('status') in {'incomplete', 'not-installed'}:
+            limitations.append(f"{t.get('name', '?')}: {t.get('reason') or t.get('status')}")
+    return bool(abnormal), limitations
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--source', default='.')
@@ -77,6 +96,7 @@ def main() -> int:
                    issues=['intake preflight failed; see intake-validation.json'])
         refresh_exception_index(out)
         return 2
+    network_policy = intake_network_policy(intake_dir)
     write_step(out, '00-intake', 'completed', 'continue', outputs=[str(intake_dir)])
 
     rc, _ = run([sys.executable, 'tools/enforce_workflow_contract.py', '--root', '.', '--out', str(out/'machine/workflow-contract.json')], allow_fail=True)
@@ -113,6 +133,8 @@ def main() -> int:
     run([sys.executable, 'tools/generate_tool_matrix.py',
          '--package-profile', str(out / '01-profile' / 'package-profile.json'),
          '--profile', args.profile,
+         '--network-policy', network_policy,
+         *(('--allow-network',) if args.allow_network and network_policy == 'online-approved' else ()),
          '--out', str(matrix_path)], allow_fail=False)
     write_step(out, '02-tool-matrix', 'completed', 'continue',
                inputs=[str(out / '01-profile' / 'package-profile.json')],
@@ -120,15 +142,17 @@ def main() -> int:
 
     os.environ['PVAS_SKIP_ENV_GATE'] = '1'
     rc, tool_out = run(['bash', 'tools/run_tools.sh', args.source, str(out/'02-tools')], allow_fail=True)
-    write_step(out, '03-tool-scan', 'completed' if rc == 0 else 'blocked',
-               'continue' if rc == 0 else 'block',
+    abnormal, tool_limitations = tool_scan_decision(out / '02-tools' / 'tool-summary.json')
+    should_block_tool_scan = abnormal or (rc != 0 and not (out / '02-tools' / 'tool-summary.json').is_file())
+    write_step(out, '03-tool-scan', 'blocked' if should_block_tool_scan else 'completed',
+               'block' if should_block_tool_scan else 'continue',
                inputs=[str(out / '01-profile' / 'required-tools-matrix.json')],
                outputs=[str(out / '02-tools' / 'tool-summary.json'), str(out / '02-tools' / 'tool-execution-attempts.json')],
-               issues=[] if rc == 0 else ['traditional tool scan blocked; see tool-summary.json and tool-execution-attempts.json'],
-               limitations=[] if rc == 0 else [tool_out[-1000:]])
-    if rc != 0:
+               issues=['traditional tool scan abnormal; see tool-summary.json and tool-execution-attempts.json'] if should_block_tool_scan else [],
+               limitations=tool_limitations + ([] if rc == 0 else [tool_out[-1000:]]))
+    if should_block_tool_scan:
         refresh_exception_index(out)
-        return rc
+        return rc or 2
     run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out/'02-tools/raw'), '--out', str(out/'03-candidates/raw-candidates.json')], allow_fail=True)
     run([sys.executable, 'tools/rank_candidates.py', '--candidates', str(out/'03-candidates/raw-candidates.json'), '--out', str(out/'03-candidates/ranked-candidates.json')], allow_fail=True)
     run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out/'03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out/'03-candidates/packets'), '--max-packets', str(args.max_candidates)], allow_fail=True)

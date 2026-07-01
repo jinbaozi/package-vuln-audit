@@ -25,6 +25,29 @@ Collect authorization, source location, package version or commit, permitted too
 - audit-output/00-intake/scope.md
 - audit-output/00-intake/intake.json
 
+## intake.json template
+
+Use this conservative default template when the user has authorized the audit
+but has not supplied a richer intake artifact:
+
+```json
+{
+  "authorization": "authorized defensive audit",
+  "scope_summary": "Source package security audit within the provided path.",
+  "source_path": ".",
+  "network_policy": "restricted",
+  "build_permission": "ask-before-build",
+  "fuzz_permission": "disabled-by-default",
+  "disclosure_policy": "internal-only until findings are validated and coordinated"
+}
+```
+
+`network_policy` must be one of:
+
+- `offline`
+- `restricted`
+- `online-approved`
+
 ## Failure behavior
 
 If authorization or target scope is unclear, stop with Needs Scope Clarification. Do not run tools.
