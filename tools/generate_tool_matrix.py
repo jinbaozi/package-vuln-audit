@@ -129,7 +129,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--package-profile", required=True)
     ap.add_argument("--profile", default="standard", choices=sorted(PROFILE_TOOLS))
-    ap.add_argument("--timeout", default="60s")
+    ap.add_argument("--timeout", default="600s")
     ap.add_argument("--retries", type=int, default=1)
     ap.add_argument("--network-policy", default=os.environ.get("PVAS_NETWORK_POLICY", "restricted"), choices=sorted(NETWORK_POLICY_VALUES))
     ap.add_argument("--allow-network", action="store_true", default=os.environ.get("PVAS_ALLOW_NETWORK", "0") == "1")

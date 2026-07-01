@@ -135,9 +135,7 @@ def preflight_tool(tool: dict, raw: pathlib.Path) -> tuple[dict | None, list[dic
 
 
 def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.Path, tool: dict) -> tuple[int | None, int, list[dict], str]:
-    soft_timeout = parse_duration(tool.get("timeout"), 60.0)
-    idle_timeout = parse_duration((tool.get("watchdog") or {}).get("idle_timeout"), max(min(soft_timeout / 2, 30.0), 1.0))
-    hard_timeout = parse_duration(tool.get("hard_timeout"), max(soft_timeout * 10, soft_timeout + idle_timeout + 1.0))
+    soft_timeout = parse_duration(tool.get("timeout"), 600.0)
     watchdog_events: list[dict] = []
     start = time.monotonic()
     last_progress = start
@@ -177,12 +175,7 @@ def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.P
                     })
                 if rc is not None:
                     return rc, int((now - start) * 1000), watchdog_events, "exited"
-                if now - start > hard_timeout:
-                    terminate_process(proc)
-                    status = "hard-timeout-with-progress" if last_progress > start else "hard-timeout"
-                    watchdog_events.append({"event": status, "elapsed_ms": int((now - start) * 1000)})
-                    return None, int((time.monotonic() - start) * 1000), watchdog_events, status
-                if now - start > soft_timeout and now - last_progress > idle_timeout:
+                if now - last_progress > soft_timeout:
                     terminate_process(proc)
                     watchdog_events.append({"event": "abnormal-timeout", "elapsed_ms": int((now - start) * 1000)})
                     return None, int((time.monotonic() - start) * 1000), watchdog_events, "abnormal-timeout"
@@ -278,8 +271,6 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path) -> tuple[dict, 
         status, reason = "abnormal", "spawn-failed"
     elif final_reason == "abnormal-timeout":
         status, reason = "abnormal", "abnormal-timeout"
-    elif final_reason == "hard-timeout-with-progress":
-        status, reason = "incomplete", "hard-timeout-with-progress"
     elif final_rc == 0:
         status, reason = "completed", ""
     else:

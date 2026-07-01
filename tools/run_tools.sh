@@ -24,7 +24,7 @@ if [ ! -f "$MATRIX" ]; then
   python3 "$SCRIPT_DIR/generate_tool_matrix.py" \
     --package-profile "$PROFILE_DIR/package-profile.json" \
     --profile "$ENV_PROFILE" \
-    --timeout "${PVAS_TOOL_TIMEOUT:-60s}" \
+    --timeout "${PVAS_TOOL_TIMEOUT:-600s}" \
     --out "$MATRIX"
 fi
 python3 "$SCRIPT_DIR/run_tool_matrix.py" --matrix "$MATRIX" --source "$SRC" --out "$OUT"
