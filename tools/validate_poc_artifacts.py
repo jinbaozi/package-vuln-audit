@@ -28,7 +28,7 @@ def _check_timeout(text, label):
     return []
 
 
-def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str, is_draft: bool):
+def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str):
     """Validate a single language variant directory.
 
     Args:
@@ -55,14 +55,9 @@ def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str, is
         if k not in data:
             errs.append(f'{lang_dir}: manifest missing {k}')
 
-    # Status checks
     status = data.get('status', '')
-    if is_draft:
-        if status != 'draft':
-            errs.append(f'{lang_dir}: draft finding variant should have status=draft, got {status}')
-    else:
-        if status != 'Validated':
-            errs.append(f'{lang_dir}: manifest status is not Validated (got {status})')
+    if status != 'Validated':
+        errs.append(f'{lang_dir}: manifest status is not Validated (got {status})')
 
     if data.get('safety_class') != 'local-validation-only':
         errs.append(f'{lang_dir}: safety_class not local-validation-only')
@@ -108,17 +103,15 @@ def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str, is
     if not er.get('vulnerable') or not er.get('fixed'):
         errs.append(f'{lang_dir}: expected vulnerable/fixed behavior required')
 
-    # Run result (only required for non-draft)
     run_result = lang_dir / 'poc-run-result.json'
-    if not is_draft:
-        if not run_result.exists():
-            errs.append(f'{lang_dir}: missing poc-run-result.json')
-        else:
-            rr = json.loads(run_result.read_text())
-            if rr.get('status') != 'passed':
-                errs.append(f'{lang_dir}: poc-run-result status is not passed')
-            if rr.get('exit_code') != 0:
-                errs.append(f'{lang_dir}: poc-run-result exit_code is not 0')
+    if not run_result.exists():
+        errs.append(f'{lang_dir}: missing poc-run-result.json')
+    else:
+        rr = json.loads(run_result.read_text())
+        if rr.get('status') != 'passed':
+            errs.append(f'{lang_dir}: poc-run-result status is not passed')
+        if rr.get('exit_code') != 0:
+            errs.append(f'{lang_dir}: poc-run-result exit_code is not 0')
 
     return errs
 
@@ -140,10 +133,9 @@ def validate_dir(d: pathlib.Path):
             errs.append(f'{d}: manifest missing {k}')
 
     status = data.get('status', '')
-    is_draft = (status == 'draft')
 
     # Status validation
-    if not is_draft and status != 'Validated':
+    if status != 'Validated':
         errs.append(f'{d}: manifest status is not Validated (got {status})')
     if data.get('safety_class') != 'local-validation-only':
         errs.append(f'{d}: safety_class not local-validation-only')
@@ -167,19 +159,17 @@ def validate_dir(d: pathlib.Path):
                 errs.append(f'{d}: language variant directory missing: {lang}')
                 continue
 
-            variant_errs = validate_language_variant(lang_dir, data.get('finding_id', ''), is_draft)
+            variant_errs = validate_language_variant(lang_dir, data.get('finding_id', ''))
             errs.extend(variant_errs)
 
             # Check if this variant passed
-            if not is_draft:
-                run_result = lang_dir / 'poc-run-result.json'
-                if run_result.exists():
-                    rr = json.loads(run_result.read_text())
-                    if rr.get('status') == 'passed':
-                        has_passed_variant = True
+            run_result = lang_dir / 'poc-run-result.json'
+            if run_result.exists():
+                rr = json.loads(run_result.read_text())
+                if rr.get('status') == 'passed':
+                    has_passed_variant = True
 
-        # For Validated multi-language POCs, at least one variant must pass
-        if not is_draft and not has_passed_variant:
+        if not has_passed_variant:
             errs.append(f'{d}: no language variant has poc-run-result status=passed')
 
         # Main reproduce.sh checks
@@ -230,17 +220,15 @@ def validate_dir(d: pathlib.Path):
         if not er.get('vulnerable') or not er.get('fixed'):
             errs.append(f'{d}: expected vulnerable/fixed behavior required')
 
-        # Run result (not required for draft)
         run_result = d / 'poc-run-result.json'
-        if not is_draft:
-            if not run_result.exists():
-                errs.append(f'{d}: missing poc-run-result.json')
-            else:
-                rr = json.loads(run_result.read_text())
-                if rr.get('status') != 'passed':
-                    errs.append(f'{d}: poc-run-result status is not passed')
-                if rr.get('exit_code') != 0:
-                    errs.append(f'{d}: poc-run-result exit_code is not 0')
+        if not run_result.exists():
+            errs.append(f'{d}: missing poc-run-result.json')
+        else:
+            rr = json.loads(run_result.read_text())
+            if rr.get('status') != 'passed':
+                errs.append(f'{d}: poc-run-result status is not passed')
+            if rr.get('exit_code') != 0:
+                errs.append(f'{d}: poc-run-result exit_code is not 0')
 
     return errs
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate local-only PoC/reproducer artifacts for Validated and Needs Manual Review findings.
+"""Generate local-only PoC/reproducer artifacts for Validated findings.
 
 Supports multi-language POC generation (Python, C, C++, Java, Go, Perl, Shell).
 Each finding gets POC variants in multiple languages under language-specific subdirectories.
 """
 from __future__ import annotations
-import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time
+import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time, shlex
 
 from pvas_io import load_findings, sha256_file
 
@@ -431,6 +431,10 @@ def generate_steps_from_finding(f, lang):
     title = f.get('title', 'vulnerability')
     component = f.get('affected_component', {}).get('component', 'target')
     evidence = f.get('source_code_evidence') or []
+    validation = f.get('validation') if isinstance(f.get('validation'), dict) else {}
+    validation_command = str(validation.get('command') or '').strip()
+    py_command = repr(shlex.split(validation_command) if validation_command else [])
+    shell_command = shlex.quote(validation_command) if validation_command else ''
 
     # Extract file/function info from evidence
     src_files = []
@@ -458,9 +462,13 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'# Source-to-sink: {ssp[:200]}')
 
-        trigger.append('# Invoke the vulnerable function/code path')
+        trigger.append('# Invoke the recorded local validation command against the testcase')
+        trigger.append(f'cmd = {py_command}')
+        trigger.append('if not cmd:')
+        trigger.append('    print("[FAIL] Missing validation.command; refusing placeholder trigger")')
+        trigger.append('    sys.exit(1)')
         trigger.append('result = subprocess.run(')
-        trigger.append(f'    ["timeout", "5s", "echo", "triggering {component}"],')
+        trigger.append('    ["timeout", "5s"] + cmd + [test_input],')
         trigger.append('    capture_output=True, text=True')
         trigger.append(')')
 
@@ -484,9 +492,12 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'/* Source-to-sink: {ssp[:200]} */')
 
-        trigger.append('/* Invoke the vulnerable code path */')
+        trigger.append('/* Invoke the recorded local validation command against the testcase */')
         trigger.append('char cmd[512];')
-        trigger.append('snprintf(cmd, sizeof(cmd), "echo triggering %s", input_path);')
+        if shell_command:
+            trigger.append(f'snprintf(cmd, sizeof(cmd), "timeout 5s {shell_command} %s", input_path);')
+        else:
+            trigger.append('snprintf(cmd, sizeof(cmd), "false");')
         trigger.append('int rc = system(cmd);')
 
         check.append('/* Verify the vulnerability was triggered */')
@@ -508,8 +519,11 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'// Source-to-sink: {ssp[:200]}')
 
-        trigger.append('// Invoke the vulnerable code path')
-        trigger.append('std::string cmd = "echo triggering " + input_path;')
+        trigger.append('// Invoke the recorded local validation command against the testcase')
+        if shell_command:
+            trigger.append(f'std::string cmd = "timeout 5s {shell_command} " + input_path;')
+        else:
+            trigger.append('std::string cmd = "false";')
         trigger.append('int rc = system(cmd.c_str());')
 
         check.append('// Verify the vulnerability was triggered')
@@ -528,8 +542,12 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'// Source-to-sink: {ssp[:200]}')
 
-        trigger.append('// Invoke the vulnerable code path')
-        trigger.append('ProcessBuilder pb = new ProcessBuilder("echo", "triggering");')
+        trigger.append('// Invoke the recorded local validation command against the testcase')
+        if validation_command:
+            command_parts = ', '.join(json.dumps(part) for part in (['timeout', '5s'] + shlex.split(validation_command)))
+            trigger.append(f'ProcessBuilder pb = new ProcessBuilder({command_parts}, inputPath.toString());')
+        else:
+            trigger.append('ProcessBuilder pb = new ProcessBuilder("false");')
         trigger.append('pb.redirectErrorStream(true);')
         trigger.append('Process proc = pb.start();')
         trigger.append('int exitCode = proc.waitFor();')
@@ -549,8 +567,12 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'// Source-to-sink: {ssp[:200]}')
 
-        trigger.append('// Invoke the vulnerable code path')
-        trigger.append('cmd := exec.Command("echo", "triggering", inputPath)')
+        trigger.append('// Invoke the recorded local validation command against the testcase')
+        if validation_command:
+            parts = ['"timeout"', '"5s"'] + [json.dumps(part) for part in shlex.split(validation_command)]
+            trigger.append(f'cmd := exec.Command({", ".join(parts)}, inputPath)')
+        else:
+            trigger.append('cmd := exec.Command("false")')
         trigger.append('output, err := cmd.CombinedOutput()')
         trigger.append('rc := 0')
         trigger.append('if err != nil { rc = 1 }')
@@ -571,7 +593,10 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'# Source-to-sink: {ssp[:200]}')
 
-        trigger.append('my $rc = system("echo triggering $input_path");')
+        if shell_command:
+            trigger.append(f'my $rc = system("timeout 5s {shell_command} $input_path");')
+        else:
+            trigger.append('my $rc = system("false");')
 
         check.append('if ($rc == 0) { print "[PASS] Vulnerability triggered\\n"; }')
         check.append('else { print "[FAIL] Vulnerability not triggered\\n"; exit 1; }')
@@ -585,7 +610,10 @@ def generate_steps_from_finding(f, lang):
         if ssp:
             setup.append(f'# Source-to-sink: {ssp[:200]}')
 
-        trigger.append('echo "triggering $INPUT_PATH"')
+        if shell_command:
+            trigger.append(f'timeout 5s {shell_command} "$INPUT_PATH"')
+        else:
+            trigger.append('false')
         trigger.append('RC=$?')
 
         check.append('if [ "$RC" -eq 0 ]; then echo "[PASS] Vulnerability triggered"; else echo "[FAIL] Vulnerability not triggered"; exit 1; fi')
@@ -597,12 +625,24 @@ def generate_steps_from_finding(f, lang):
         setup.append('echo "Setting up test environment..."')
         if ssp:
             setup.append(f'# Based on source_to_sink_path: {ssp[:200]}')
-        trigger.append('# Trigger the vulnerable code path')
-        trigger.append('echo "Triggering vulnerability..."')
+        trigger.append('# Trigger the vulnerable code path using the recorded local validation command')
+        if shell_command:
+            trigger.append(f'timeout 5s {shell_command} "$INPUT_PATH"')
+        else:
+            trigger.append('false')
         check.append('# Verify side effect')
         check.append('echo "Check for expected behavior..."')
 
-    indent = '  ' if lang == 'perl' else ('    ' if lang in ('python', 'java', 'go') else '')
+    if lang == 'python':
+        indent = '        '
+    elif lang == 'java':
+        indent = '            '
+    elif lang == 'go':
+        indent = '\t'
+    elif lang == 'perl':
+        indent = '  '
+    else:
+        indent = ''
     return '\n'.join(f'{indent}{line}' for line in setup), \
            '\n'.join(f'{indent}{line}' for line in trigger), \
            '\n'.join(f'{indent}{line}' for line in check)
@@ -1203,15 +1243,13 @@ def main():
 
         status = f.get('status') or f.get('validated_status')
 
-        # Accept both Validated and Needs Manual Review
         is_validated = (status == 'Validated')
-        is_manual_review = (status == 'Needs Manual Review')
 
-        if not is_validated and not is_manual_review:
+        if not is_validated:
             skipped.append({'id': fid, 'reason': 'status-not-eligible'})
             continue
 
-        is_draft = is_manual_review
+        is_draft = False
 
         if args.generate_from_finding:
             # Multi-language generation mode

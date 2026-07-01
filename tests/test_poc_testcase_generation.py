@@ -92,7 +92,11 @@ def test_multilang_generation():
         py_manifest = json.loads((base / 'python' / 'poc-manifest.json').read_text())
         assert py_manifest['language'] == 'python'
         assert py_manifest['status'] == 'Validated'
-        assert (base / 'python' / 'reproduce.py').exists()
+        py_script = base / 'python' / 'reproduce.py'
+        assert py_script.exists()
+        py_text = py_script.read_text()
+        assert 'echo triggering' not in py_text
+        assert "'cat'" in py_text
         assert (base / 'python' / 'input-description.md').exists()
         assert (base / 'python' / 'expected-vulnerable.txt').exists()
         assert (base / 'python' / 'expected-fixed.txt').exists()
@@ -117,8 +121,8 @@ def test_multilang_generation():
         assert (base / 'poc-run-result.json').exists()
 
 
-def test_needs_manual_review_draft():
-    """Test that Needs Manual Review findings get draft POCs."""
+def test_needs_manual_review_gets_no_poc():
+    """Needs Manual Review findings get manual plans, not PoC artifacts."""
     with tempfile.TemporaryDirectory() as td:
         t = pathlib.Path(td)
 
@@ -135,21 +139,7 @@ def test_needs_manual_review_draft():
             '--languages', 'python',
         ])
 
-        base = out / 'FINDING-001'
-        assert base.exists()
-
-        # Main manifest should be draft
-        manifest = json.loads((base / 'poc-manifest.json').read_text())
-        assert manifest['status'] == 'draft'
-        assert manifest['verification'] == 'unverified'
-
-        # Variant manifest should also be draft
-        py_manifest = json.loads((base / 'python' / 'poc-manifest.json').read_text())
-        assert py_manifest['status'] == 'draft'
-
-        # README should have draft note
-        readme = (base / 'README.md').read_text()
-        assert 'draft' in readme.lower() or 'manual review' in readme.lower()
+        assert not (out / 'FINDING-001').exists()
 
 
 def test_language_auto_selection():
@@ -322,8 +312,8 @@ def main():
     test_multilang_generation()
     print('[PASS] test_multilang_generation')
 
-    test_needs_manual_review_draft()
-    print('[PASS] test_needs_manual_review_draft')
+    test_needs_manual_review_gets_no_poc()
+    print('[PASS] test_needs_manual_review_gets_no_poc')
 
     test_language_auto_selection()
     print('[PASS] test_language_auto_selection')

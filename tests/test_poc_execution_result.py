@@ -19,7 +19,7 @@ def test_generate_poc_writes_run_result_for_validated_status():
             "affected_component": {"package": "demo", "component": "parser"},
             "source_code_evidence": [{"file": "src/parser.c"}],
             "source_to_sink_path": "input -> parser -> sink",
-            "validation": {"expected_vulnerable": "pass", "expected_fixed": "fixed"},
+            "validation": {"command": "cat", "expected_vulnerable": "pass", "expected_fixed": "fixed"},
             "cvss": {},
             "fix_recommendation": "fix",
             "disclosure_level": "D3-maintainer-private",
@@ -34,7 +34,7 @@ def test_generate_poc_writes_run_result_for_validated_status():
             str(findings),
             "--generate-from-finding",
             "--language",
-            "generic",
+            "python",
             "--out",
             str(out),
         ])

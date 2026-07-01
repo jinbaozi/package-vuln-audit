@@ -11,6 +11,8 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 from pvas_io import load_json, write_json
 
+ALLOWED_DECISIONS = {'Reject', 'Candidate', 'Likely', 'Rejected', 'Needs Manual Review'}
+
 
 def _candidate_ids(path: pathlib.Path, limit: int) -> list[str]:
     data = load_json(path, default={}, required=True)
@@ -22,10 +24,10 @@ def _candidate_ids(path: pathlib.Path, limit: int) -> list[str]:
     return ids
 
 
-def _reviewed_ids(review_dir: pathlib.Path) -> set[str]:
-    ids: set[str] = set()
+def _reviews(review_dir: pathlib.Path) -> dict[str, dict]:
+    reviews: dict[str, dict] = {}
     if not review_dir.is_dir():
-        return ids
+        return reviews
     for path in sorted(review_dir.glob('*.json')):
         data = load_json(path, default={})
         if not isinstance(data, dict):
@@ -34,17 +36,28 @@ def _reviewed_ids(review_dir: pathlib.Path) -> set[str]:
         if not rid and isinstance(data.get('candidate'), dict):
             rid = data['candidate'].get('id')
         if rid:
-            ids.add(str(rid))
-    return ids
+            data['_path'] = str(path)
+            reviews[str(rid)] = data
+    return reviews
 
 
 def validate(ranked: pathlib.Path, review_dir: pathlib.Path, limit: int) -> tuple[bool, list[str], dict]:
     required = _candidate_ids(ranked, limit)
-    reviewed = _reviewed_ids(review_dir)
+    reviews = _reviews(review_dir)
+    reviewed = set(reviews)
     if not required:
         return True, [], {'required_candidate_ids': [], 'reviewed_candidate_ids': sorted(reviewed), 'not_applicable': True}
     missing = [cid for cid in required if cid not in reviewed]
     errors = [f'missing candidate review for {cid}' for cid in missing]
+    for cid in required:
+        review = reviews.get(cid)
+        if not review:
+            continue
+        decision = review.get('decision') or review.get('state')
+        if decision not in ALLOWED_DECISIONS:
+            errors.append(f'{cid}: review decision must be one of {sorted(ALLOWED_DECISIONS)}')
+        if not review.get('source_slice_reviewed'):
+            errors.append(f'{cid}: review must confirm source_slice_reviewed')
     return not errors, errors, {'required_candidate_ids': required, 'reviewed_candidate_ids': sorted(reviewed), 'not_applicable': False}
 
 

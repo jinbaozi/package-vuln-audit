@@ -27,6 +27,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from pvas_env import env_flag
 from pvas_io import load_json, write_json
+from validate_validation_results import finding_errors as validation_finding_errors
 
 FINAL_STATUSES = {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}
 BUSINESS_WORKFLOWS = [
@@ -174,6 +175,10 @@ def run_stage(step_id: str, preflight: Callable[[], StageResult | bool | None] |
                 last = post
                 raise RuntimeError('; '.join(post.issues) or 'postflight failed')
             merged_outputs = list(dict.fromkeys(outputs + exe.outputs + post.outputs))
+            missing_outputs = [p for p in merged_outputs if p and not pathlib.Path(p).exists()]
+            if missing_outputs and not (pre.not_applicable or exe.not_applicable or post.not_applicable):
+                last = StageResult(False, issues=[f'missing declared output: {p}' for p in missing_outputs])
+                raise RuntimeError('; '.join(last.issues))
             limitations = list(dict.fromkeys(pre.limitations + exe.limitations + post.limitations))
             status = 'not-applicable' if (pre.not_applicable or exe.not_applicable or post.not_applicable) else ('completed-with-recovery' if attempt > 1 else 'completed')
             decision = 'continue'
@@ -326,7 +331,7 @@ def main() -> int:
         return StageResult(rc == 0, issues=issues)
     stage = run_stage('00-environment', lambda: require_paths([intake_dir / 'intake.json']), exec_env,
                       lambda: require_paths([env_out / 'environment-check.json']),
-                      out_root=out, outputs=[str(env_out / 'environment-check.json'), str(env_out / 'tool-install-plan.json')])
+                      out_root=out, outputs=[str(env_out / 'environment-check.json')])
     if not stage.ok:
         return 2
 
@@ -383,7 +388,10 @@ def main() -> int:
         if decision not in {'safe', 'warning', 'split-required'}:
             return StageResult(False, issues=[f'post-packet budget decision={decision}'])
         rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)], allow_fail=True)
-        return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypothesis task preparation failed'])
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'AI hypothesis task preparation failed'])
+        rc, tool_out = run([sys.executable, 'tools/generate_ai_hypotheses.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypothesis generation failed'])
     def post_ai_hypothesis():
         rc, tool_out = run([sys.executable, 'tools/validate_hypotheses.py', '--hypotheses', str(out / '03-candidates/ai-hypotheses.json'), '--out', str(out / '03-candidates/ai-hypotheses-validation.json')], allow_fail=True)
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypotheses validation failed'], outputs=[str(out / '03-candidates/ai-hypotheses-validation.json')])
@@ -394,14 +402,21 @@ def main() -> int:
     if not stage.ok:
         return 2
 
-    def post_reviews():
+    def exec_reviews():
         if not _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates):
             summary = {'candidates': [], 'not_applicable': True, 'reason': 'no ranked candidates require review'}
             write_json(out / '03-candidates/candidate-summary.json', summary)
             return StageResult(True, not_applicable=True, outputs=[str(out / '03-candidates/candidate-summary.json')])
+        rc, tool_out = run([sys.executable, 'tools/run_candidate_reviews.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--review-dir', str(out / '03-candidates/reviews'), '--summary-out', str(out / '03-candidates/candidate-summary.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        return StageResult(rc == 0, issues=[tool_out[-1000:] or 'candidate review execution failed'], outputs=[str(out / '03-candidates/candidate-summary.json')])
+    def post_reviews():
+        if not _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates):
+            return require_paths([out / '03-candidates/candidate-summary.json'])
         rc, tool_out = run([sys.executable, 'tools/validate_candidate_reviews.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--review-dir', str(out / '03-candidates/reviews'), '--max-candidates', str(max_candidates), '--out', str(out / '03-candidates/candidate-review-validation.json')], allow_fail=True)
-        return StageResult(rc == 0, issues=[tool_out[-1000:] or 'candidate review coverage failed'], outputs=[str(out / '03-candidates/candidate-review-validation.json')])
-    stage = run_stage('05-candidate-review', lambda: require_paths([out / '03-candidates/ranked-candidates.json', out / '03-candidates/ai-hypotheses.json']), None, post_reviews,
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'candidate review coverage failed'], outputs=[str(out / '03-candidates/candidate-review-validation.json')])
+        return require_paths([out / '03-candidates/candidate-review-validation.json', out / '03-candidates/candidate-summary.json'])
+    stage = run_stage('05-candidate-review', lambda: require_paths([out / '03-candidates/ranked-candidates.json', out / '03-candidates/ai-hypotheses.json']), exec_reviews, post_reviews,
                       out_root=out, outputs=[str(out / '03-candidates/reviews'), str(out / '03-candidates/candidate-summary.json')],
                       recovery_actions=['regenerate missing candidate review packets and validate coverage'])
     if not stage.ok:
@@ -415,6 +430,10 @@ def main() -> int:
         schema_rc = validate_finding_schema(args.findings, out, complete_audit=True)
         if schema_rc != 0:
             return StageResult(False, issues=['finding JSON failed schema validation'])
+        validation_result = out / '04-validation' / 'validation-result-summary.json'
+        rc, tool_out = run([sys.executable, 'tools/validate_validation_results.py', '--findings', args.findings, '--out', str(validation_result)], allow_fail=True)
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'validation result evidence failed'])
         manual_out = out / '04-validation' / 'manual-review'
         run([sys.executable, 'tools/generate_manual_validation_plan.py', '--findings', args.findings, '--out', str(manual_out)], allow_fail=False)
         poc_out = out / '04-validation' / 'poc-tests'
@@ -423,7 +442,7 @@ def main() -> int:
         if poc_v_rc != 0:
             return StageResult(False, issues=['poc validation failed'])
         write_json(out / '04-validation/validation-summary.json', {'status': 'completed', 'findings': len(findings)})
-        return StageResult(True, outputs=[str(out / 'machine/schema-validation-result.json'), str(manual_out), str(poc_out), str(out / '04-validation/validation-summary.json')])
+        return StageResult(True, outputs=[str(out / 'machine/schema-validation-result.json'), str(validation_result), str(manual_out), str(poc_out), str(out / '04-validation/validation-summary.json')])
     stage = run_stage('06-validation', lambda: require_paths([out / '03-candidates/candidate-review-validation.json']) if _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates) else None,
                       exec_validation, lambda: require_paths([out / '04-validation/validation-summary.json']),
                       out_root=out, outputs=[str(out / 'machine/schema-validation-result.json'), str(out / '04-validation/manual-review'), str(out / '04-validation/poc-tests'), str(out / '04-validation/validation-summary.json')],
@@ -540,13 +559,20 @@ def validate_finding_schema(findings_path: str, out_root: pathlib.Path, *, compl
         schema = load_json(ROOT / 'schemas' / 'finding.schema.json', required=True)
         validator = jsonschema.Draft202012Validator(schema)
         findings = load_json(findings_path, required=True)
-        findings_list_data = findings.get('findings') or findings if isinstance(findings, list) else []
+        if isinstance(findings, dict):
+            findings_list_data = findings.get('findings') or []
+        elif isinstance(findings, list):
+            findings_list_data = findings
+        else:
+            findings_list_data = []
         errors = []
         for i, f in enumerate(findings_list_data):
             try:
                 validator.validate(f)
             except jsonschema.ValidationError as e:
                 errors.append(f'finding[{i}]: {e.message}')
+            if isinstance(f, dict):
+                errors.extend(validation_finding_errors(f))
         write_result(len(errors) == 0, errors)
         return 0 if not errors else 1
     except Exception as e:
