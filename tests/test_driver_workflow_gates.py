@@ -19,7 +19,7 @@ def test_driver_generates_tool_matrix_before_running_tools():
 def test_driver_enforces_ai_hypothesis_stage():
     text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
     assert '04-ai-hypothesis' in text
-    assert 'tools/generate_ai_hypotheses.py' in text
+    assert 'tools/exec_ai_hypothesis_agent.py' in text
     assert 'tools/validate_hypotheses.py' in text
     assert 'ai-hypotheses.json' in text
     assert 'no --findings provided; final report gates not executed' not in text
@@ -27,7 +27,7 @@ def test_driver_enforces_ai_hypothesis_stage():
 
 def test_driver_executes_review_and_validation_semantics():
     text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
-    assert 'tools/run_candidate_reviews.py' in text
+    assert 'tools/exec_candidate_review_agent.py' in text
     assert 'candidate-summary.json' in text
     assert 'tools/validate_validation_results.py' in text
     assert 'validation-result-summary.json' in text

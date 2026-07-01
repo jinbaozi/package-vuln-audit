@@ -41,7 +41,7 @@ def test_validate_candidate_reviews_requires_top_n_coverage():
         assert json.loads((td / 'coverage-ok.json').read_text())['passed'] is True
 
 
-def test_generate_ai_hypotheses_executes_stage_semantics():
+def test_exec_ai_hypothesis_agent_executes_stage_semantics():
     with temp_audit_dir() as td:
         td = pathlib.Path(td)
         ranked = td / 'ranked-candidates.json'
@@ -57,20 +57,27 @@ def test_generate_ai_hypotheses_executes_stage_semantics():
         }]}))
         scope = td / 'selected-scope.json'
         scope.write_text(json.dumps({'selected_recipes': ['recipes/binary-parser.md']}))
+        packets = td / 'packets'
+        packets.mkdir()
+        (packets / 'T-CAND-1.md').write_text(
+            '# T-CAND-1\n\n## Code Slice\n```text\n10: memcpy(dst, src, sz);\n```\n'
+        )
         out = td / '03-candidates'
-        run_subprocess('tools/generate_ai_hypotheses.py', [
+        run_subprocess('tools/exec_ai_hypothesis_agent.py', [
             '--ranked-candidates', str(ranked),
+            '--packet-dir', str(packets),
             '--selected-scope', str(scope),
             '--out', str(out / 'ai-hypotheses.json'),
             '--max-candidates', '1',
+            '--llm-mode', 'heuristic',
         ])
         data = json.loads((out / 'ai-hypotheses.json').read_text())
         assert data['hypotheses'][0]['id'].startswith('AI-HYP-')
-        assert data['hypotheses'][0]['source_candidate_id'] == 'T-CAND-1'
+        assert data['hypotheses'][0].get('candidate_id') == 'T-CAND-1'
         run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(out / 'ai-hypotheses.json')])
 
 
-def test_run_candidate_reviews_writes_summary_from_packets():
+def test_exec_candidate_review_agent_writes_summary_from_packets():
     with temp_audit_dir() as td:
         td = pathlib.Path(td)
         ranked = td / 'ranked-candidates.json'
@@ -89,12 +96,13 @@ def test_run_candidate_reviews_writes_summary_from_packets():
         )
         reviews = td / 'reviews'
         summary = td / 'candidate-summary.json'
-        run_subprocess('tools/run_candidate_reviews.py', [
+        run_subprocess('tools/exec_candidate_review_agent.py', [
             '--ranked-candidates', str(ranked),
             '--packet-dir', str(packets),
             '--review-dir', str(reviews),
             '--summary-out', str(summary),
             '--max-candidates', '1',
+            '--llm-mode', 'heuristic',
         ])
         review = json.loads((reviews / 'T-CAND-1.json').read_text())
         assert review['candidate_id'] == 'T-CAND-1'
@@ -152,8 +160,8 @@ def test_select_scope_is_deterministic_for_common_profiles():
 if __name__ == '__main__':
     test_validate_hypotheses_accepts_valid_and_rejects_empty()
     test_validate_candidate_reviews_requires_top_n_coverage()
-    test_generate_ai_hypotheses_executes_stage_semantics()
-    test_run_candidate_reviews_writes_summary_from_packets()
+    test_exec_ai_hypothesis_agent_executes_stage_semantics()
+    test_exec_candidate_review_agent_writes_summary_from_packets()
     test_validate_validation_results_enforces_status_semantics()
     test_select_scope_is_deterministic_for_common_profiles()
     print('workflow validator tests passed')
