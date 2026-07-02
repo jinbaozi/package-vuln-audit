@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
 from pvas_io import corr_map, findings_list, load_json, write_json
+from validate_poc_artifacts import validate_dir
 
 ABSOLUTE_UNPUBLISHED_PATTERNS = [
     '未公开', '绝对未公开', '从未公开', '不存在公开漏洞',
@@ -219,17 +220,39 @@ def main() -> int:
     if args.poc_root:
         poc_root = pathlib.Path(args.poc_root)
         poc_index: dict[str, list[str]] = {}
-        for p in poc_root.rglob('*'):
-            if p.is_file():
-                for f in validated:
-                    fid = f.get('id')
-                    if fid and fid in p.name:
-                        poc_index.setdefault(fid, []).append(str(p))
+        poc_manifest_by_fid: dict[str, pathlib.Path] = {}
+        for p in poc_root.rglob('poc-manifest.json'):
+            try:
+                manifest = load_json(p, required=True)
+            except Exception as exc:
+                errors.append(f'{p}: failed to read poc manifest: {exc}')
+                continue
+            fid = manifest.get('finding_id')
+            if fid:
+                poc_index.setdefault(fid, []).append(str(p))
+                if p.parent.parent == poc_root:
+                    poc_manifest_by_fid[fid] = p.parent
         for f in validated:
             fid = f.get('id')
             if not fid: continue
             if fid not in poc_index:
                 warnings.append(f'{fid}: no PoC/testcase summary found under poc-root')
+        for f in manual:
+            fid = f.get('id')
+            if not fid:
+                continue
+            poc_dir = poc_manifest_by_fid.get(fid)
+            if not poc_dir:
+                errors.append(f'{fid}: missing draft PoC artifact under poc-root')
+                continue
+            manifest = load_json(poc_dir / 'poc-manifest.json', required=True)
+            if manifest.get('status') != 'draft':
+                errors.append(f'{fid}: Needs Manual Review PoC manifest status must be draft')
+            if manifest.get('verification') != 'unverified':
+                errors.append(f'{fid}: Needs Manual Review PoC verification must be unverified')
+            poc_errors = validate_dir(poc_dir)
+            if poc_errors:
+                errors.extend(f'{fid}: draft PoC validation failed: {err}' for err in poc_errors)
 
     if args.manual_root:
         manual_root = pathlib.Path(args.manual_root)

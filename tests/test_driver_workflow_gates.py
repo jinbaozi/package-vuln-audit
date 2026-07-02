@@ -218,6 +218,13 @@ def test_driver_uses_validation_poc_path():
     assert "machine' / 'poc-tests" not in text
 
 
+def test_driver_blocks_when_poc_generation_fails():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    assert 'poc_gen_rc, poc_gen_out = run' in text
+    assert "poc generation or execution failed" in text
+    assert "if poc_gen_rc != 0" in text
+
+
 class Args:
     workflow_preset = None
     no_startup_prompt = False
@@ -311,4 +318,5 @@ if __name__ == '__main__':
     test_run_stage_truncates_failure_issues_before_writing_workflow_json()
     test_validated_finding_schema_requires_validation_evidence()
     test_driver_uses_validation_poc_path()
+    test_driver_blocks_when_poc_generation_fails()
     print('driver workflow gate tests passed')

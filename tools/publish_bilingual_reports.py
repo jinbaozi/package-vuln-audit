@@ -44,6 +44,39 @@ def flatten_poc(pocs):
     return []
 
 
+def enrich_poc_artifacts(findings, poc_root):
+    if not poc_root:
+        return findings
+    root = pathlib.Path(poc_root)
+    if not root.is_dir():
+        return findings
+    by_id = {f.get('id'): f for f in findings if isinstance(f, dict) and f.get('id')}
+    for manifest_path in root.glob('*/poc-manifest.json'):
+        manifest = load_json(manifest_path, {})
+        fid = manifest.get('finding_id')
+        finding = by_id.get(fid)
+        if not finding:
+            continue
+        run_result = load_json(manifest_path.parent / 'poc-run-result.json', {})
+        artifact = {
+            'type': manifest.get('poc_type', 'generated-reproducer'),
+            'path': str(manifest_path.parent),
+            'purpose': 'Draft PoC / unverified, execution passed'
+                       if manifest.get('status') == 'draft' and run_result.get('status') == 'passed'
+                       else 'local validation PoC, execution passed'
+                       if run_result.get('status') == 'passed'
+                       else 'local validation PoC',
+            'safety_class': manifest.get('safety_class', 'local-validation-only'),
+            'status': manifest.get('status'),
+            'verification': manifest.get('verification'),
+            'execution_status': run_result.get('status'),
+        }
+        pocs = finding.setdefault('poc_test_artifacts', [])
+        if isinstance(pocs, list) and not any(p.get('path') == artifact['path'] for p in pocs if isinstance(p, dict)):
+            pocs.append(artifact)
+    return findings
+
+
 def flatten_refs(refs):
     if not refs: return []
     if isinstance(refs, list):
@@ -82,7 +115,10 @@ def write_finding(lang_root, f, c, en=False):
         if pocs:
             for p in pocs:
                 lang=f" [{p.get('language','')}]" if p.get('language') else ''
-                lines.append(f"- `{p.get('path','')}` — {safe_str(p.get('purpose',''))} ({p.get('type','?')}, {p.get('safety_class','?')}){lang}")
+                status = f", status={p.get('status')}" if p.get('status') else ''
+                verification = f", verification={p.get('verification')}" if p.get('verification') else ''
+                execution = f", execution={p.get('execution_status')}" if p.get('execution_status') else ''
+                lines.append(f"- `{p.get('path','')}` — {safe_str(p.get('purpose',''))} ({p.get('type','?')}, {p.get('safety_class','?')}{status}{verification}{execution}){lang}")
         else:
             lines.append('_No PoC artifacts generated for this finding._')
         lines.extend(['', '## Discovery Method'])
@@ -134,7 +170,10 @@ def write_finding(lang_root, f, c, en=False):
         if pocs:
             for p in pocs:
                 lang=f" [{p.get('language','')}]" if p.get('language') else ''
-                lines.append(f"- `{p.get('path','')}` — {safe_str(p.get('purpose',''))}（{p.get('type','?')}，{p.get('safety_class','?')}）{lang}")
+                status = f"，状态={p.get('status')}" if p.get('status') else ''
+                verification = f"，验证={p.get('verification')}" if p.get('verification') else ''
+                execution = f"，执行={p.get('execution_status')}" if p.get('execution_status') else ''
+                lines.append(f"- `{p.get('path','')}` — {safe_str(p.get('purpose',''))}（{p.get('type','?')}，{p.get('safety_class','?')}{status}{verification}{execution}）{lang}")
         else:
             lines.append('_此发现未生成 PoC 工件。_')
         lines.extend(['', '## 发现方式'])
@@ -340,7 +379,7 @@ def main():
     args=ap.parse_args()
     out=pathlib.Path(args.out); machine=out/'machine'; zh=out/'zh-CN'; en=out/'en-US'
     for p in [machine, zh, en]: p.mkdir(parents=True, exist_ok=True)
-    findings=findings_list(load_json(args.findings, {'findings':[]}))
+    findings=enrich_poc_artifacts(findings_list(load_json(args.findings, {'findings':[]})), args.poc_root)
     cm=corr_map(load_json(args.correlation, {'correlations':[]}))
     pairs=[]
     for f in findings:

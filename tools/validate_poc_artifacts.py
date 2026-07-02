@@ -28,7 +28,21 @@ def _check_timeout(text, label):
     return []
 
 
-def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str):
+def _validate_status_and_verification(data: dict, label: str) -> list[str]:
+    errs = []
+    status = data.get('status', '')
+    verification = data.get('verification')
+    if status not in {'Validated', 'draft'}:
+        errs.append(f'{label}: manifest status must be Validated or draft (got {status})')
+    elif status == 'draft':
+        if verification != 'unverified':
+            errs.append(f'{label}: draft manifest verification must be unverified')
+    elif verification not in (None, '', 'verified'):
+        errs.append(f'{label}: Validated manifest verification must be verified when present')
+    return errs
+
+
+def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str, require_passed_run: bool = True):
     """Validate a single language variant directory.
 
     Args:
@@ -55,9 +69,7 @@ def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str):
         if k not in data:
             errs.append(f'{lang_dir}: manifest missing {k}')
 
-    status = data.get('status', '')
-    if status != 'Validated':
-        errs.append(f'{lang_dir}: manifest status is not Validated (got {status})')
+    errs.extend(_validate_status_and_verification(data, str(lang_dir)))
 
     if data.get('safety_class') != 'local-validation-only':
         errs.append(f'{lang_dir}: safety_class not local-validation-only')
@@ -104,14 +116,15 @@ def validate_language_variant(lang_dir: pathlib.Path, parent_finding_id: str):
         errs.append(f'{lang_dir}: expected vulnerable/fixed behavior required')
 
     run_result = lang_dir / 'poc-run-result.json'
-    if not run_result.exists():
-        errs.append(f'{lang_dir}: missing poc-run-result.json')
-    else:
-        rr = json.loads(run_result.read_text())
-        if rr.get('status') != 'passed':
-            errs.append(f'{lang_dir}: poc-run-result status is not passed')
-        if rr.get('exit_code') != 0:
-            errs.append(f'{lang_dir}: poc-run-result exit_code is not 0')
+    if require_passed_run:
+        if not run_result.exists():
+            errs.append(f'{lang_dir}: missing poc-run-result.json')
+        else:
+            rr = json.loads(run_result.read_text())
+            if rr.get('status') != 'passed':
+                errs.append(f'{lang_dir}: poc-run-result status is not passed')
+            if rr.get('exit_code') != 0:
+                errs.append(f'{lang_dir}: poc-run-result exit_code is not 0')
 
     return errs
 
@@ -132,11 +145,7 @@ def validate_dir(d: pathlib.Path):
         if k not in data:
             errs.append(f'{d}: manifest missing {k}')
 
-    status = data.get('status', '')
-
-    # Status validation
-    if status != 'Validated':
-        errs.append(f'{d}: manifest status is not Validated (got {status})')
+    errs.extend(_validate_status_and_verification(data, str(d)))
     if data.get('safety_class') != 'local-validation-only':
         errs.append(f'{d}: safety_class not local-validation-only')
 
@@ -159,7 +168,7 @@ def validate_dir(d: pathlib.Path):
                 errs.append(f'{d}: language variant directory missing: {lang}')
                 continue
 
-            variant_errs = validate_language_variant(lang_dir, data.get('finding_id', ''))
+            variant_errs = validate_language_variant(lang_dir, data.get('finding_id', ''), require_passed_run=False)
             errs.extend(variant_errs)
 
             # Check if this variant passed
@@ -171,6 +180,16 @@ def validate_dir(d: pathlib.Path):
 
         if not has_passed_variant:
             errs.append(f'{d}: no language variant has poc-run-result status=passed')
+
+        main_run_result = d / 'poc-run-result.json'
+        if not main_run_result.exists():
+            errs.append(f'{d}: missing poc-run-result.json')
+        else:
+            rr = json.loads(main_run_result.read_text())
+            if rr.get('status') != 'passed':
+                errs.append(f'{d}: poc-run-result status is not passed')
+            if rr.get('exit_code') != 0:
+                errs.append(f'{d}: poc-run-result exit_code is not 0')
 
         # Main reproduce.sh checks
         if not s.exists():

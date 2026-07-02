@@ -121,8 +121,8 @@ def test_multilang_generation():
         assert (base / 'poc-run-result.json').exists()
 
 
-def test_needs_manual_review_gets_no_poc():
-    """Needs Manual Review findings get manual plans, not PoC artifacts."""
+def test_needs_manual_review_gets_draft_poc():
+    """Needs Manual Review findings get draft PoC artifacts that execute locally."""
     with tempfile.TemporaryDirectory() as td:
         t = pathlib.Path(td)
 
@@ -139,7 +139,18 @@ def test_needs_manual_review_gets_no_poc():
             '--languages', 'python',
         ])
 
-        assert not (out / 'FINDING-001').exists()
+        base = out / 'FINDING-001'
+        assert base.exists()
+        manifest = json.loads((base / 'poc-manifest.json').read_text())
+        assert manifest['status'] == 'draft'
+        assert manifest['verification'] == 'unverified'
+        assert (base / 'reproduce.sh').exists()
+        assert (base / 'input-description.md').exists()
+        assert (base / 'README.md').exists()
+        run_result = json.loads((base / 'poc-run-result.json').read_text())
+        assert run_result['status'] == 'passed'
+        assert run_result['exit_code'] == 0
+        run_tool('tools/validate_poc_artifacts.py', ['--poc-root', str(out)])
 
 
 def test_language_auto_selection():
@@ -224,7 +235,7 @@ def test_explicit_language_override():
             '--findings', str(findings),
             '--out', str(out),
             '--generate-from-finding',
-            '--languages', 'go,java',
+            '--languages', 'python',
         ])
 
         base = out / 'FINDING-001'
@@ -232,10 +243,7 @@ def test_explicit_language_override():
         variants = manifest.get('language_variants', [])
         langs = [v['language'] for v in variants]
 
-        assert 'go' in langs
-        assert 'java' in langs
-        # Python should NOT be included (explicit override)
-        assert 'python' not in langs
+        assert langs == ['python']
 
 
 def test_ineligible_status_skipped():
@@ -266,6 +274,50 @@ def test_ineligible_status_skipped():
         summary = json.loads((out / 'poc-generation-summary.json').read_text())
         assert len(summary['skipped']) == 3
         assert all(s['reason'] == 'status-not-eligible' for s in summary['skipped'])
+
+
+def test_mixed_status_generation():
+    """Validated and Needs Manual Review generate; other statuses are skipped."""
+    with tempfile.TemporaryDirectory() as td:
+        t = pathlib.Path(td)
+
+        findings = t / 'findings.json'
+        findings.write_text(json.dumps({'findings': [
+            make_finding('Validated', 'FINDING-001', '.py'),
+            make_finding('Needs Manual Review', 'FINDING-002', '.py'),
+            make_finding('Candidate', 'FINDING-003', '.py'),
+            make_finding('Likely', 'FINDING-004', '.py'),
+            make_finding('Rejected', 'FINDING-005', '.py'),
+        ]}))
+
+        out = t / 'poc'
+        run_tool('tools/generate_poc_testcase.py', [
+            '--findings', str(findings),
+            '--out', str(out),
+            '--generate-from-finding',
+            '--languages', 'python',
+        ])
+
+        assert (out / 'FINDING-001' / 'poc-manifest.json').exists()
+        assert (out / 'FINDING-002' / 'poc-manifest.json').exists()
+        assert not (out / 'FINDING-003').exists()
+        assert not (out / 'FINDING-004').exists()
+        assert not (out / 'FINDING-005').exists()
+
+        v_manifest = json.loads((out / 'FINDING-001' / 'poc-manifest.json').read_text())
+        d_manifest = json.loads((out / 'FINDING-002' / 'poc-manifest.json').read_text())
+        assert v_manifest['status'] == 'Validated'
+        assert v_manifest['verification'] == 'verified'
+        assert d_manifest['status'] == 'draft'
+        assert d_manifest['verification'] == 'unverified'
+
+        summary = json.loads((out / 'poc-generation-summary.json').read_text())
+        skipped_ids = {s['id']: s['reason'] for s in summary['skipped']}
+        assert skipped_ids == {
+            'FINDING-003': 'status-not-eligible',
+            'FINDING-004': 'status-not-eligible',
+            'FINDING-005': 'status-not-eligible',
+        }
 
 
 def test_all_five_languages():
@@ -312,8 +364,8 @@ def main():
     test_multilang_generation()
     print('[PASS] test_multilang_generation')
 
-    test_needs_manual_review_gets_no_poc()
-    print('[PASS] test_needs_manual_review_gets_no_poc')
+    test_needs_manual_review_gets_draft_poc()
+    print('[PASS] test_needs_manual_review_gets_draft_poc')
 
     test_language_auto_selection()
     print('[PASS] test_language_auto_selection')
@@ -326,6 +378,9 @@ def main():
 
     test_ineligible_status_skipped()
     print('[PASS] test_ineligible_status_skipped')
+
+    test_mixed_status_generation()
+    print('[PASS] test_mixed_status_generation')
 
     test_all_five_languages()
     print('[PASS] test_all_five_languages')

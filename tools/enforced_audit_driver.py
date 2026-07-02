@@ -756,7 +756,9 @@ def main() -> int:
         manual_out = validation_root / 'manual-review'
         run([sys.executable, 'tools/generate_manual_validation_plan.py', '--findings', str(findings_out), '--out', str(manual_out)], allow_fail=False)
         poc_out = validation_root / 'poc-tests'
-        run([sys.executable, 'tools/generate_poc_testcase.py', '--findings', str(findings_out), '--generate-from-finding', '--out', str(poc_out)], allow_fail=True)
+        poc_gen_rc, poc_gen_out = run([sys.executable, 'tools/generate_poc_testcase.py', '--findings', str(findings_out), '--generate-from-finding', '--out', str(poc_out)], allow_fail=True)
+        if poc_gen_rc != 0:
+            return StageResult(False, issues=[poc_gen_out[-1000:] or 'poc generation or execution failed'])
         poc_v_rc, _ = run([sys.executable, 'tools/validate_poc_artifacts.py', '--poc-root', str(poc_out)], allow_fail=True)
         if poc_v_rc != 0:
             return StageResult(False, issues=['poc validation failed'])
@@ -803,9 +805,9 @@ def main() -> int:
             run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
             run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', str(norm_records), '--openeuler-index', str(OPENEULER_INDEX), '--out', str(corr)], allow_fail=False)
             run([sys.executable, 'tools/apply_correlation_to_findings.py', '--findings', args.findings, '--correlation', str(corr), '--out', args.findings], allow_fail=False)
-            run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out), '--skip-final-report'], allow_fail=False)
+            run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--poc-root', str(out / '04-validation/poc-tests'), '--out', str(out), '--skip-final-report'], allow_fail=False)
         run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', args.findings, '--out', str(out / '06-report')] + (['--correlation', str(corr)] if corr.exists() else []), allow_fail=False)
-        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
+        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=['report completeness failed'])
         return StageResult(True, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')])

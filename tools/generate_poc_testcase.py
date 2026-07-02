@@ -948,6 +948,7 @@ def _write_main_reproduce_sh(outdir, variants, fid):
         '# Authorized local validation and regression testing only.',
         'set -euo pipefail',
         'cd "$(dirname "$0")"',
+        'ROOT_DIR="$(pwd)"',
         '',
         'PASSED=0',
         'FAILED=0',
@@ -969,11 +970,16 @@ def _write_main_reproduce_sh(outdir, variants, fid):
         # Build if needed
         if build_cmd:
             lines.append(f'  echo "[PVAS-POC] Building {lang} variant..."')
-            lines.append(f'  cd {lang} && {build_cmd} && cd .. || {{ echo "[PVAS-POC] {lang} build failed"; SKIPPED=$((SKIPPED+1)); cd "$(dirname "$0")"; }}')
+            lines.append(f'  if ! (cd {lang} && {build_cmd}); then')
+            lines.append(f'    echo "[PVAS-POC] {lang} build failed"')
+            lines.append('    SKIPPED=$((SKIPPED+1))')
+            lines.append('    cd "$ROOT_DIR"')
+            lines.append('    continue')
+            lines.append('  fi')
 
         # Run
         lines.append(f'  cd {lang} && {run_cmd} && {{ echo "[PASS] {lang} variant passed"; PASSED=$((PASSED+1)); }} || {{ echo "[FAIL] {lang} variant failed"; FAILED=$((FAILED+1)); }}')
-        lines.append(f'  cd "$(dirname "$0")"')
+        lines.append('  cd "$ROOT_DIR"')
         lines.append('else')
         lines.append(f'  echo "[SKIP] {lang} runtime not available"')
         lines.append('  SKIPPED=$((SKIPPED+1))')
@@ -1241,17 +1247,15 @@ def main():
         if args.finding_id and fid != args.finding_id:
             continue
 
-        status = f.get('status') or f.get('validated_status')
-
-        is_validated = (status == 'Validated')
-
-        if not is_validated:
-            skipped.append({'id': fid, 'reason': 'status-not-eligible'})
-            continue
-
-        is_draft = False
-
         if args.generate_from_finding:
+            status = f.get('status') or f.get('validated_status')
+            is_validated = (status == 'Validated')
+            is_draft = (status == 'Needs Manual Review')
+
+            if not (is_validated or is_draft):
+                skipped.append({'id': fid, 'reason': 'status-not-eligible'})
+                continue
+
             # Multi-language generation mode
             languages = select_languages(f, explicit_langs=explicit_langs, profile=profile)
             d = outroot / fid
@@ -1261,10 +1265,11 @@ def main():
 
             gen_result = generate_multilang_poc(f, languages, d, is_draft=is_draft)
 
-            # Run the reproducer (only enforce pass for Validated, not draft)
+            # Run the reproducer. Draft PoCs must execute successfully, but
+            # passing execution does not upgrade a finding to Validated.
             run_result = run_multilang_reproducer(d, timeout_seconds=args.timeout)
 
-            if is_validated and run_result['status'] != 'passed':
+            if run_result['status'] != 'passed':
                 skipped.append({'id': fid, 'reason': 'poc-execution-failed'})
                 continue
 
@@ -1276,6 +1281,8 @@ def main():
             continue
 
         # Legacy mode: use existing validation artifacts
+        status = f.get('status') or f.get('validated_status')
+        is_validated = (status == 'Validated')
         if not is_validated:
             skipped.append({'id': fid, 'reason': 'legacy-mode-requires-Validated'})
             continue
@@ -1307,6 +1314,8 @@ def main():
     summary = {'generated': generated, 'skipped': skipped}
     (outroot / 'poc-generation-summary.json').write_text(json.dumps(summary, indent=2))
     print(f'[PVAS-POC] generated {len(generated)} PoC testcase package(s)')
+    if any(s.get('reason') == 'poc-execution-failed' for s in skipped):
+        return 2
     return 0 if generated or skipped else 1
 
 
