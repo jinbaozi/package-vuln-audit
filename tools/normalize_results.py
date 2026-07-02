@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse, json, pathlib, re, sys
+import xml.etree.ElementTree as ET
 
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
@@ -61,6 +62,40 @@ def cppcheck_limitation_id(item):
     return ''
 
 
+def parse_cppcheck_xml(path):
+    items = []
+    try:
+        root = ET.fromstring(path.read_text(errors='ignore'))
+    except (OSError, ET.ParseError):
+        return items
+    for error in root.findall('.//error'):
+        location = error.find('location')
+        items.append({
+            'file': location.get('file', '') if location is not None else '',
+            'line': location.get('line', '') if location is not None else '',
+            'severity': (error.get('severity') or '').lower(),
+            'message': (error.get('msg') or error.get('verbose') or '').strip(),
+            'id': (error.get('id') or '').strip(),
+        })
+    return items
+
+
+def iter_cppcheck_items(raw):
+    cpp = raw / 'cppcheck.out'
+    if cpp.exists():
+        text = cpp.read_text(errors='ignore')
+        if text.lstrip().startswith('<?xml') or text.lstrip().startswith('<results'):
+            yield from parse_cppcheck_xml(cpp)
+        else:
+            for line in text.splitlines():
+                item = parse_cppcheck_line(line)
+                if item:
+                    yield item
+    xml = raw / 'cppcheck.xml'
+    if xml.exists():
+        yield from parse_cppcheck_xml(xml)
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
     raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}
@@ -78,13 +113,10 @@ def main():
             m=re.match(r'([^:]+):(\d+):(.*)', line)
             if m:
                 add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), {'tool_refs':['rg'], 'sink':m.group(3).strip()[:200]}, 5); n+=1
-    cpp=raw/'cppcheck.out'
-    if cpp.exists():
+    cpp_items = list(iter_cppcheck_items(raw))
+    if cpp_items:
         total=0; promoted=0; suppressed=0; limitation_count=0; by_severity={}; by_id={}; limitations={}
-        for line in cpp.read_text(errors='ignore').splitlines():
-            item=parse_cppcheck_line(line)
-            if not item:
-                continue
+        for item in cpp_items:
             total+=1
             sev=item['severity']; by_severity[sev]=by_severity.get(sev,0)+1
             cid=item['id'] or 'unknown'; by_id[cid]=by_id.get(cid,0)+1
@@ -94,6 +126,9 @@ def main():
                 limitations[limitation_id]=limitations.get(limitation_id,0)+1
                 continue
             if not cppcheck_is_high_value(item):
+                suppressed+=1
+                continue
+            if not item.get('file') or not item.get('line'):
                 suppressed+=1
                 continue
             title=(item['message'] or 'Cppcheck result')[:120]

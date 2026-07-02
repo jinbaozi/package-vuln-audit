@@ -69,7 +69,53 @@ def test_cppcheck_configuration_noise_is_summarized_as_coverage_limitation():
         assert summary["coverage_limitations"]["unknownMacro"] == 1
 
 
+def test_cppcheck_xml_is_parsed_and_configuration_noise_is_not_promoted():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        raw = td / "raw"
+        raw.mkdir()
+        (raw / "cppcheck.xml").write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<results version="2">
+  <errors>
+    <error id="toomanyconfigs" severity="information" msg="Too many #ifdef configurations">
+      <location file="src/a.c" line="1" column="1"/>
+    </error>
+    <error id="unknownMacro" severity="error" msg="Unknown macro">
+      <location file="src/b.c" line="2" column="1"/>
+    </error>
+    <error id="syntaxError" severity="error" msg="syntax error">
+      <location file="src/c.c" line="3" column="1"/>
+    </error>
+    <error id="normalCheckLevelMaxBranches" severity="information" msg="Limiting analysis branches">
+      <location file="src/d.c" line="4" column="1"/>
+    </error>
+    <error id="arrayIndexOutOfBounds" severity="warning" msg="array index out of bounds">
+      <location file="src/parser.c" line="222" column="4"/>
+    </error>
+  </errors>
+</results>
+""")
+        out = td / "raw-candidates.json"
+        p = run_normalizer(raw, out)
+        assert p.returncode == 0
+        data = json.loads(out.read_text())
+        cppcheck_candidates = [c for c in data["candidates"] if c["component"] == "cppcheck"]
+        assert len(cppcheck_candidates) == 1
+        candidate = cppcheck_candidates[0]
+        assert candidate["source_locations"][0]["file"] == "src/parser.c"
+        assert candidate["source_locations"][0]["start_line"] == 222
+        assert candidate["evidence"]["cppcheck_id"] == "arrayIndexOutOfBounds"
+        summary = data["tool_summaries"]["cppcheck"]
+        assert summary["total_results"] == 5
+        assert summary["coverage_limitation_count"] == 4
+        assert summary["coverage_limitations"]["toomanyconfigs"] == 1
+        assert summary["coverage_limitations"]["unknownMacro"] == 1
+        assert summary["coverage_limitations"]["syntaxError"] == 1
+        assert summary["coverage_limitations"]["normalCheckLevelMaxBranches"] == 1
+
+
 if __name__ == "__main__":
     test_cppcheck_full_output_is_parsed_but_low_value_style_is_summarized()
     test_cppcheck_configuration_noise_is_summarized_as_coverage_limitation()
+    test_cppcheck_xml_is_parsed_and_configuration_noise_is_not_promoted()
     print("normalize results tests passed")

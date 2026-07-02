@@ -114,6 +114,9 @@ def command_template(
         ]
         if cppcheck_scope and cppcheck_scope.get("scope_mode") == "compile-database" and cppcheck_scope.get("compile_database"):
             return [*base, f"--project={cppcheck_scope['compile_database']}"]
+        if cppcheck_scope:
+            for include_path in cppcheck_scope.get("include_paths") or []:
+                base.append(f"-I{include_path}")
         return [*base, "<source>"]
     if name == "osv-scanner":
         return ["osv-scanner", "scan", "--format", "json", "<source>"]
@@ -198,6 +201,7 @@ def build_matrix(
                 "cppcheck_compile_database": str(cppcheck_scope.get("compile_database") or "") if cppcheck_scope else "",
                 "cppcheck_profile_ids": list(cppcheck_scope.get("profile_ids") or []) if cppcheck_scope else [],
                 "scope_limitations": list(cppcheck_scope.get("limitations") or []) if cppcheck_scope else [],
+                "cppcheck_include_paths": list(cppcheck_scope.get("include_paths") or []) if cppcheck_scope else [],
                 "cppcheck_build_dir": "<raw>/cppcheck-build-dir",
                 "cppcheck_jobs": cppcheck_jobs(),
             })

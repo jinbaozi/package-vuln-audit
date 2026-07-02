@@ -35,11 +35,14 @@ def test_generic_c_cpp_profile_writes_conservative_cppcheck_scope():
 
         scope = json.loads((out / "cppcheck-scope.json").read_text())
         files = (out / "cppcheck.files.txt").read_text().splitlines()
+        includes = (out / "cppcheck.includes.txt").read_text().splitlines()
         rel_files = {pathlib.Path(p).relative_to(src).as_posix() for p in files}
         assert scope["scope_mode"] == "file-list"
         assert "generic-c-cpp" in scope["profile_ids"]
         assert scope["direct_header_policy"] == "exclude-direct-headers"
         assert scope["compile_database"] is None
+        assert scope["include_paths"] == includes
+        assert str(src / "src") in includes
         assert rel_files == {"src/main.c", "src/lib.cpp"}
         assert any("tests" in pattern for pattern in scope["excluded_patterns"])
 
@@ -73,20 +76,36 @@ def test_binutils_profile_is_registry_plugin_not_hardcoded_scope():
         (src / "binutils").mkdir(parents=True)
         (src / "bfd").mkdir()
         (src / "opcodes").mkdir()
+        (src / "gas").mkdir()
+        (src / "ld").mkdir()
+        (src / "include").mkdir()
+        (src / "libiberty").mkdir()
+        (src / "intl").mkdir()
+        (src / "zlib").mkdir()
         (src / "configure").write_text("#!/bin/sh\n")
         (src / "binutils" / "readelf.c").write_text("int display(void) { return 0; }\n")
         (src / "bfd" / "elf.c").write_text("int elf(void) { return 0; }\n")
+        (src / "gas" / "as.c").write_text("int gas(void) { return 0; }\n")
+        (src / "ld" / "ldmain.c").write_text("int ld(void) { return 0; }\n")
         (src / "opcodes" / "op.h").write_text("int op(void);\n")
+        (src / "opcodes" / "dis.c").write_text("int dis(void) { return 0; }\n")
 
         out = td / "audit-output" / "01-profile"
         run_profile(src, out)
 
         scope = json.loads((out / "cppcheck-scope.json").read_text())
         files = (out / "cppcheck.files.txt").read_text().splitlines()
+        includes = (out / "cppcheck.includes.txt").read_text().splitlines()
         rel_files = {pathlib.Path(p).relative_to(src).as_posix() for p in files}
+        rel_includes = {pathlib.Path(p).relative_to(src).as_posix() for p in includes}
         assert "binutils" in scope["profile_ids"]
         assert "binutils/readelf.c" in rel_files
         assert "bfd/elf.c" in rel_files
+        assert "opcodes/dis.c" in rel_files
+        assert "gas/as.c" not in rel_files
+        assert "ld/ldmain.c" not in rel_files
+        assert {"include", "bfd", "binutils", "opcodes", "libiberty", "intl", "zlib"}.issubset(rel_includes)
+        assert scope["include_paths"] == includes
         assert any("binutils high-risk module focus applied" in item for item in scope["limitations"])
 
 

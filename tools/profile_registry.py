@@ -37,6 +37,8 @@ DEFAULT_SCOPE_EXCLUDE_DIRS = {
     "docs",
 }
 BINUTILS_DIRS = {"binutils", "bfd", "opcodes", "gas", "ld", "gold", "gprof", "libctf", "libsframe"}
+BINUTILS_CPPCHECK_FOCUS_ROOTS = {"bfd", "binutils", "opcodes"}
+BINUTILS_INCLUDE_CANDIDATES = ["include", "bfd", "binutils", "opcodes", "libiberty", "intl", "zlib"]
 BINUTILS_FOCUS = [
     "binutils/readelf.c",
     "binutils/objdump.c",
@@ -171,6 +173,36 @@ def binutils_focus_files(src: pathlib.Path) -> list[pathlib.Path]:
     return unique_paths(selected)
 
 
+def binutils_scope_files(src: pathlib.Path, files: list[pathlib.Path], exclude_dirs: set[str]) -> list[pathlib.Path]:
+    focused = binutils_focus_files(src)
+    for path in files:
+        if not path.exists() or not is_impl_file(path) or is_excluded(src, path, exclude_dirs):
+            continue
+        parts = relative_parts(src, path)
+        if parts and parts[0] in BINUTILS_CPPCHECK_FOCUS_ROOTS:
+            focused.append(path)
+    return unique_paths(sorted(focused))
+
+
+def generic_include_paths(src: pathlib.Path, files: list[pathlib.Path], selected: list[pathlib.Path], exclude_dirs: set[str]) -> list[pathlib.Path]:
+    selected_roots = {path.parent for path in selected}
+    header_dirs = {
+        normalize_path(path.parent)
+        for path in files
+        if path.exists() and path.suffix.lower() in HEADER_EXTENSIONS and not is_excluded(src, path, exclude_dirs)
+    }
+    include_dirs: list[pathlib.Path] = []
+    for directory in sorted(header_dirs | selected_roots):
+        if directory.exists() and directory.is_dir() and not is_excluded(src, directory, exclude_dirs):
+            include_dirs.append(directory)
+    return unique_paths(include_dirs)
+
+
+def binutils_include_paths(src: pathlib.Path) -> list[pathlib.Path]:
+    paths = [src / rel for rel in BINUTILS_INCLUDE_CANDIDATES if (src / rel).is_dir()]
+    return unique_paths(paths)
+
+
 def detect_profiles(src: pathlib.Path, files: list[pathlib.Path]) -> list[ProfileRule]:
     rules = [
         ProfileRule("binutils", 80, detect_binutils),
@@ -188,7 +220,7 @@ def write_cppcheck_scope(src: pathlib.Path, out: pathlib.Path, *, max_files: int
 
     selected = included_implementation_files(src, files, exclude_dirs)
     if "binutils" in profile_ids:
-        selected = unique_paths(binutils_focus_files(src) + selected)
+        selected = binutils_scope_files(src, files, exclude_dirs)
         limitations.append("binutils high-risk module focus applied")
     if compile_db:
         profile_ids = [*profile_ids, "compile-database"]
@@ -200,12 +232,17 @@ def write_cppcheck_scope(src: pathlib.Path, out: pathlib.Path, *, max_files: int
     if not selected:
         limitations.append("no C/C++ implementation files selected for direct cppcheck file-list scope")
 
+    include_paths = generic_include_paths(src, files, selected, exclude_dirs)
+    if "binutils" in profile_ids:
+        include_paths = unique_paths(binutils_include_paths(src) + include_paths)
+
     scope = {
         "schema_version": "1.0",
         "scope_mode": "compile-database" if compile_db else "file-list",
         "profile_ids": profile_ids,
         "source_root": str(src),
         "included_files": [str(path) for path in selected[:max_files]],
+        "include_paths": [str(path) for path in include_paths],
         "excluded_patterns": sorted(f"**/{name}/**" for name in exclude_dirs),
         "direct_header_policy": "exclude-direct-headers",
         "compile_database": str(compile_db) if compile_db else None,
@@ -215,6 +252,9 @@ def write_cppcheck_scope(src: pathlib.Path, out: pathlib.Path, *, max_files: int
     (out / "cppcheck-scope.json").write_text(json.dumps(scope, indent=2))
     (out / "cppcheck.files.txt").write_text(
         "\n".join(scope["included_files"]) + ("\n" if scope["included_files"] else "")
+    )
+    (out / "cppcheck.includes.txt").write_text(
+        "\n".join(scope["include_paths"]) + ("\n" if scope["include_paths"] else "")
     )
     return scope
 

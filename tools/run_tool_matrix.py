@@ -487,6 +487,7 @@ def cppcheck_summary_metadata(tool: dict) -> dict:
         "cppcheck_compile_database",
         "cppcheck_profile_ids",
         "scope_limitations",
+        "cppcheck_include_paths",
         "cppcheck_build_dir",
         "cppcheck_jobs",
     ):
@@ -502,6 +503,24 @@ def expand_command_for_files(command: list[str], source: pathlib.Path, raw: path
             expanded.extend(str(f) for f in files)
         else:
             expanded.append(part.replace("<source>", str(source)).replace("<raw>", str(raw)))
+    return expanded
+
+
+def expand_cppcheck_command_for_file_list(command: list[str], source: pathlib.Path, raw: pathlib.Path, file_list_path: pathlib.Path) -> list[str]:
+    expanded: list[str] = []
+    used_file_list = False
+    for part in command:
+        if part == "<source>":
+            expanded.append(f"--file-list={file_list_path}")
+            used_file_list = True
+        elif str(part).startswith("--file-list="):
+            expanded.append(f"--file-list={file_list_path}")
+            used_file_list = True
+        else:
+            replaced = part.replace("<source>", str(source)).replace("<raw>", str(raw))
+            expanded.append(replaced)
+    if not used_file_list:
+        expanded.append(f"--file-list={file_list_path}")
     return expanded
 
 
@@ -590,6 +609,7 @@ def apply_cppcheck_scope_metadata(row: dict, tool: dict, scope: dict | None, lim
         row["cppcheck_scope_mode"] = str(scope.get("scope_mode") or tool.get("cppcheck_scope_mode") or "unspecified")
         row["cppcheck_compile_database"] = str(scope.get("compile_database") or tool.get("cppcheck_compile_database") or "")
         row["cppcheck_profile_ids"] = list(scope.get("profile_ids") or tool.get("cppcheck_profile_ids") or [])
+        row["cppcheck_include_paths"] = list(scope.get("include_paths") or tool.get("cppcheck_include_paths") or [])
         combined_limitations = list(scope.get("limitations") or [])
         combined_limitations.extend(limitations)
         row["scope_limitations"] = combined_limitations
@@ -597,6 +617,7 @@ def apply_cppcheck_scope_metadata(row: dict, tool: dict, scope: dict | None, lim
         row["cppcheck_scope_mode"] = "fallback-file-list"
         row["cppcheck_compile_database"] = str(tool.get("cppcheck_compile_database") or "")
         row["cppcheck_profile_ids"] = list(tool.get("cppcheck_profile_ids") or [])
+        row["cppcheck_include_paths"] = list(tool.get("cppcheck_include_paths") or [])
         row["scope_limitations"] = limitations
     for key in ("cppcheck_mode", "cppcheck_mode_source", "mode_limitations", "cppcheck_scope_file", "cppcheck_build_dir", "cppcheck_jobs"):
         if key in tool:
@@ -623,6 +644,12 @@ def chunks(items: list[pathlib.Path], size: int) -> list[list[pathlib.Path]]:
 
 def write_cppcheck_file_list(raw: pathlib.Path, files: list[pathlib.Path]) -> pathlib.Path:
     path = raw / "cppcheck.files.txt"
+    path.write_text("\n".join(str(f) for f in files) + ("\n" if files else ""))
+    return path
+
+
+def write_cppcheck_shard_file_list(raw: pathlib.Path, output_no: int, files: list[pathlib.Path]) -> pathlib.Path:
+    path = raw / f"cppcheck.part{output_no:04d}.files.txt"
     path.write_text("\n".join(str(f) for f in files) + ("\n" if files else ""))
     return path
 
@@ -813,7 +840,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
     if final_output.exists():
         final_output.unlink()
 
-    command_for_missing = expand_command_for_files(tool["command"], source, raw, [source])
+    command_for_missing = expand_cppcheck_command_for_file_list(tool["command"], source, raw, file_list_path)
     if shutil.which(binary) is None:
         reason = "not-installed"
         blocking = is_blocking_tool(tool)
@@ -898,8 +925,9 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
             attempt_no += 1
             output_no += 1
             part_output = raw / f"cppcheck.part{output_no:04d}.out"
+            shard_file_list = write_cppcheck_shard_file_list(raw, output_no, scope_files)
             partial_outputs.append(part_output)
-            command = expand_command_for_files(tool["command"], source, raw, scope_files)
+            command = expand_cppcheck_command_for_file_list(tool["command"], source, raw, shard_file_list)
             rc, elapsed_ms, events, reason = run_cppcheck_shard(command, env, part_output, tool)
             watchdog_events.extend(events)
             if rc == 0:
@@ -916,6 +944,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
                     "shard_index": shard_index,
                     "shard_total": shard_total,
                     "shard_file_count": len(scope_files),
+                    "file_list": str(shard_file_list),
                     "output": str(part_output),
                     "output_bytes": output_size(part_output),
                 })
@@ -942,6 +971,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
                     "shard_index": shard_index,
                     "shard_total": shard_total,
                     "shard_file_count": len(scope_files),
+                    "file_list": str(shard_file_list),
                     "output": str(part_output),
                     "output_bytes": output_size(part_output),
                 })
@@ -977,6 +1007,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
                 "shard_index": shard_index,
                 "shard_total": shard_total,
                 "shard_file_count": len(scope_files),
+                "file_list": str(shard_file_list),
                 "output": str(part_output),
                 "output_bytes": output_size(part_output),
             })
@@ -993,7 +1024,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
         if not ok:
             break
 
-    if not blocked_reason:
+    if not blocked_reason or completed_outputs:
         with final_output.open("w") as dest:
             for part in completed_outputs:
                 if part.exists():
@@ -1003,18 +1034,35 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
                         if not text.endswith("\n"):
                             dest.write("\n")
         result_count = cppcheck_diagnostic_count(final_output)
-        status = "completed-with-findings" if result_count else "completed"
-        reason = ""
+        if blocked_reason:
+            status = "incomplete"
+            reason = "partial-timeout" if blocked_reason == "stalled" else blocked_reason
+        else:
+            status = "completed-with-findings" if result_count else "completed"
+            reason = ""
     else:
         result_count = 0
         status = "blocked-pending-confirmation" if blocked_reason == "stalled" else "blocked-recovery-required"
         reason = blocked_reason
 
-    status, reason, strict_decision = block_required_status(tool, status, reason)
+    if reason == "partial-timeout" and tool.get("degraded_continuation_allowed"):
+        status, reason, strict_decision = "incomplete", reason, "continue-needs-manual-review"
+    else:
+        status, reason, strict_decision = block_required_status(tool, status, reason)
     output_path = str(final_output) if not blocked_reason else ""
+    if reason == "partial-timeout" and final_output.exists():
+        output_path = str(final_output)
     total_shards = effective_shards
     output_paths = [str(path) for path in partial_outputs]
-    coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
+    if reason == "partial-timeout":
+        coverage = {
+            "impact": tool.get("evidence", ""),
+            "limitation": "partial cppcheck coverage",
+            "completed_shards": len(completed_outputs),
+            "total_shards": total_shards,
+        }
+    else:
+        coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
     row = {
         "name": name,
         "status": status,

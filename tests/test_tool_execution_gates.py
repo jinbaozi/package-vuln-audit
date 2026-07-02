@@ -369,7 +369,15 @@ def test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings():
         bindir = td / "bin"
         bindir.mkdir()
         fake = bindir / "cppcheck"
-        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *.c ]] && echo \"$arg:3:1: warning: unsafe copy [bufferAccessOutOfBounds]\" >&2; done\n")
+        write_executable(fake, """#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == --file-list=* ]]; then
+    while IFS= read -r path; do
+      [[ "$path" == *.c ]] && echo "$path:3:1: warning: unsafe copy [bufferAccessOutOfBounds]" >&2
+    done < "${arg#--file-list=}"
+  fi
+done
+""")
         file_list = write_source_files(td, ["one.c"])
         matrix = cppcheck_matrix(td, shard_size=4)
         out = td / "tools"
@@ -423,7 +431,15 @@ def test_cppcheck_shards_all_complete_before_merging():
         bindir = td / "bin"
         bindir.mkdir()
         fake = bindir / "cppcheck"
-        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *.c ]] && echo \"$arg:5:1: warning: shard hit [memleak]\" >&2; done\n")
+        write_executable(fake, """#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == --file-list=* ]]; then
+    while IFS= read -r path; do
+      [[ "$path" == *.c ]] && echo "$path:5:1: warning: shard hit [memleak]" >&2
+    done < "${arg#--file-list=}"
+  fi
+done
+""")
         file_list = write_source_files(td, ["one.c", "two.c", "three.c", "four.c", "five.c"])
         matrix = cppcheck_matrix(td, shard_size=2)
         out = td / "tools"
@@ -450,7 +466,17 @@ def test_cppcheck_nonzero_shard_blocks_and_preserves_attempt():
         bindir = td / "bin"
         bindir.mkdir()
         fake = bindir / "cppcheck"
-        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *fail.c ]] && echo \"$arg:7:1: error: failed [internalError]\" >&2 && exit 7; done\nexit 0\n")
+        write_executable(fake, """#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == --file-list=* ]]; then
+    if grep -q 'fail.c$' "${arg#--file-list=}"; then
+      echo "fail.c:7:1: error: failed [internalError]" >&2
+      exit 7
+    fi
+  fi
+done
+exit 0
+""")
         file_list = write_source_files(td, ["ok.c", "fail.c", "later.c"])
         matrix = cppcheck_matrix(td, shard_size=1)
         out = td / "tools"
@@ -475,8 +501,11 @@ def test_cppcheck_stalled_shard_splits_and_then_completes():
         bindir.mkdir()
         fake = bindir / "cppcheck"
         write_executable(fake, """#!/usr/bin/env python3
-import sys, time
-files = [a for a in sys.argv[1:] if a.endswith('.c')]
+import pathlib, sys, time
+files = []
+for arg in sys.argv[1:]:
+    if arg.startswith('--file-list='):
+        files.extend(pathlib.Path(arg.split('=', 1)[1]).read_text().splitlines())
 if len(files) > 1:
     time.sleep(0.5)
     sys.exit(0)
@@ -517,6 +546,113 @@ def test_cppcheck_single_file_stall_blocks_for_confirmation():
         assert row["reason"] == "stalled"
 
 
+def test_cppcheck_sharded_command_uses_file_list_not_expanded_source_paths():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        args_log = td / "cppcheck-args.jsonl"
+        fake = bindir / "cppcheck"
+        write_executable(fake, f"""#!/usr/bin/env python3
+import json, pathlib, sys
+args = sys.argv[1:]
+pathlib.Path({str(args_log)!r}).write_text(json.dumps(args) + "\\n")
+for arg in args:
+    if arg.startswith('--file-list='):
+        for source in pathlib.Path(arg.split('=', 1)[1]).read_text().splitlines():
+            print(f"{{source}}:5:1: warning: shard hit [memleak]", file=sys.stderr)
+""")
+        file_list = write_source_files(td, [f"file{i}.c" for i in range(3005)])
+        matrix = cppcheck_matrix(td, shard_size=4000)
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        args = json.loads(args_log.read_text())
+        file_list_args = [arg for arg in args if arg.startswith("--file-list=")]
+        assert len(file_list_args) == 1
+        assert not any(arg.endswith(".c") for arg in args)
+        shard_file_list = pathlib.Path(file_list_args[0].split("=", 1)[1])
+        assert shard_file_list.name == "cppcheck.part0001.files.txt"
+        assert len(shard_file_list.read_text().splitlines()) == 3005
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        assert attempts[0]["file_list"] == str(shard_file_list)
+        assert not any(str(td / "src" / "file0.c") == arg for arg in attempts[0]["command"])
+
+
+def test_cppcheck_partial_timeout_preserves_completed_output_and_degraded_can_continue():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, """#!/usr/bin/env python3
+import pathlib, sys, time
+files = []
+for arg in sys.argv[1:]:
+    if arg.startswith('--file-list='):
+        files.extend(pathlib.Path(arg.split('=', 1)[1]).read_text().splitlines())
+if any(path.endswith('hang.c') for path in files):
+    time.sleep(0.5)
+    sys.exit(0)
+for path in files:
+    print(f"{path}:11:1: warning: completed shard [memleak]", file=sys.stderr)
+""")
+        file_list = write_source_files(td, ["ok.c", "hang.c"])
+        matrix_data = json.loads(cppcheck_matrix(td, shard_size=1, timeout="0.1s").read_text())
+        matrix_data["tools"][0]["degraded_continuation_allowed"] = True
+        matrix = td / "matrix.json"
+        matrix.write_text(json.dumps(matrix_data))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "incomplete"
+        assert row["strict_decision"] == "continue-needs-manual-review"
+        assert row["reason"] == "partial-timeout"
+        assert row["shards_completed"] == 1
+        assert row["result_count"] == 1
+        assert row["coverage_impact"]["limitation"] == "partial cppcheck coverage"
+        assert pathlib.Path(row["raw_output_ref"]).name == "cppcheck.out"
+        assert "completed shard" in pathlib.Path(row["raw_output_ref"]).read_text()
+
+
+def test_cppcheck_partial_timeout_blocks_without_degraded_confirmation():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, """#!/usr/bin/env python3
+import pathlib, sys, time
+files = []
+for arg in sys.argv[1:]:
+    if arg.startswith('--file-list='):
+        files.extend(pathlib.Path(arg.split('=', 1)[1]).read_text().splitlines())
+if any(path.endswith('hang.c') for path in files):
+    time.sleep(0.5)
+    sys.exit(0)
+for path in files:
+    print(f"{path}:12:1: warning: completed shard [memleak]", file=sys.stderr)
+""")
+        file_list = write_source_files(td, ["ok.c", "hang.c"])
+        matrix = cppcheck_matrix(td, shard_size=1, timeout="0.1s")
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["strict_decision"] == "block"
+        assert row["reason"] == "partial-timeout"
+        assert row["shards_completed"] == 1
+        assert row["coverage_impact"]["limitation"] == "partial cppcheck coverage"
+
+
 if __name__ == "__main__":
     test_semgrep_missing_is_recorded_and_blocks()
     test_semgrep_success_completes_and_not_applicable_is_preserved()
@@ -533,4 +669,7 @@ if __name__ == "__main__":
     test_cppcheck_nonzero_shard_blocks_and_preserves_attempt()
     test_cppcheck_stalled_shard_splits_and_then_completes()
     test_cppcheck_single_file_stall_blocks_for_confirmation()
+    test_cppcheck_sharded_command_uses_file_list_not_expanded_source_paths()
+    test_cppcheck_partial_timeout_preserves_completed_output_and_degraded_can_continue()
+    test_cppcheck_partial_timeout_blocks_without_degraded_confirmation()
     print("tool execution gate tests passed")
