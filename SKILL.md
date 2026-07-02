@@ -115,7 +115,7 @@ Required behavior:
 - Write `audit-output/00-environment/tool-install-plan.md` when tools are missing.
 - Prefer Python/pipx/uv, npm/npx, user-local binaries, and offline bundles.
 - Avoid root/system package manager changes by default.
-- Continue the workflow in degraded mode unless a strict environment profile is explicitly required.
+- Complete-audit workflow defaults to `strict-efficient`: strict environment profile, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Use `strict-degraded` for explicit degraded continuation, or `compat-default` only for legacy reproduction/debugging.
 
 ## osv-scanner (Known Vulnerability Scan)
 
@@ -159,7 +159,7 @@ For complete audits, `semgrep` is mandatory and must complete successfully. `Nee
 
 ## Explicit Strict Mode v1.0
 
-Default mode tolerates missing traditional tools and continues in degraded mode. Strict mode blocks the audit when strict-required traditional tools are missing unless explicit degraded execution is authorized. When strict mode blocks, the workflow must enter the `tool-install-assistant` flow instead of passively waiting for the user. The assistant must default to dry-run, prefer offline-bundle/Python pipx or uv/npm or npx/user-local binaries, use RPM/DNF only as a separately authorized administrator plan, enforce per-tool authorization, prefix containment, offline-bundle hash verification, network mode, version constraints, and mock-only tests. Parent agents read only install summary and decision artifacts, not full install logs.
+Complete audits default to `strict-efficient`. `compat-default` preserves the older behavior where missing traditional tools can continue in degraded mode. Strict mode blocks the audit when strict-required traditional tools are missing unless explicit degraded execution is authorized. When strict mode blocks, the workflow must enter the `tool-install-assistant` flow instead of passively waiting for the user. The assistant must default to dry-run, prefer offline-bundle/Python pipx or uv/npm or npx/user-local binaries, use RPM/DNF only as a separately authorized administrator plan, enforce per-tool authorization, prefix containment, offline-bundle hash verification, network mode, version constraints, and mock-only tests. Parent agents read only install summary and decision artifacts, not full install logs.
 
 ## Workflow Enforcement & Report Completeness v1.0
 

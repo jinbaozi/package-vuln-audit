@@ -20,6 +20,17 @@ def test_default_missing_continues():
     assert data['status'] in {'degraded','missing-required'}
 
 
+def test_no_mode_defaults_to_strict():
+    rc, data = run_verify(['--profile','standard'])
+    assert data['mode'] == 'strict'
+    if data['blocking_missing_tools']:
+        assert rc == 2
+        assert data['decision'] == 'block'
+    else:
+        assert rc == 0
+        assert data['decision'] in {'continue', 'continue-degraded'}
+
+
 def test_strict_missing_blocks():
     rc, data = run_verify(['--profile','standard','--mode','strict'])
     if data['blocking_missing_tools']:
@@ -41,6 +52,7 @@ def test_strict_allow_degraded_continues():
 
 if __name__ == '__main__':
     test_default_missing_continues()
+    test_no_mode_defaults_to_strict()
     test_strict_missing_blocks()
     test_strict_allow_degraded_continues()
     print('strict mode tests passed')

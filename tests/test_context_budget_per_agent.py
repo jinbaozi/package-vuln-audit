@@ -42,13 +42,23 @@ def test_context_efficient_mode_is_reported_without_lowering_coverage():
         (profile/'traversal-manifest.json').write_text(json.dumps({'all_files_count':1,'source_files_count':1,'excluded_dirs':[],'large_files_skipped':0,'truncated':False}))
         (packets/'CAND-001.md').write_text('x' * 1000)
         out=td/'context-budget.json'
-        env=os.environ.copy()
-        env['PVAS_CONTEXT_EFFICIENT']='1'
-        subprocess.check_call([sys.executable, str(ROOT/'tools/context_budget.py'), '--profile-dir', str(profile), '--packet-dir', str(packets), '--out', str(out)], env=env)
+        subprocess.check_call([sys.executable, str(ROOT/'tools/context_budget.py'), '--profile-dir', str(profile), '--packet-dir', str(packets), '--out', str(out)])
         budget=json.loads(out.read_text())
         assert budget['policy']['context_efficient_mode'] is True
         assert budget['candidate_packets']['coverage_complete'] is True
         assert budget['candidate_packets']['max_packet_count_per_review'] == 20
+
+def test_context_efficient_mode_can_be_disabled_for_compat():
+    print("[context-test] context-efficient-off", flush=True)
+    with tempfile.TemporaryDirectory() as td:
+        td=pathlib.Path(td); packets=td/'packets'; packets.mkdir(); profile=td/'profile'; profile.mkdir()
+        (profile/'traversal-manifest.json').write_text(json.dumps({'all_files_count':1,'source_files_count':1,'excluded_dirs':[],'large_files_skipped':0,'truncated':False}))
+        out=td/'context-budget.json'
+        env=os.environ.copy()
+        env['PVAS_CONTEXT_EFFICIENT']='0'
+        subprocess.check_call([sys.executable, str(ROOT/'tools/context_budget.py'), '--profile-dir', str(profile), '--packet-dir', str(packets), '--out', str(out)], env=env)
+        budget=json.loads(out.read_text())
+        assert budget['policy']['context_efficient_mode'] is False
 
 def test_make_packets_emits_budget_metadata():
     print("[context-test] packets", flush=True)
@@ -70,7 +80,7 @@ def test_make_packets_emits_budget_metadata():
         assert idx['coverage_complete'] is True
         assert idx['deduplicated_slice_count'] == 1
 
-def test_strict_packet_budget_blocks_single_oversized_packet():
+def test_strict_packet_budget_blocks_single_oversized_packet_by_default():
     print("[context-test] strict-packet-budget", flush=True)
     with tempfile.TemporaryDirectory() as td:
         td=pathlib.Path(td); src=td/'src'; src.mkdir()
@@ -79,8 +89,30 @@ def test_strict_packet_budget_blocks_single_oversized_packet():
         cands=[{'id':'T-CAND-001','type':'T-CAND','status':'Candidate','title':'t','component':'c','source_locations':[{'file':'x.c','start_line':1,'end_line':20}], 'evidence':{'detail':'y' * 20000}, 'missing_evidence':[]}]
         cf=td/'cands.json'; cf.write_text(json.dumps({'candidates':cands}))
         out=td/'packets'
+        p=subprocess.run([
+            sys.executable, str(ROOT/'tools/make_ai_packets.py'),
+            '--candidates', str(cf),
+            '--source-root', str(src),
+            '--out', str(out),
+            '--packet-token-budget', '100',
+        ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert p.returncode == 2
+        idx=json.loads((out/'packet-index.json').read_text())
+        assert idx['coverage_complete'] is False
+        assert idx['blocked_packet_count'] == 1
+        assert idx['packets'][0]['status'] == 'blocked-recovery-required'
+        assert 'strict budget' in idx['packets'][0]['reason']
+
+def test_packet_strict_budget_can_be_disabled_for_compat():
+    print("[context-test] strict-packet-budget-off", flush=True)
+    with tempfile.TemporaryDirectory() as td:
+        td=pathlib.Path(td); src=td/'src'; src.mkdir()
+        (src/'x.c').write_text('\n'.join('A' * 20000 for _ in range(20)))
+        cands=[{'id':'T-CAND-001','type':'T-CAND','status':'Candidate','title':'t','component':'c','source_locations':[{'file':'x.c','start_line':1,'end_line':20}], 'evidence':{'detail':'y' * 20000}, 'missing_evidence':[]}]
+        cf=td/'cands.json'; cf.write_text(json.dumps({'candidates':cands}))
+        out=td/'packets'
         env=os.environ.copy()
-        env['PVAS_PACKET_STRICT_BUDGET']='1'
+        env['PVAS_PACKET_STRICT_BUDGET']='0'
         p=subprocess.run([
             sys.executable, str(ROOT/'tools/make_ai_packets.py'),
             '--candidates', str(cf),
@@ -88,12 +120,11 @@ def test_strict_packet_budget_blocks_single_oversized_packet():
             '--out', str(out),
             '--packet-token-budget', '100',
         ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert p.returncode == 2
+        assert p.returncode == 0
         idx=json.loads((out/'packet-index.json').read_text())
-        assert idx['coverage_complete'] is False
-        assert idx['blocked_packet_count'] == 1
-        assert idx['packets'][0]['status'] == 'blocked-recovery-required'
-        assert 'strict budget' in idx['packets'][0]['reason']
+        assert idx['coverage_complete'] is True
+        assert idx['blocked_packet_count'] == 0
+        assert idx['packets'][0]['status'] == 'ready'
 
 def test_candidate_review_summary_requires_complete_coverage():
     print("[context-test] review-coverage", flush=True)
@@ -189,8 +220,10 @@ if __name__ == '__main__':
     test_profile_excludes_and_budget()
     test_packet_batching_allows_aggregate_over_200k()
     test_context_efficient_mode_is_reported_without_lowering_coverage()
+    test_context_efficient_mode_can_be_disabled_for_compat()
     test_make_packets_emits_budget_metadata()
-    test_strict_packet_budget_blocks_single_oversized_packet()
+    test_strict_packet_budget_blocks_single_oversized_packet_by_default()
+    test_packet_strict_budget_can_be_disabled_for_compat()
     test_candidate_review_summary_requires_complete_coverage()
     test_coordinator_l4_path_blocked_when_manifest_present()
     test_coordinator_l4_path_blocks_packet_directory()

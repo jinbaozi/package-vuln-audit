@@ -106,7 +106,7 @@ When a required or recommended traditional tool is missing:
 
 ## Explicit Strict Mode v1.0
 
-Default mode tolerates missing traditional tools and continues in degraded mode. Strict mode blocks the audit when strict-required traditional tools are missing unless explicit degraded execution is authorized. When strict mode blocks, the workflow must enter the `tool-install-assistant` flow instead of passively waiting for the user. The assistant must default to dry-run, prefer offline-bundle/Python pipx or uv/npm or npx/user-local binaries, use RPM/DNF only as a separately authorized administrator plan, enforce per-tool authorization, prefix containment, offline-bundle hash verification, network mode, version constraints, and mock-only tests. Parent agents read only install summary and decision artifacts, not full install logs.
+Complete audits default to `strict-efficient`. `compat-default` preserves the older behavior where missing traditional tools can continue in degraded mode. Strict mode blocks the audit when strict-required traditional tools are missing unless explicit degraded execution is authorized. When strict mode blocks, the workflow must enter the `tool-install-assistant` flow instead of passively waiting for the user. The assistant must default to dry-run, prefer offline-bundle/Python pipx or uv/npm or npx/user-local binaries, use RPM/DNF only as a separately authorized administrator plan, enforce per-tool authorization, prefix containment, offline-bundle hash verification, network mode, version constraints, and mock-only tests. Parent agents read only install summary and decision artifacts, not full install logs.
 
 ## Workflow Enforcement & Report Completeness v1.0
 

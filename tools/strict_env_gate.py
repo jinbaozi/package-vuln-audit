@@ -71,7 +71,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description='PVAS strict environment gate')
     ap.add_argument('--out', default='audit-output/00-environment')
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'))
-    ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'default'))
+    ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'strict'))
     ap.add_argument('--allow-degraded', action='store_true',
                     default=env_flag('PVAS_ALLOW_DEGRADED'))
     ap.add_argument('--install-assist', action='store_true',

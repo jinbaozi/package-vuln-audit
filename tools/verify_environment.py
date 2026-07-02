@@ -76,7 +76,7 @@ def decision_for(mode: str, missing: list[str], blocking_missing: list[str], all
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'), choices=sorted(PROFILE_TOOLS))
-    ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'default'), choices=sorted(STRICT_MODES))
+    ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'strict'), choices=sorted(STRICT_MODES))
     ap.add_argument('--required-tools', default=os.environ.get('PVAS_REQUIRED_TOOLS', ''))
     ap.add_argument('--allow-degraded', action='store_true', default=env_flag('PVAS_ALLOW_DEGRADED'))
     ap.add_argument('--out', default='audit-output/00-environment')

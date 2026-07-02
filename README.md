@@ -23,7 +23,7 @@
   - [2.1 Claude Code](#21-claude-code)
   - [2.2 opencode](#22-opencode)
   - [2.3 Codex](#23-codex)
-  - [2.4 推荐提示词](#24-推荐提示词)
+  - [2.4 跨平台通用推荐提示词](#24-跨平台通用推荐提示词)
 - [3. 审计工作流](#3-审计工作流)
   - [3.1 分阶段流程](#31-分阶段流程)
   - [3.2 候选状态机](#32-候选状态机)
@@ -93,6 +93,8 @@
 
 本 README 面向 AI 工具使用者，不直接暴露底层工具脚本的逐条调用方式。底层脚本、schemas 和模板由 Agent Skill 在执行过程中调度，用户主要通过 Claude Code、opencode 或 Codex 的项目级指令和命令入口使用本 Skill。
 
+以下平台示例只描述不同工具的入口语法；完整审计要求以 [2.4 跨平台通用推荐提示词](#24-跨平台通用推荐提示词) 为准。
+
 ### 2.1 Claude Code
 
 推荐使用安装脚本，从 skill 仓库根目录执行：
@@ -114,7 +116,7 @@ CLAUDE.md
 推荐使用方式：
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient
 ```
 
 `output_dir=audit-output` 相对当前 Claude Code 会话/命令的工作目录解析。推荐从被审计项目根目录启动；如果从 skill 仓库或其他目录审计外部源码，请显式指定绝对输出目录。
@@ -128,13 +130,7 @@ CLAUDE.md
 /validate candidate=audit-output/03-candidates/packets/T-CAND-0001.md
 ```
 
-Claude Code 适配器要求：
-
-- 根规则以 `SKILL.md` 和 `AGENTS.md` 为准。
-- 父会话只读取摘要、索引、candidate packet、验证摘要和最终报告。
-- 原始工具日志、fuzz 日志、大量源码切片交给 subagent 处理。
-- 除非用户明确进入 patch 模式，否则不得修改目标源码。
-- PoC / testcase 只允许服务于 `Validated` finding 的本地复现和回归测试。
+Claude Code 小节只说明 slash command 入口；完整审计提示词和质量要求请复用 [2.4 跨平台通用推荐提示词](#24-跨平台通用推荐提示词) 中的 canonical prompt / 可复制通用提示词。
 
 ### 2.2 opencode
 
@@ -157,7 +153,7 @@ install/verify-install.sh --target /path/to/repo --platform opencode
 推荐使用方式：
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient
 /package-profile source_path=. output_dir=audit-output
 /hypothesis-hunt profile=audit-output/01-profile/package-profile.json
 /candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
@@ -167,14 +163,15 @@ install/verify-install.sh --target /path/to/repo --platform opencode
 也可以用自然语言触发 coordinator：
 
 ```text
-请使用 package-vuln-audit 工作流审计当前仓库。
+请按 README 2.4 跨平台通用推荐提示词执行 package-vuln-audit 工作流，审计当前仓库。
 审计范围：当前工作区。
 输出目录：audit-output。
 profile：standard。
-要求：保持父上下文干净，只读取摘要和 schema 化产物；不要把 raw log、SARIF、fuzz 输出直接塞入主上下文。
 ```
 
 这里的 `audit-output` 是 opencode 进程当前工作目录下的目录；推荐当前工作目录就是被审计项目根目录。
+
+opencode 小节只说明 slash command 和 coordinator 自然语言入口；完整审计提示词和质量要求请复用 [2.4 跨平台通用推荐提示词](#24-跨平台通用推荐提示词) 中的 canonical prompt / 可复制通用提示词。
 
 opencode 适配器提供 `coordinator` 主 agent，并将高噪声任务拆给多个 subagent，例如：
 
@@ -216,40 +213,55 @@ python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --sourc
 在 Codex 对话中也可以使用：
 
 ```text
-请按 AGENTS.md 中的 package-vuln-audit 规则，对当前仓库做一次授权防御性源码漏洞审计。
+请按 AGENTS.md 和 README 2.4 跨平台通用推荐提示词，对当前仓库做一次授权防御性源码漏洞审计。
 
-要求：
-1. 不要直接读取全仓库原始日志或大规模源码内容到主上下文。
-2. 如果没有原生 subagent，请用独立任务包模拟 subagent。
-3. 只将摘要、候选 packet、验证结果、finding 索引和最终报告返回到主上下文。
-4. Candidate 和 Likely 不能作为最终漏洞结论。
-5. Validated finding 必须包含源码证据、验证证据、误报排除、CVSS 和公开漏洞关联结论。
+审计范围：当前工作区。
+输出目录：audit-output。
+profile：standard。
 ```
 
-Codex 如果没有原生 subagent，应通过“独立任务包 + 独立调用 + 摘要回传”的方式模拟 subagent，避免父上下文被工具日志、扫描结果和大规模源码内容污染。
+Codex 小节只说明 `AGENTS.md` / skill 指令和 driver 直接运行入口；完整审计提示词和质量要求请复用 [2.4 跨平台通用推荐提示词](#24-跨平台通用推荐提示词) 中的 canonical prompt / 可复制通用提示词。
 
-### 2.4 推荐提示词
+### 2.4 跨平台通用推荐提示词
 
-#### 完整审计
+本节是 Claude Code、opencode、Codex 共用的 canonical prompt。各平台入口语法可以不同，但完整审计的质量要求、上下文约束和报告准入规则必须复用这里的内容。
+
+项目默认完整 workflow 采用 `strict-efficient`：严格工具门禁、默认不允许 degraded 继续、上下文高效、strict packet budget。可选预设：
+
+- `strict-efficient`：默认推荐模式，等价于 strict 工具门禁 + `PVAS_CONTEXT_EFFICIENT=1` + `PVAS_PACKET_STRICT_BUDGET=1`。
+- `strict-degraded`：strict 工具门禁但显式允许 degraded 继续，上下文高效和 strict packet budget 仍开启。
+- `compat-default`：旧兼容/调试模式，使用 default 工具策略并关闭上下文高效和 strict packet budget。
+
+#### 可复制通用提示词
 
 ```text
 使用 package-vuln-audit-skill 对当前项目做一次授权防御性漏洞审计。
 
+入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
 审计目标：当前仓库
-输出目录：audit-output
+输出目录：audit-output（相对当前进程 cwd）
 profile：standard
 候选数量上限：20
 
-要求：
-- 严格读取 SKILL.md、AGENTS.md、workflows、agents、schemas、templates 和 references。
-- 完整审计必须通过 `tools/enforced_audit_driver.py` 执行；低层脚本只能用于调试或单阶段复现，不能替代 workflow gate。
+执行要求：
+- 按 skill 指令读取 SKILL.md、AGENTS.md、相关 workflows、agents、schemas、templates 和 references。
+- 完整审计必须通过 `tools/enforced_audit_driver.py` 的完整 workflow gate；低层脚本只能用于调试或单阶段复现，不能替代 gate。
+- `audit-output` 必须相对当前进程 cwd 解析；推荐从被审计项目根目录启动，跨目录审计时显式传入绝对 `--out`。
 - 不要只阅读 workflow 描述后就生成报告。
-- 传统工具缺失时，不要静默跳过；按 strict/default 策略阻断、降级或进入受控安装辅助。
+- 父上下文必须保持 summary-only：只读取阶段 summary、schema 化 JSON、candidate packet、validation result、finding index 和 final report。
+- raw logs、SARIF、fuzz 输出、大规模源码切片和完整候选全集不得直接进入父上下文。
+- 默认使用 `workflow_preset=strict-efficient`；如需旧行为复现/调试，显式使用 `--workflow-preset compat-default`。
+- strict-efficient 表示 strict 工具门禁、缺少 strict-required 工具时进入 tool-install-assistant 或阻断，除非显式授权 degraded；context efficient 和 strict packet budget 默认开启。
+- 传统工具缺失时，不要静默跳过；必须记录 missing/not-installed、说明能力降级、生成安装计划，并按 preset 和显式覆盖项阻断、降级或进入受控安装辅助。
+- 上下文高效是完整审计默认语义，不是降级；工具矩阵、Top-N、candidate review、CVSS、公开漏洞关联和报告门禁仍保持完整覆盖。
+- strict packet budget 默认开启；max_candidates=20；候选 packet 默认最多 3 个函数、每个函数 ±80 行；超预算时必须拆包或阻断，不能静默丢弃关键源码切片或证据。
 - 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
-- 只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
-- 每个 Validated finding 必须进行公开漏洞关联。
-- 最终输出中文主报告、机器 JSON、英文披露材料和剩余风险说明。
+- Candidate 和 Likely 不能作为最终漏洞结论；只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
+- 每个 Validated finding 必须包含源码证据（源码路径/函数/行范围）、输入源、sink、source-to-sink 路径、可达性、验证证据、误报排除、修复建议、CVSS 评分理由和公开漏洞关联结论。
+- 最终输出 machine/ 权威机器产物、zh-CN 中文报告、en-US 英文披露材料和剩余风险说明；未命中公开来源时只能说明“配置的公开来源未发现匹配”。
 ```
+
+#### 直接运行 driver
 
 如果直接运行 driver，推荐先进入被审计项目根目录：
 
@@ -258,15 +270,19 @@ cd /path/to/target-project
 python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
 ```
 
-推荐在完整审计中启用上下文高效模式。该模式不减少工具覆盖、不降低默认 Top-N、不跳过候选评审；它只限制 raw 输出和重复上下文进入父 agent：
+交互式 TTY 中，如果没有指定 `--workflow-preset` 或 `PVAS_WORKFLOW_PRESET`，driver 会显示三档预设菜单，回车默认 `strict-efficient`。CI、脚本和 agent 非交互调用不会阻塞，会直接使用默认预设。脚本化运行建议显式固定预设并禁用提示：
 
 ```bash
 cd /path/to/target-project
-PVAS_CONTEXT_EFFICIENT=1 \
-PVAS_PACKET_STRICT_BUDGET=1 \
-PVAS_TERMINAL_SUMMARY_CHARS=1000 \
-python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --max-candidates 20
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py \
+  --source . \
+  --out audit-output \
+  --max-candidates 20 \
+  --workflow-preset strict-efficient \
+  --no-startup-prompt
 ```
+
+可用 `PVAS_WORKFLOW_PRESET` 设置同名预设，或用 `PVAS_WORKFLOW_PROMPT=0` 禁用 TTY 启动提示。显式 `--mode`、`PVAS_TOOL_MODE`、`PVAS_ALLOW_DEGRADED`、`PVAS_CONTEXT_EFFICIENT`、`PVAS_PACKET_STRICT_BUDGET` 会覆盖预设中的对应字段，并记录到 `audit-output/machine/workflow-startup.json`。
 
 #### 严格模式审计
 
@@ -554,8 +570,8 @@ profile 不等于“所有工具一定运行”。工具是否运行取决于：
 - 原始工具日志保留在磁盘，不进入父上下文。
 - 每个 candidate 尽量单独评审，避免不同候选证据互相污染。
 - candidate packet 生成后必须重新执行 Context Budget Guard。
-- `PVAS_CONTEXT_EFFICIENT=1` 表示“上下文高效完整审计”，不是降级模式；工具矩阵、Top-N、candidate review、CVSS 和报告门禁仍保持完整覆盖。
-- `PVAS_PACKET_STRICT_BUDGET=1` 会在单个 packet 超预算且无法安全拆分时阻断，不能静默丢弃关键源码切片或证据。
+- 上下文高效完整审计是默认语义；`PVAS_CONTEXT_EFFICIENT=0` 仅用于旧兼容/调试，不减少完整审计应覆盖的工具矩阵、Top-N、candidate review、CVSS 和报告门禁。
+- strict packet budget 默认开启；`PVAS_PACKET_STRICT_BUDGET=0` 仅用于旧兼容/调试。默认情况下单个 packet 超预算且无法安全拆分时必须阻断，不能静默丢弃关键源码切片或证据。
 - `PVAS_TERMINAL_SUMMARY_CHARS` 只限制终端摘要和 stage issue 摘要长度；完整 raw 日志仍落盘，并通过 `tool-summary.json` 的 `raw_output_ref`、`output_bytes`、`result_count` 索引。
 
 ### 5.4 Schemas 与模板

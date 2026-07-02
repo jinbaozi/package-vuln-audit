@@ -9,7 +9,7 @@ mkdir -p "$RAW"
 
 ENV_OUT="$(dirname "$OUT")/00-environment"
 ENV_PROFILE="${PVAS_ENV_PROFILE:-standard}"
-ENV_MODE="${PVAS_TOOL_MODE:-default}"
+ENV_MODE="${PVAS_TOOL_MODE:-strict}"
 GATE_ARGS=(--out "$ENV_OUT" --profile "$ENV_PROFILE" --mode "$ENV_MODE")
 if [ "${PVAS_ALLOW_DEGRADED:-0}" = "1" ]; then GATE_ARGS+=(--allow-degraded); fi
 # Standalone: gate runs by default. Driver sets PVAS_SKIP_ENV_GATE=1 after its own gate.

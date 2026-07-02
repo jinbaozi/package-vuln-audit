@@ -7,8 +7,10 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from enforced_audit_driver import (
+    WORKFLOW_PRESETS,
     StageResult,
     request_confirmation,
+    resolve_startup_config,
     run_stage,
     validate_finding_schema,
     validate_resume_confirmation,
@@ -213,6 +215,89 @@ def test_driver_uses_validation_poc_path():
     assert '04-validation' in text
     assert 'poc-tests' in text
     assert "machine' / 'poc-tests" not in text
+
+
+class Args:
+    workflow_preset = None
+    no_startup_prompt = False
+    resume = False
+    mode = None
+    allow_degraded = None
+
+
+def startup_args(**kwargs):
+    args = Args()
+    for key, value in kwargs.items():
+        setattr(args, key, value)
+    return args
+
+
+def test_startup_default_noninteractive_is_strict_efficient():
+    with temp_audit_dir() as td:
+        cfg = resolve_startup_config(startup_args(), pathlib.Path(td), environ={}, stdin_is_tty=False)
+        assert cfg.preset == 'strict-efficient'
+        assert cfg.mode == 'strict'
+        assert cfg.allow_degraded is False
+        assert cfg.context_efficient is True
+        assert cfg.packet_strict_budget is True
+        assert cfg.prompt_source == 'default-noninteractive'
+
+
+def test_startup_tty_menu_maps_three_presets():
+    expected = {'1': 'strict-efficient', '2': 'strict-degraded', '3': 'compat-default'}
+    with temp_audit_dir() as td:
+        for answer, preset in expected.items():
+            cfg = resolve_startup_config(
+                startup_args(),
+                pathlib.Path(td),
+                environ={},
+                input_fn=lambda _prompt, answer=answer: answer,
+                stdin_is_tty=True,
+            )
+            assert cfg.preset == preset
+            assert cfg.mode == WORKFLOW_PRESETS[preset]['mode']
+            assert cfg.allow_degraded == WORKFLOW_PRESETS[preset]['allow_degraded']
+            assert cfg.prompt_source == 'interactive-tty'
+
+
+def test_startup_explicit_preset_sources_skip_prompt():
+    with temp_audit_dir() as td:
+        cli = resolve_startup_config(startup_args(workflow_preset='compat-default'), pathlib.Path(td), environ={}, stdin_is_tty=True)
+        env = resolve_startup_config(startup_args(), pathlib.Path(td), environ={'PVAS_WORKFLOW_PRESET': 'strict-degraded'}, stdin_is_tty=True)
+        assert cli.preset == 'compat-default'
+        assert cli.prompt_source == 'cli-workflow-preset'
+        assert env.preset == 'strict-degraded'
+        assert env.prompt_source == 'env-workflow-preset'
+
+
+def test_startup_resume_reuses_previous_workflow_startup():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        path = audit / 'machine/workflow-startup.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'preset': 'strict-degraded'}))
+        cfg = resolve_startup_config(startup_args(resume=True), audit, environ={}, stdin_is_tty=False)
+        assert cfg.preset == 'strict-degraded'
+        assert cfg.allow_degraded is True
+        assert cfg.prompt_source == 'resume-workflow-startup'
+
+
+def test_startup_overrides_are_recorded():
+    with temp_audit_dir() as td:
+        cfg = resolve_startup_config(
+            startup_args(workflow_preset='strict-efficient', mode='default'),
+            pathlib.Path(td),
+            environ={'PVAS_CONTEXT_EFFICIENT': '0', 'PVAS_PACKET_STRICT_BUDGET': '0', 'PVAS_ALLOW_DEGRADED': '1'},
+            stdin_is_tty=False,
+        )
+        assert cfg.mode == 'default'
+        assert cfg.allow_degraded is True
+        assert cfg.context_efficient is False
+        assert cfg.packet_strict_budget is False
+        assert cfg.overrides['mode']['source'] == 'cli'
+        assert cfg.overrides['allow_degraded']['source'] == 'env'
+        assert cfg.overrides['context_efficient']['source'] == 'env'
+        assert cfg.overrides['packet_strict_budget']['source'] == 'env'
 
 
 if __name__ == '__main__':

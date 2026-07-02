@@ -18,7 +18,7 @@ PACKET_BUDGET=int(os.getenv('PVAS_PACKET_BUDGET_TOKENS','8000'))
 BATCH_BUDGET=int(os.getenv('PVAS_PACKET_REVIEW_BATCH_TOKENS','160000'))
 MAX_PACKET_COUNT=int(os.getenv('PVAS_MAX_PACKET_COUNT_PER_REVIEW','20'))
 LONG_CONTEXT_MODE=os.getenv('PVAS_LONG_CONTEXT_MODE','off')
-CONTEXT_EFFICIENT_MODE=os.getenv('PVAS_CONTEXT_EFFICIENT','').lower() in {'1','true','yes','on'}
+CONTEXT_EFFICIENT_MODE=os.getenv('PVAS_CONTEXT_EFFICIENT','1').lower() not in {'0','false','no','off'}
 
 ROLE_TARGETS={
   'coordinator': (40000, ['summary','index','profile','budget'], ['full_repository','raw_source_dump','raw_tool_log','raw_fuzz_log','full_build_log','all_candidate_packets']),

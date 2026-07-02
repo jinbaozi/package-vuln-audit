@@ -6,7 +6,7 @@
   "properties": {
     "policy": {
       "type": "object",
-      "required": ["budget_model", "default_agent_context_budget_tokens", "agent_input_target_tokens", "agent_input_warning_tokens", "agent_hard_input_limit_tokens", "agent_output_reserve_tokens"],
+      "required": ["budget_model", "default_agent_context_budget_tokens", "agent_input_target_tokens", "agent_input_warning_tokens", "agent_hard_input_limit_tokens", "agent_output_reserve_tokens", "context_efficient_mode", "context_efficient_semantics"],
       "properties": {
         "budget_model": {"const": "per-agent-independent-context"},
         "default_agent_context_budget_tokens": {"type": "integer", "minimum": 1},
@@ -14,7 +14,9 @@
         "agent_input_warning_tokens": {"type": "integer", "minimum": 1},
         "agent_hard_input_limit_tokens": {"type": "integer", "minimum": 1},
         "agent_output_reserve_tokens": {"type": "integer", "minimum": 1},
-        "long_context_mode": {"type": "string"}
+        "long_context_mode": {"type": "string"},
+        "context_efficient_mode": {"type": "boolean"},
+        "context_efficient_semantics": {"type": "string"}
       },
       "additionalProperties": true
     },

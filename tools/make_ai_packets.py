@@ -76,7 +76,7 @@ def main():
     ap.add_argument('--review-batch-token-budget', type=int, default=DEFAULT_BATCH_BUDGET)
     ap.add_argument('--max-packet-count-per-review', type=int, default=DEFAULT_MAX_PACKETS)
     args=ap.parse_args()
-    strict_budget=os.environ.get('PVAS_PACKET_STRICT_BUDGET','').lower() in {'1','true','yes','on'}
+    strict_budget=os.environ.get('PVAS_PACKET_STRICT_BUDGET','1').lower() not in {'0','false','no','off'}
     data=json.loads(pathlib.Path(args.candidates).read_text())
     candidates=data.get('candidates',[])
     if args.max_packets and args.max_packets > 0:

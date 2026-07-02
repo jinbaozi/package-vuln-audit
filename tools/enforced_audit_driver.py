@@ -37,6 +37,27 @@ BUSINESS_WORKFLOWS = [
     '04-ai-hypothesis', '05-candidate-review', '06-validation',
     '07-cvss-scoring', '08-report', '09-progressive-disclosure',
 ]
+WORKFLOW_PRESETS = {
+    'strict-efficient': {
+        'mode': 'strict',
+        'allow_degraded': False,
+        'context_efficient': True,
+        'packet_strict_budget': True,
+    },
+    'strict-degraded': {
+        'mode': 'strict',
+        'allow_degraded': True,
+        'context_efficient': True,
+        'packet_strict_budget': True,
+    },
+    'compat-default': {
+        'mode': 'default',
+        'allow_degraded': False,
+        'context_efficient': False,
+        'packet_strict_budget': False,
+    },
+}
+STARTUP_PATH = pathlib.Path('machine/workflow-startup.json')
 
 
 @dataclass
@@ -48,6 +69,29 @@ class StageResult:
     limitations: list[str] = field(default_factory=list)
     not_applicable: bool = False
     details: dict = field(default_factory=dict)
+
+
+@dataclass
+class StartupConfig:
+    preset: str
+    mode: str
+    allow_degraded: bool
+    context_efficient: bool
+    packet_strict_budget: bool
+    prompt_source: str
+    overrides: dict = field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        return {
+            'preset': self.preset,
+            'mode': self.mode,
+            'allow_degraded': self.allow_degraded,
+            'context_efficient': self.context_efficient,
+            'packet_strict_budget': self.packet_strict_budget,
+            'prompt_source': self.prompt_source,
+            'overrides': self.overrides,
+            'generated_at': _iso_now(),
+        }
 
 
 def _iso_now() -> str:
@@ -246,6 +290,109 @@ def require_paths(paths: list[pathlib.Path], label: str = 'artifact') -> StageRe
     return StageResult(True, outputs=[str(p) for p in paths])
 
 
+def _truthy_env_value(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {'1', 'true', 'yes', 'on'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'off'}:
+        return False
+    return None
+
+
+def _choose_interactive_preset(input_fn: Callable[[str], str]) -> str:
+    menu = (
+        'PVAS workflow preset:\n'
+        '  1) strict-efficient (default): strict tools, no degraded continuation, context efficient, strict packet budget\n'
+        '  2) strict-degraded: strict tools with explicit degraded continuation, context efficient, strict packet budget\n'
+        '  3) compat-default: legacy default/debug behavior\n'
+        'Select preset [1]: '
+    )
+    answer = input_fn(menu).strip()
+    return {'': 'strict-efficient', '1': 'strict-efficient', '2': 'strict-degraded', '3': 'compat-default'}.get(answer, 'strict-efficient')
+
+
+def resolve_startup_config(args, out_root: pathlib.Path, *, argv: list[str] | None = None,
+                           environ: dict | None = None, input_fn: Callable[[str], str] = input,
+                           stdin_is_tty: bool | None = None) -> StartupConfig:
+    environ = os.environ if environ is None else environ
+    startup_file = out_root / STARTUP_PATH
+    cli_preset = args.workflow_preset
+    env_preset = environ.get('PVAS_WORKFLOW_PRESET') or ''
+    if env_preset and env_preset not in WORKFLOW_PRESETS:
+        raise ValueError(f'invalid PVAS_WORKFLOW_PRESET {env_preset!r}')
+
+    prompt_source = 'default-noninteractive'
+    preset = cli_preset or env_preset or ''
+    if not preset and args.resume and startup_file.exists():
+        previous = load_json(startup_file, default={}) or {}
+        previous_preset = previous.get('preset')
+        if previous_preset in WORKFLOW_PRESETS:
+            preset = previous_preset
+            prompt_source = 'resume-workflow-startup'
+    if not preset:
+        prompt_disabled = bool(args.no_startup_prompt) or environ.get('PVAS_WORKFLOW_PROMPT') == '0'
+        use_tty = sys.stdin.isatty() if stdin_is_tty is None else stdin_is_tty
+        if use_tty and not prompt_disabled:
+            preset = _choose_interactive_preset(input_fn)
+            prompt_source = 'interactive-tty'
+        else:
+            preset = 'strict-efficient'
+            if args.no_startup_prompt:
+                prompt_source = 'cli-no-startup-prompt'
+            elif environ.get('PVAS_WORKFLOW_PROMPT') == '0':
+                prompt_source = 'env-no-startup-prompt'
+    elif cli_preset:
+        prompt_source = 'cli-workflow-preset'
+    elif env_preset:
+        prompt_source = 'env-workflow-preset'
+
+    config = dict(WORKFLOW_PRESETS[preset])
+    overrides = {}
+    if args.mode is not None:
+        config['mode'] = args.mode
+        overrides['mode'] = {'source': 'cli', 'value': args.mode}
+    elif environ.get('PVAS_TOOL_MODE'):
+        config['mode'] = environ['PVAS_TOOL_MODE']
+        overrides['mode'] = {'source': 'env', 'value': environ['PVAS_TOOL_MODE']}
+
+    if args.allow_degraded is not None:
+        config['allow_degraded'] = bool(args.allow_degraded)
+        overrides['allow_degraded'] = {'source': 'cli', 'value': bool(args.allow_degraded)}
+    else:
+        env_allow = _truthy_env_value(environ.get('PVAS_ALLOW_DEGRADED'))
+        if env_allow is not None:
+            config['allow_degraded'] = env_allow
+            overrides['allow_degraded'] = {'source': 'env', 'value': env_allow}
+
+    env_context = _truthy_env_value(environ.get('PVAS_CONTEXT_EFFICIENT'))
+    if env_context is not None:
+        config['context_efficient'] = env_context
+        overrides['context_efficient'] = {'source': 'env', 'value': env_context}
+    env_packet = _truthy_env_value(environ.get('PVAS_PACKET_STRICT_BUDGET'))
+    if env_packet is not None:
+        config['packet_strict_budget'] = env_packet
+        overrides['packet_strict_budget'] = {'source': 'env', 'value': env_packet}
+
+    return StartupConfig(
+        preset=preset,
+        mode=config['mode'],
+        allow_degraded=bool(config['allow_degraded']),
+        context_efficient=bool(config['context_efficient']),
+        packet_strict_budget=bool(config['packet_strict_budget']),
+        prompt_source=prompt_source,
+        overrides=overrides,
+    )
+
+
+def apply_startup_config(config: StartupConfig) -> None:
+    os.environ['PVAS_TOOL_MODE'] = config.mode
+    os.environ['PVAS_ALLOW_DEGRADED'] = '1' if config.allow_degraded else '0'
+    os.environ['PVAS_CONTEXT_EFFICIENT'] = '1' if config.context_efficient else '0'
+    os.environ['PVAS_PACKET_STRICT_BUDGET'] = '1' if config.packet_strict_budget else '0'
+
+
 def intake_network_policy(intake_dir: pathlib.Path) -> str:
     data = load_json(intake_dir / 'intake.json', default={})
     policy = data.get('network_policy') if isinstance(data, dict) else None
@@ -382,8 +529,11 @@ def main() -> int:
     ap.add_argument('--source', default='.')
     ap.add_argument('--out', default='audit-output')
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'))
-    ap.add_argument('--mode', default=os.environ.get('PVAS_TOOL_MODE', 'default'), choices=['default', 'strict'])
-    ap.add_argument('--allow-degraded', action='store_true', default=env_flag('PVAS_ALLOW_DEGRADED'))
+    ap.add_argument('--workflow-preset', choices=sorted(WORKFLOW_PRESETS))
+    ap.add_argument('--no-startup-prompt', action='store_true',
+                    help='Disable interactive startup preset selection')
+    ap.add_argument('--mode', choices=['default', 'strict'])
+    ap.add_argument('--allow-degraded', action='store_true', default=None)
     ap.add_argument('--install-assist', action='store_true', default=env_flag('PVAS_INSTALL_ASSIST', default=True))
     ap.add_argument('--max-candidates', default=os.environ.get('PVAS_MAX_CANDIDATES', '20'))
     ap.add_argument('--findings', help='Validated findings JSON for final report gates')
@@ -396,6 +546,15 @@ def main() -> int:
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     max_candidates = int(args.max_candidates)
+    try:
+        startup = resolve_startup_config(args, out, argv=sys.argv[1:])
+    except ValueError as exc:
+        print(f'[PVAS-STARTUP] {exc}', file=sys.stderr)
+        return 2
+    apply_startup_config(startup)
+    args.mode = startup.mode
+    args.allow_degraded = startup.allow_degraded
+    write_json(out / STARTUP_PATH, startup.as_dict())
 
     # System gates retained as pre-business gates.
     contract = run_stage(

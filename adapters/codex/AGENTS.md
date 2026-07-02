@@ -6,11 +6,19 @@ Use the portable `package-vuln-audit` skill for authorized defensive source-code
 
 For complete audits, invoke `tools/enforced_audit_driver.py`. Direct calls to lower-level scripts such as `tools/run_tools.sh`, normalizers, validators, or report generators are allowed for debugging a single stage, but they do not satisfy the complete-audit workflow gate.
 
+Complete-audit prompts must reuse README 2.4 as the canonical prompt. The normalized entry parameters are:
+
+```text
+source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
+```
+
+`strict-efficient` is the default complete-audit preset: strict tool gates, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Parent context remains summary-only; do not carry raw logs, SARIF, fuzz output, large source slices, or complete candidate sets into Codex conversation context. Candidate and Likely items are not reportable vulnerabilities; only Validated and explicitly marked Needs Manual Review items may enter human-readable reports. Validated findings require CVSS rationale and public vulnerability correlation.
+
 The default `audit-output/` path is relative to the current Codex or driver process cwd, not automatically relative to `--source`. Start Codex from the audited repository root, or run:
 
 ```bash
 cd /path/to/target-project
-python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --workflow-preset strict-efficient
 ```
 
 If running from the skill repository or another directory while auditing external source, pass an explicit absolute `--out /path/to/output`.

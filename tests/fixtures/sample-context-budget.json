@@ -6,7 +6,9 @@
     "agent_input_warning_tokens": 170000,
     "agent_hard_input_limit_tokens": 180000,
     "agent_output_reserve_tokens": 20000,
-    "long_context_mode": "off"
+    "long_context_mode": "off",
+    "context_efficient_mode": true,
+    "context_efficient_semantics": "raw artifacts remain on disk; coordinator reads summaries; tool and candidate coverage are not reduced"
   },
   "agents": {
     "coordinator": {

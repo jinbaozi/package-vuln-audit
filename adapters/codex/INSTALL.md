@@ -36,6 +36,52 @@ When native subagents are unavailable, emulate subagent delegation with:
 
 Do not carry raw tool logs into follow-up Codex turns.
 
+## Usage
+
+Complete audits default to `strict-efficient`: strict tool gates, no degraded continuation unless explicit, context efficient mode, and strict packet budget.
+
+## Recommended complete-audit prompt
+
+README 2.4 is the canonical source for this prompt. Keep platform command syntax local, but keep the audit semantics synchronized with this block:
+
+```text
+使用 package-vuln-audit-skill 对当前项目做一次授权防御性漏洞审计。
+
+入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
+审计目标：当前仓库
+输出目录：audit-output（相对当前进程 cwd）
+profile：standard
+候选数量上限：20
+
+执行要求：
+- 完整审计必须通过 `tools/enforced_audit_driver.py` 的完整 workflow gate；低层脚本只能用于调试或单阶段复现，不能替代 gate。
+- 父上下文必须保持 summary-only：只读取阶段 summary、schema 化 JSON、candidate packet、validation result、finding index 和 final report；raw logs、SARIF、fuzz 输出、大规模源码切片和完整候选全集不得直接进入父上下文。
+- 默认使用 `workflow_preset=strict-efficient`；缺少 strict-required 工具时进入 tool-install-assistant 或阻断，除非显式授权 degraded；context efficient 和 strict packet budget 默认开启。
+- 传统工具缺失时不能静默跳过；必须记录 missing/not-installed、说明能力降级、生成安装计划，并按 preset 和显式覆盖项处理。
+- context efficient 不减少工具矩阵、Top-N、candidate review、CVSS、公开漏洞关联和报告门禁；strict packet budget 要求超预算候选拆包或阻断。
+- 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
+- Candidate 和 Likely 不能作为最终漏洞结论；只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
+- 每个 Validated finding 必须包含源码证据（源码路径/函数/行范围）、输入源、sink、source-to-sink 路径、可达性、验证证据、误报排除、修复建议、CVSS 评分理由和公开漏洞关联结论。
+- 最终输出 machine/ 权威机器产物、zh-CN 中文报告、en-US 英文披露材料和剩余风险说明。
+```
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+For CI or other non-interactive runs, pin the preset explicitly:
+
+```bash
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py \
+  --source . \
+  --out audit-output \
+  --workflow-preset strict-efficient \
+  --no-startup-prompt
+```
+
+Codex prompts can include `workflow_preset=strict-efficient`. Reuse the canonical prompt in README 2.4 for full audit requirements.
+
 ## Scripted install
 
 From the skill package root:
