@@ -21,6 +21,10 @@ def test_validation_documents_poc_run_result_and_manual_plan():
     assert "poc-run-result.json" in t
     assert "manual-validation-plan.md" in t
     assert "Needs Manual Review" in t
+    assert "draft" in t
+    assert "unverified" in t
+    assert 'status = `passed`' in t
+    assert "does not change the finding status" in t
 
 
 def test_report_documents_chinese_summary_and_dual_lane():
@@ -29,6 +33,9 @@ def test_report_documents_chinese_summary_and_dual_lane():
     assert "Validated" in t
     assert "Needs Manual Review" in t
     assert "最终汇总报告" in t
+    assert "Manual validation plan" in t
+    assert "Draft PoC artifact index" in t
+    assert 'status = `passed`' in t
 
 
 if __name__ == "__main__":

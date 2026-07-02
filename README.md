@@ -471,7 +471,8 @@ audit-output/
 
 ### 4.3 PoC、回归测试与人工复核
 
-正式 PoC / testcase 包只允许为 `Validated` finding 生成，用途限定为授权本地复现和回归测试。
+`Validated` finding 生成正式 verified PoC / testcase 包，用途限定为授权本地复现和回归测试。
+`Needs Manual Review` finding 生成 `draft` / `unverified` PoC / testcase 包，作为人工复核输入；该 draft PoC 必须在本地执行并记录 `poc-run-result.json` status = `passed`，但这只表示观察信号可复现，不会改变 finding 状态。
 
 PoC 安全限制：
 
@@ -490,7 +491,7 @@ PoC 安全限制：
 - 依赖特殊语料或配置。
 - 业务逻辑或部署前提需要人工判断。
 
-`Needs Manual Review` 只生成安全的人工验证计划，不生成正式 PoC 包。
+`Needs Manual Review` 必须同时生成安全的人工验证计划和 `draft` / `unverified` PoC 包。最终报告必须同时引用 manual validation plan 和 draft PoC 执行结果；不得把 draft PoC 执行通过描述为已验证漏洞。
 
 ---
 
@@ -638,7 +639,7 @@ package-vuln-audit/
 - Context Budget Guard 是否仍在 candidate packet 之后执行。
 - strict mode 下 required 工具缺失是否会阻断或进入安装辅助。
 - 最终报告是否包含公开漏洞关联、披露状态、双语产物和人工复核项。
-- PoC 生成策略是否仍只服务于 `Validated` finding。
+- 复现产物策略是否区分 `Validated` verified testcase 与 `Needs Manual Review` draft / unverified PoC，并要求 draft PoC 本地执行 `passed`。
 
 ### 6.3 安全边界
 

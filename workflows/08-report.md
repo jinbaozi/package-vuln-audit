@@ -24,7 +24,7 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
 
 ## Required steps (in order)
 
-1. **Generate PoC artifacts** for each Validated and Needs Manual Review finding (if not already done in 06-validation):
+1. **Generate PoC artifacts** for each reportable finding (if not already done in 06-validation):
    `tools/generate_poc_testcase.py --findings <finding-index.json> --generate-from-finding --languages <lang1,lang2,...> --profile <package-profile.json>`
 
 2. **Publish bilingual reports** (machine/zh-CN/en-US):
@@ -64,7 +64,7 @@ Create bilingual Markdown and JSON reports with finding index, validation eviden
 
 ## Report content requirements
 
-最终汇总报告默认简体中文，必须分别展示 `Validated Findings` 和 `Needs Manual Review`。`Validated` 必须引用已通过执行校验的 PoC 包；`Needs Manual Review` 必须引用人工验证计划。报告不得把人工复核项描述为已验证漏洞。
+最终汇总报告默认简体中文，必须分别展示 `Validated Findings` 和 `Needs Manual Review`。`Validated` 必须引用已通过执行校验的 verified PoC 包；`Needs Manual Review` 必须同时引用人工验证计划和 `draft` / `unverified` PoC 的 `poc-run-result.json` status = `passed` 执行结果。报告不得把人工复核项或 draft PoC 执行通过描述为已验证漏洞。
 
 Every report must include for each Validated finding:
 1. **Disclosure status** (publicly_disclosed / not_found_in_configured_sources / possibly_public / unknown)
@@ -75,6 +75,12 @@ Every report must include for each Validated finding:
 6. **Source code evidence** (file, function, line range)
 7. **Source-to-sink path**
 8. **Fix recommendation**
+
+Every report must include for each Needs Manual Review finding:
+1. **Manual validation plan** (Markdown and JSON paths)
+2. **Draft PoC artifact index** (`status: "draft"`, `verification: "unverified"`)
+3. **Passed draft execution result** (`poc-run-result.json` status = `passed`)
+4. **Clear manual-review wording** that does not describe the item as a validated vulnerability
 
 ## Parent context rule
 

@@ -12,7 +12,7 @@ You are working on authorized defensive vulnerability discovery for software pac
 - Do not read the whole repository by default.
 - Do not put raw tool logs or large source dumps into the parent-agent context.
 - Do not generate weaponized exploit code.
-- Formal executable PoC/test artifacts are generated only for Validated findings and only for authorized local reproduction or regression testing. Draft/unverified test scenarios are permitted for Needs Manual Review findings.
+- Formal verified reproducer artifacts are generated for Validated findings and only for authorized local reproduction or regression testing. Draft/unverified test scenarios are permitted for Needs Manual Review findings and must remain clearly labeled as manual-review inputs.
 
 ## Parent-agent context hygiene
 
@@ -100,7 +100,7 @@ When a required or recommended traditional tool is missing:
 - `zh-CN/` must contain Chinese natural language and `en-US/` English natural language.
 - Only M3 evidence can mark a finding as `publicly_disclosed`; M1/M2 remain `possibly_public`.
 - **M3-CVE:** Exact CVE ID match in configured `openEuler-Registry` is M3 evidence → `publicly_disclosed`. Registry `category` (unaffected/suspended/fixed) is openEuler disposition only; it does not mean the CVE is unpublished. Correlation may update `disclosure_status` and `public_vulnerability_references` only — **never** auto-escalate `disclosure_level` or generate D3/D4 advisory drafts.
-- Generate formal executable PoC/reproducer artifacts only for `Validated` findings. Draft/unverified test scenarios are permitted for `Needs Manual Review` findings.
+- Generate formal verified reproducer artifacts for `Validated` findings. Draft/unverified test scenarios are permitted for `Needs Manual Review` findings and must remain clearly labeled as manual-review inputs.
 - PoC artifacts must be local-only and must not be published unless the disclosure level explicitly allows public-after-fix.
 
 

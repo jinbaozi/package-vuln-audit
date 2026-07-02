@@ -153,9 +153,9 @@ osv-scanner is a strict-required tool for known-dependency-vulnerability matchin
 
 ## Bilingual correlation and PoC
 
-Publish human reports into separated `zh-CN` and `en-US` directories from the canonical `machine` artifacts. Correlate Validated findings against configured public vulnerability records. Generate local-only reproducer testcases only for Validated findings and keep PoC material private unless disclosure gates allow release.
+Publish human reports into separated `zh-CN` and `en-US` directories from the canonical `machine` artifacts. Correlate Validated findings against configured public vulnerability records. Generate verified local-only reproducer testcases for `Validated` findings; generate `draft` / `unverified` local-only testcase packages for `Needs Manual Review` findings as manual-validation inputs. Keep all PoC material private unless disclosure gates allow release.
 
-For complete audits, `semgrep` is mandatory and must complete successfully. `Needs Manual Review` items must appear in phase and final reports with manual validation plans. Formal executable PoC packages remain limited to `Validated` findings.
+For complete audits, `semgrep` is mandatory and must complete successfully. `Needs Manual Review` items must appear in phase and final reports with manual validation plans plus passed `draft` / `unverified` execution results. Formal verified reproducer packages remain limited to `Validated` findings, and passed draft execution must not promote an item to a verified finding state.
 
 ## Explicit Strict Mode v1.0
 

@@ -1,4 +1,4 @@
-# Validated PoC / Reproducer Policy
+# PoC / Reproducer Policy
 
 PoC means local reproducer testcase for authorized validation and regression testing. Default disclosure is internal or maintainer-private. Public advisory output must not include reproducer scripts or testcase bytes unless public-after-fix is explicitly approved.
 
@@ -38,8 +38,8 @@ audit-output/04-validation/poc-tests/<FINDING-ID>/
 
 ## Finding Status Requirements
 
-- **Validated findings**: PoC must execute successfully in at least one language variant (`poc-run-result.json` status = `passed`). Manifest status = `"Validated"`.
-- **Needs Manual Review findings**: PoC is generated as a draft (`status: "draft"`, `verification: "unverified"`). Execution success is not required. These serve as starting points for manual validation.
+- **Validated findings**: verified PoC must execute successfully in at least one language variant (`poc-run-result.json` status = `passed`). Manifest status uses the verified finding state.
+- **Needs Manual Review findings**: PoC is generated as a draft (`status: "draft"`, `verification: "unverified"`). At least one local draft variant must execute successfully (`poc-run-result.json` status = `passed`). The passed draft run is a manual-review signal only and must not promote the finding to a verified state.
 
 ## Safety Requirements
 
@@ -51,4 +51,4 @@ All PoC variants must:
 - Clean up temporary directories
 - Be local-validation-only
 
-`Needs Manual Review` items also receive manual validation plans in addition to draft PoC packages. They can be promoted to `Validated` only after stable local reproduction exists.
+`Needs Manual Review` items also receive manual validation plans in addition to draft PoC packages. Final reports must cite both the manual validation plan and the passed draft execution result. They can be promoted only after the full validation workflow confirms stable local reproduction and updates the finding state.

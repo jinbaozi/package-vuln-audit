@@ -50,7 +50,7 @@ Codex may not always expose native subagents. When subagents are unavailable, si
 - Do not read the full repository when a profile, summary, or candidate packet is sufficient.
 - Do not invent vulnerabilities, line numbers, functions, call chains, or CVEs.
 - Candidate and Likely items are not reportable vulnerabilities.
-- PoC/test artifacts are permitted only for Validated local reproduction/regression testing.
+- Verified reproducer artifacts are for Validated local reproduction/regression testing. Needs Manual Review items may have draft/unverified PoC artifacts as manual-review inputs with passed local execution results.
 - Parent context must contain only summaries and schema-conformant artifacts.
 
 ## Context Budget Guard v2.1

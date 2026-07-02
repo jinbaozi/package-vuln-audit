@@ -127,7 +127,7 @@
       }
     },
     "poc-testcase-generator": {
-      "description": "Subagent: generates local-only PoC testcases for Validated findings.",
+      "description": "Subagent: generates verified local-only testcases for Validated findings and draft/unverified PoC testcases for Needs Manual Review findings.",
       "mode": "subagent",
       "tools": {
         "read": true,
