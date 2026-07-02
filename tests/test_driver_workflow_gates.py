@@ -38,6 +38,7 @@ def test_driver_enforces_ai_hypothesis_stage():
 def test_driver_executes_review_and_validation_semantics():
     text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
     assert 'tools/exec_candidate_review_agent.py' in text
+    assert "'--hypotheses', str(out / '03-candidates/ai-hypotheses.json')" in text
     assert 'candidate-summary.json' in text
     assert 'tools/validate_validation_results.py' in text
     assert 'validation-result-summary.json' in text

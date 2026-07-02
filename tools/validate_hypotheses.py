@@ -12,10 +12,12 @@ if str(TOOLS_DIR) not in sys.path:
 from pvas_io import load_json, write_json
 
 REQUIRED = {
-    'id', 'profile', 'component', 'assumption', 'attacker_controlled_input',
-    'possible_gap', 'possible_sink', 'validation_method', 'confidence'
+    'id', 'dimension', 'profile', 'component', 'assumption', 'attacker_controlled_input',
+    'possible_gap', 'possible_sink', 'evidence_refs', 'failure_scenario',
+    'review_questions', 'validation_method', 'confidence'
 }
 CONFIDENCE = {'low', 'medium', 'high'}
+DIMENSIONS = {'dataflow', 'semantic-invariant', 'attack-surface'}
 
 
 def _hypotheses(data):
@@ -51,6 +53,18 @@ def validate(path: pathlib.Path) -> tuple[bool, list[str], int]:
             seen.add(str(hid))
         if hyp.get('confidence') not in CONFIDENCE:
             errors.append(f"hypotheses[{i}] confidence must be one of {sorted(CONFIDENCE)}")
+        if hyp.get('dimension') not in DIMENSIONS:
+            errors.append(f"hypotheses[{i}] dimension must be one of {sorted(DIMENSIONS)}")
+        for key in ('assumption', 'attacker_controlled_input', 'possible_gap', 'possible_sink',
+                    'failure_scenario', 'validation_method'):
+            if key in hyp and not str(hyp.get(key) or '').strip():
+                errors.append(f'hypotheses[{i}] {key} must be non-empty')
+        evidence_refs = hyp.get('evidence_refs')
+        if not isinstance(evidence_refs, list) or not evidence_refs or any(not str(ref).strip() for ref in evidence_refs):
+            errors.append(f'hypotheses[{i}] evidence_refs must be a non-empty list of non-empty strings')
+        review_questions = hyp.get('review_questions')
+        if not isinstance(review_questions, list) or not review_questions or any(not str(q).strip() for q in review_questions):
+            errors.append(f'hypotheses[{i}] review_questions must be a non-empty list of non-empty strings')
     return not errors, errors, len(hyps)
 
 

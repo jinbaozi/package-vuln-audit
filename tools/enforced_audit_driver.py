@@ -710,7 +710,7 @@ def main() -> int:
             summary = {'candidates': [], 'not_applicable': True, 'reason': 'no ranked candidates require review'}
             write_json(out / '03-candidates/candidate-summary.json', summary)
             return StageResult(True, not_applicable=True, outputs=[str(out / '03-candidates/candidate-summary.json')])
-        rc, tool_out = run([sys.executable, 'tools/exec_candidate_review_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--review-dir', str(out / '03-candidates/reviews'), '--summary-out', str(out / '03-candidates/candidate-summary.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        rc, tool_out = run([sys.executable, 'tools/exec_candidate_review_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--review-dir', str(out / '03-candidates/reviews'), '--summary-out', str(out / '03-candidates/candidate-summary.json'), '--hypotheses', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'candidate review execution failed'], outputs=[str(out / '03-candidates/candidate-summary.json')])
     def post_reviews():
         if not _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates):

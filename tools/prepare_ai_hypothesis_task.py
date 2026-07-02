@@ -40,6 +40,9 @@ def main() -> int:
             'Use actual source slices and selected recipes only.',
             'Do not present hypotheses as vulnerabilities.',
             'Write non-empty hypotheses only when grounded in package behavior.',
+            'Review each packet across dataflow, semantic-invariant, and attack-surface dimensions.',
+            'Include evidence_refs, failure_scenario, and review_questions for every hypothesis.',
+            'Do not create hypotheses to satisfy a per-dimension quantity target.',
         ],
     }
     write_json(out_dir / 'ai-hypothesis-task.json', task)

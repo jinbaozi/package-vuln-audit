@@ -8,7 +8,7 @@ Review one candidate packet at a time and decide Reject, Candidate, or Likely.
 
 - CAND-*.md
 - limited source slices
-- relevant tool/hypothesis evidence
+- relevant tool evidence and AI hypothesis context
 
 ## Subagent role
 
@@ -27,6 +27,8 @@ Review one candidate packet at a time and decide Reject, Candidate, or Likely.
 ## Failure behavior
 
 If source evidence is insufficient, keep the issue as Candidate or Needs Manual Review; do not validate it.
+
+AI hypotheses are review context only. They may guide questions and discovery-method tracing, but they must not promote an item to Candidate, Likely, Validated, or Needs Manual Review without source packet evidence.
 
 ## Parent context rule
 

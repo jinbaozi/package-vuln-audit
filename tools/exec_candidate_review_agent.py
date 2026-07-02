@@ -42,6 +42,57 @@ def _extract_code_slice(packet_text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _hypotheses(data) -> list[dict]:
+    if isinstance(data, list):
+        return [h for h in data if isinstance(h, dict)]
+    if isinstance(data, dict):
+        return [h for h in data.get("hypotheses", []) if isinstance(h, dict)]
+    return []
+
+
+def _load_hypothesis_context(path: str | None) -> dict[str, list[dict]]:
+    if not path:
+        return {}
+    data = load_json(pathlib.Path(path), default={})
+    by_candidate: dict[str, list[dict]] = {}
+    for hyp in _hypotheses(data):
+        cid = str(hyp.get("source_candidate_id") or hyp.get("candidate_id") or "").strip()
+        if not cid:
+            continue
+        by_candidate.setdefault(cid, []).append({
+            "id": hyp.get("id"),
+            "dimension": hyp.get("dimension"),
+            "possible_gap": hyp.get("possible_gap"),
+            "possible_sink": hyp.get("possible_sink"),
+            "failure_scenario": hyp.get("failure_scenario"),
+            "review_questions": hyp.get("review_questions") or [],
+            "evidence_refs": hyp.get("evidence_refs") or [],
+            "confidence": hyp.get("confidence"),
+        })
+    return by_candidate
+
+
+def _format_hypothesis_context(items: list[dict], max_chars: int = 2500) -> str:
+    if not items:
+        return "No AI hypothesis context was provided for this candidate."
+    lines = [
+        "AI hypothesis context is review guidance only; it is not evidence of a vulnerability and must not determine state by itself."
+    ]
+    for h in items[:5]:
+        lines.append(
+            f"- {h.get('id', '?')} [{h.get('dimension', '?')}, {h.get('confidence', '?')}]: "
+            f"gap={h.get('possible_gap', '?')}; sink={h.get('possible_sink', '?')}"
+        )
+        scenario = str(h.get("failure_scenario") or "").strip()
+        if scenario:
+            lines.append(f"  scenario: {scenario}")
+        questions = [str(q).strip() for q in h.get("review_questions") or [] if str(q).strip()]
+        if questions:
+            lines.append(f"  review questions: {' | '.join(questions[:3])}")
+    text = "\n".join(lines)
+    return text[:max_chars]
+
+
 # ---- Context-aware static analysis (LLM fallback) ----
 
 def _semantic_static_review(candidate_id: str, packet_text: str) -> tuple[str, list[str], str, bool]:
@@ -147,31 +198,36 @@ def _llm_available() -> bool:
     return False
 
 
-def _build_review_prompt(candidate_id: str, packet_text: str, max_chars: int = 6000) -> str:
+def _build_review_prompt(candidate_id: str, packet_text: str, hypothesis_context: list[dict] | None = None,
+                         max_chars: int = 6000) -> str:
     truncated = packet_text[:max_chars]
+    hypotheses = _format_hypothesis_context(hypothesis_context or [])
     return (
         f"You are candidate-reviewer, an AI subagent for semantic vulnerability candidate review.\n"
         f"Review the following candidate packet ({candidate_id}).\n\n"
         f"{truncated}\n\n"
+        f"{hypotheses}\n\n"
         f"Analyze the source code slice semantically. Consider:\n"
         f"1. Does attacker-controlled input reach a sensitive sink?\n"
         f"2. Are there bounds checks, sanitizers, or guards that mitigate the risk?\n"
-        f"3. Is the vulnerability realistically exploitable?\n\n"
+        f"3. Is the vulnerability realistically exploitable?\n"
+        f"4. Which AI hypothesis references, if any, helped focus the review?\n\n"
+        f"AI hypotheses are not vulnerabilities. Do not promote to Candidate or Likely unless the source packet supports it.\n\n"
         f"Respond with a JSON object:\n"
         f'{{"decision": "Reject|Candidate|Likely", "reasons": ["reason1", "reason2"], '
-        f'"analysis": "detailed analysis text", "source_slice_reviewed": true}}\n\n'
+        f'"analysis": "detailed analysis text", "source_slice_reviewed": true, "hypothesis_references": ["AI-HYP-0001"]}}\n\n'
         'Reject = no realistic exploit path. Candidate = possible but unconfirmed. '
         'Likely = likely exploitable based on code evidence.'
     )
 
 
-def _llm_review(candidate_id: str, packet_text: str) -> tuple[str, list[str], str, bool]:
+def _llm_review(candidate_id: str, packet_text: str, hypothesis_context: list[dict] | None = None) -> tuple[str, list[str], str, bool]:
     try:
         import anthropic
         client = anthropic.Anthropic(
             api_key=os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
         )
-        prompt = _build_review_prompt(candidate_id, packet_text)
+        prompt = _build_review_prompt(candidate_id, packet_text, hypothesis_context)
         response = client.messages.create(
             model=LLM_MODEL,
             max_tokens=2000,
@@ -186,7 +242,7 @@ def _llm_review(candidate_id: str, packet_text: str) -> tuple[str, list[str], st
     try:
         import openai
         client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        prompt = _build_review_prompt(candidate_id, packet_text)
+        prompt = _build_review_prompt(candidate_id, packet_text, hypothesis_context)
         response = client.chat.completions.create(
             model=os.environ.get("PVAS_LLM_MODEL", "gpt-4o"),
             max_tokens=2000,
@@ -230,6 +286,8 @@ def main() -> int:
     ap.add_argument("--packet-dir", required=True)
     ap.add_argument("--review-dir", required=True)
     ap.add_argument("--summary-out", required=True)
+    ap.add_argument("--hypotheses", default=None,
+                    help="optional ai-hypotheses.json context; used for review focus only")
     ap.add_argument("--max-candidates", type=int, default=20)
     ap.add_argument("--llm-mode", choices=["auto", "heuristic"], default="auto",
                     help="auto: try LLM then fall back; heuristic: skip LLM")
@@ -243,6 +301,7 @@ def main() -> int:
     packets = _load_packets(packet_dir)
     review_dir = pathlib.Path(args.review_dir)
     review_dir.mkdir(parents=True, exist_ok=True)
+    hypothesis_context = _load_hypothesis_context(args.hypotheses)
 
     use_llm = args.llm_mode == "auto" and _llm_available()
 
@@ -251,11 +310,17 @@ def main() -> int:
     for c in selected:
         cid = str(c.get("id", "CAND"))
         packet_text = packets.get(cid, "")
+        candidate_hypotheses = hypothesis_context.get(cid, [])
+        hypothesis_refs = [
+            str(h.get("id")) for h in candidate_hypotheses
+            if h.get("id")
+        ]
         if not packet_text:
             skipped.append({
                 "id": cid,
                 "reason": "missing candidate packet",
                 "packet": str(packet_dir / f"{cid}.md"),
+                "hypothesis_references": hypothesis_refs,
             })
             print(f"[PVAS-REVIEW] {cid}: skipped (missing candidate packet)")
             continue
@@ -267,7 +332,7 @@ def main() -> int:
 
         if use_llm and packet_text:
             try:
-                decision, reasons, analysis, source_reviewed = _llm_review(cid, packet_text)
+                decision, reasons, analysis, source_reviewed = _llm_review(cid, packet_text, candidate_hypotheses)
             except Exception:
                 decision, reasons, analysis, source_reviewed = _semantic_static_review(cid, packet_text)
         else:
@@ -284,6 +349,8 @@ def main() -> int:
             "reasons": reasons,
             "analysis": analysis,
             "missing_evidence": c.get("missing_evidence") or [],
+            "hypothesis_context_used": bool(candidate_hypotheses),
+            "hypothesis_references": hypothesis_refs,
         }
         write_json(review_dir / f"{cid}.json", review)
         summary.append({
@@ -291,6 +358,7 @@ def main() -> int:
             "decision": decision,
             "source_slice_reviewed": source_reviewed,
             "reasons": reasons,
+            "hypothesis_references": hypothesis_refs,
         })
         print(f"[PVAS-REVIEW] {cid}: {decision} ({'; '.join(reasons[:2])})")
 
@@ -315,6 +383,7 @@ def main() -> int:
         "execution": {
             "role": "candidate-reviewer",
             "mode": "llm-assisted" if use_llm else "heuristic",
+            "hypothesis_context": "provided" if args.hypotheses else "not-provided",
         },
     })
     print(f"[PVAS-REVIEW] reviewed {reviewed_count}/{expected_count} candidate packet(s)")

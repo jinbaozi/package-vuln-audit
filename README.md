@@ -177,7 +177,7 @@ opencode 适配器提供 `coordinator` 主 agent，并将高噪声任务拆给�
 
 - `@package-profiler`：包画像与 recipe 选择。
 - `@tool-runner`：授权工具执行与摘要。
-- `@hypothesis-hunter`：AI 漏洞假设生成。
+- `@hypothesis-hunter`：AI 多维漏洞假设生成（dataflow / semantic-invariant / attack-surface），仅供后续源码评审使用。
 - `@candidate-reviewer`：候选证据评审。
 - `@validator`：本地验证、sanitizer、fuzz replay、静态反证。
 - `@cvss-scorer`：CVSS v3.1 评分（须 `cvss31_calculator --validate`）。
@@ -346,7 +346,7 @@ CVSS 评分与 finding 固化
 | 01 | `workflows/01-package-profile.md` | 语言、构建系统、输入面、高风险模块和 recipe 选择。 |
 | 02 | `workflows/02-scope-selection.md` | 选择审计范围，避免无边界全仓库读取。 |
 | 03 | `workflows/03-tool-scan.md` | 传统工具基线与工具摘要。 |
-| 04 | `workflows/04-ai-hypothesis.md` | AI 辅助漏洞假设生成。 |
+| 04 | `workflows/04-ai-hypothesis.md` | AI 多维假设生成与 schema gate；假设不是漏洞声明，必须交由后续源码评审。 |
 | 05 | `workflows/05-candidate-review.md` | 候选证据评审与状态更新。 |
 | 06 | `workflows/06-validation.md` | 本地验证、反证、PoC/回归材料或人工验证计划。 |
 | 07 | `workflows/07-cvss-scoring.md` | CVSS v3.1 评分和理由。 |

@@ -10,9 +10,12 @@ def test_validate_hypotheses_accepts_valid_and_rejects_empty():
         td = pathlib.Path(td)
         valid = td / 'ai-hypotheses.json'
         valid.write_text(json.dumps({'hypotheses': [{
-            'id': 'AI-HYP-1', 'profile': 'binary-parser', 'component': 'parser',
+            'id': 'AI-HYP-1', 'dimension': 'dataflow', 'profile': 'binary-parser', 'component': 'parser',
             'assumption': 'length is trusted', 'attacker_controlled_input': 'file length',
             'possible_gap': 'bounds check gap', 'possible_sink': 'memcpy',
+            'evidence_refs': ['packet:T-CAND-1.md'],
+            'failure_scenario': 'crafted file length reaches memcpy without a proven dominating bound',
+            'review_questions': ['Does file length reach memcpy?', 'Is the bound check dominating?'],
             'validation_method': 'unit test with sanitizer', 'confidence': 'medium',
         }]}))
         run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(valid), '--out', str(td / 'ok.json')])
@@ -22,6 +25,31 @@ def test_validate_hypotheses_accepts_valid_and_rejects_empty():
         p = run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(empty), '--out', str(td / 'bad.json')], check=False)
         assert p.returncode == 1
         assert json.loads((td / 'bad.json').read_text())['passed'] is False
+
+        bad = td / 'invalid.json'
+        bad.write_text(json.dumps({'hypotheses': [{
+            'id': 'AI-HYP-1', 'dimension': 'quota-fill', 'profile': 'binary-parser', 'component': 'parser',
+            'assumption': 'length is trusted', 'attacker_controlled_input': 'file length',
+            'possible_gap': 'bounds check gap', 'possible_sink': 'memcpy',
+            'evidence_refs': [],
+            'failure_scenario': 'crafted file length reaches memcpy',
+            'review_questions': ['Does input reach sink?'],
+            'validation_method': 'unit test with sanitizer', 'confidence': 'medium',
+        }, {
+            'id': 'AI-HYP-1', 'dimension': 'dataflow', 'profile': 'binary-parser', 'component': 'parser',
+            'assumption': 'duplicate id', 'attacker_controlled_input': 'file length',
+            'possible_gap': 'bounds check gap', 'possible_sink': 'memcpy',
+            'evidence_refs': ['packet:T-CAND-1.md'],
+            'failure_scenario': 'crafted file length reaches memcpy',
+            'review_questions': ['Does input reach sink?'],
+            'validation_method': 'unit test with sanitizer', 'confidence': 'medium',
+        }]}))
+        p = run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(bad), '--out', str(td / 'invalid-result.json')], check=False)
+        assert p.returncode == 1
+        errors = json.loads((td / 'invalid-result.json').read_text())['errors']
+        assert any('dimension' in err for err in errors)
+        assert any('evidence_refs' in err for err in errors)
+        assert any('duplicate hypothesis id' in err for err in errors)
 
 
 def test_validate_candidate_reviews_requires_top_n_coverage():
@@ -74,6 +102,58 @@ def test_exec_ai_hypothesis_agent_executes_stage_semantics():
         data = json.loads((out / 'ai-hypotheses.json').read_text())
         assert data['hypotheses'][0]['id'].startswith('AI-HYP-')
         assert data['hypotheses'][0].get('candidate_id') == 'T-CAND-1'
+        assert data['hypotheses'][0]['dimension'] == 'dataflow'
+        assert data['hypotheses'][0]['evidence_refs']
+        assert data['hypotheses'][0]['failure_scenario']
+        assert data['hypotheses'][0]['review_questions']
+        run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(out / 'ai-hypotheses.json')])
+
+
+def test_exec_ai_hypothesis_agent_generates_dimensioned_heuristics_and_dedupes():
+    with temp_audit_dir() as td:
+        td = pathlib.Path(td)
+        ranked = td / 'ranked-candidates.json'
+        ranked.write_text(json.dumps({'candidates': [{
+            'id': 'T-CAND-1',
+            'type': 'T-CAND',
+            'title': 'offset copy',
+            'component': 'parser',
+            'profile': 'binary-parser',
+        }, {
+            'id': 'T-CAND-2',
+            'type': 'T-CAND',
+            'title': 'command path',
+            'component': 'cli',
+            'profile': 'cli-tool',
+        }]}))
+        scope = td / 'selected-scope.json'
+        scope.write_text(json.dumps({'selected_recipes': ['recipes/binary-parser.md', 'recipes/cli-tool.md']}))
+        packets = td / 'packets'
+        packets.mkdir()
+        (packets / 'T-CAND-1.md').write_text(
+            '# T-CAND-1: offset copy\n\n- File: src/parser.c\n- Function: parse\n- Lines: 10-12\n\n'
+            '## Code Slice\n```text\n10: if (offset + len > size) return -1;\n11: memcpy(dst + offset, src, len);\n```\n'
+        )
+        (packets / 'T-CAND-2.md').write_text(
+            '# T-CAND-2: command path\n\n- File: src/cli.c\n- Function: run\n- Lines: 20-21\n\n'
+            '## Code Slice\n```text\n20: char *cmd = argv[1];\n21: system(cmd);\n```\n'
+        )
+        out = td / '03-candidates'
+        run_subprocess('tools/exec_ai_hypothesis_agent.py', [
+            '--ranked-candidates', str(ranked),
+            '--packet-dir', str(packets),
+            '--selected-scope', str(scope),
+            '--out', str(out / 'ai-hypotheses.json'),
+            '--max-candidates', '2',
+            '--llm-mode', 'heuristic',
+        ])
+        hyps = json.loads((out / 'ai-hypotheses.json').read_text())['hypotheses']
+        dimensions = {(h['candidate_id'], h['dimension']) for h in hyps}
+        assert ('T-CAND-1', 'dataflow') in dimensions
+        assert ('T-CAND-1', 'semantic-invariant') in dimensions
+        assert ('T-CAND-2', 'attack-surface') in dimensions
+        keys = [(h['candidate_id'], h['dimension'], h['possible_gap'], h['possible_sink']) for h in hyps]
+        assert len(keys) == len(set(keys))
         run_subprocess('tools/validate_hypotheses.py', ['--hypotheses', str(out / 'ai-hypotheses.json')])
 
 
@@ -92,8 +172,19 @@ def test_exec_candidate_review_agent_writes_summary_from_packets():
         packets = td / 'packets'
         packets.mkdir()
         (packets / 'T-CAND-1.md').write_text(
-            '# T-CAND-1\n\n## Code Slice\n```text\n7: memcpy(dst, src, len);\n```\n'
+            '# T-CAND-1\n\n## Code Slice\n```text\n7: value = header->version;\n```\n'
         )
+        hypotheses = td / 'ai-hypotheses.json'
+        hypotheses.write_text(json.dumps({'hypotheses': [{
+            'id': 'AI-HYP-0001', 'dimension': 'dataflow', 'profile': 'binary-parser', 'component': 'parser',
+            'assumption': 'version reaches a sink', 'attacker_controlled_input': 'file header',
+            'possible_gap': 'hypothesis-only gap', 'possible_sink': 'version read',
+            'evidence_refs': ['packet:T-CAND-1.md'],
+            'failure_scenario': 'hypothesis exists but source slice has no sink',
+            'review_questions': ['Does source prove a sink?'],
+            'validation_method': 'source review', 'confidence': 'high',
+            'candidate_id': 'T-CAND-1', 'source_candidate_id': 'T-CAND-1',
+        }]}))
         reviews = td / 'reviews'
         summary = td / 'candidate-summary.json'
         run_subprocess('tools/exec_candidate_review_agent.py', [
@@ -101,15 +192,18 @@ def test_exec_candidate_review_agent_writes_summary_from_packets():
             '--packet-dir', str(packets),
             '--review-dir', str(reviews),
             '--summary-out', str(summary),
+            '--hypotheses', str(hypotheses),
             '--max-candidates', '1',
             '--llm-mode', 'heuristic',
         ])
         review = json.loads((reviews / 'T-CAND-1.json').read_text())
         assert review['candidate_id'] == 'T-CAND-1'
-        assert review['decision'] in {'Reject', 'Candidate', 'Likely'}
+        assert review['decision'] == 'Reject'
+        assert review['hypothesis_references'] == ['AI-HYP-0001']
         summary_data = json.loads(summary.read_text())
         assert summary_data['reviewed_count'] == 1
         assert summary_data['candidates'][0]['id'] == 'T-CAND-1'
+        assert summary_data['candidates'][0]['hypothesis_references'] == ['AI-HYP-0001']
 
 
 def test_validate_validation_results_enforces_status_semantics():
@@ -161,6 +255,7 @@ if __name__ == '__main__':
     test_validate_hypotheses_accepts_valid_and_rejects_empty()
     test_validate_candidate_reviews_requires_top_n_coverage()
     test_exec_ai_hypothesis_agent_executes_stage_semantics()
+    test_exec_ai_hypothesis_agent_generates_dimensioned_heuristics_and_dedupes()
     test_exec_candidate_review_agent_writes_summary_from_packets()
     test_validate_validation_results_enforces_status_semantics()
     test_select_scope_is_deterministic_for_common_profiles()

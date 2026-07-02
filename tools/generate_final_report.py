@@ -517,12 +517,13 @@ def build_ai_hypothesis_content(hypotheses):
     parts = [f'**Total Hypotheses Generated:** {len(hyps)}', '']
     for h in hyps:
         hid = h.get('id', '?')
-        title = h.get('title', h.get('summary', '?'))
-        method = h.get('method', '?')
-        source = h.get('source_grounding', h.get('source', '?'))
-        parts.append(f'- **{hid}**: {title}')
-        parts.append(f'  - Method: {method}')
-        parts.append(f'  - Source: {source}')
+        dimension = h.get('dimension', '?')
+        gap = h.get('possible_gap', h.get('summary', '?'))
+        sink = h.get('possible_sink', '?')
+        refs = ', '.join(h.get('evidence_refs', []) or [])
+        parts.append(f'- **{hid}** [{dimension}]: {gap}')
+        parts.append(f'  - Possible sink: {sink}')
+        parts.append(f'  - Evidence refs: {refs or "?"}')
     return '\n'.join(parts)
 
 
