@@ -8,10 +8,11 @@ Arguments:
 - `allowed_tools` optional comma-separated list
 - `max_candidates` default `20`
 - `workflow_preset` default `strict-efficient`; supported complete-audit presets are `strict-efficient`, `strict-degraded`, and `compat-default`
+- `cppcheck_mode` default `fast`; use `deep` only when style/performance/portability cppcheck coverage is explicitly needed
 
 Steps:
 1. Read `SKILL.md`, `AGENTS.md`, `references/context-hygiene.md`, and `workflows/00-intake.md`.
-2. Run `tools/enforced_audit_driver.py --source <source_path> --out <output_dir> --max-candidates <max_candidates> --workflow-preset <workflow_preset>` for complete audits.
+2. Run `tools/enforced_audit_driver.py --source <source_path> --out <output_dir> --max-candidates <max_candidates> --workflow-preset <workflow_preset> --cppcheck-mode <cppcheck_mode>` for complete audits.
 3. Use subagents only through the stage packets and artifacts required by the driver.
 4. Treat direct calls to lower-level scripts as single-stage debugging, not complete-audit completion.
 
@@ -29,13 +30,13 @@ Subagent roles used by the driver (parent must read only the artifacts each one 
 
 Parent context rule: read summaries and indexes only, never raw SARIF/log/fuzz output. Re-run the Context Budget Guard after each candidate packet batch.
 
-Canonical prompt rule: this slash command is only the Claude Code entry syntax. Complete audits must follow the README 2.4 canonical prompt, including `workflow_preset=strict-efficient`, summary-only parent context, Candidate/Likely/Validated state gates, CVSS scoring, and public vulnerability correlation.
+Canonical prompt rule: this slash command is only the Claude Code entry syntax. Complete audits must follow the README 2.4 canonical prompt, including `workflow_preset=strict-efficient`, `cppcheck_mode=fast`, summary-only parent context, Candidate/Likely/Validated state gates, CVSS scoring, and public vulnerability correlation. Non-interactive audits do not block for cppcheck mode selection; they use fast unless `deep` is explicit.
 
 Recommended external driver form:
 
 ```bash
 cd /path/to/target-project
-python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --workflow-preset strict-efficient
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --workflow-preset strict-efficient --cppcheck-mode fast
 ```
 
 If running from the skill repository or another directory while auditing external source, pass an explicit absolute `--out /path/to/output`.

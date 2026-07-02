@@ -58,6 +58,8 @@ WORKFLOW_PRESETS = {
     },
 }
 STARTUP_PATH = pathlib.Path('machine/workflow-startup.json')
+CPPCHECK_MODE_PATH = pathlib.Path('machine/cppcheck-mode.json')
+CPPCHECK_MODES = {'fast', 'deep'}
 
 
 @dataclass
@@ -92,6 +94,23 @@ class StartupConfig:
             'overrides': self.overrides,
             'generated_at': _iso_now(),
         }
+
+
+@dataclass
+class CppcheckModeConfig:
+    mode: str
+    mode_source: str
+    previous_mode_source: str = ''
+
+    def as_dict(self) -> dict:
+        payload = {
+            'mode': self.mode,
+            'mode_source': self.mode_source,
+            'generated_at': _iso_now(),
+        }
+        if self.previous_mode_source:
+            payload['previous_mode_source'] = self.previous_mode_source
+        return payload
 
 
 def _iso_now() -> str:
@@ -313,6 +332,53 @@ def _choose_interactive_preset(input_fn: Callable[[str], str]) -> str:
     return {'': 'strict-efficient', '1': 'strict-efficient', '2': 'strict-degraded', '3': 'compat-default'}.get(answer, 'strict-efficient')
 
 
+def _normalize_cppcheck_mode(value: str | None, source: str) -> str:
+    mode = (value or '').strip().lower()
+    if mode not in CPPCHECK_MODES:
+        raise ValueError(f'invalid cppcheck mode from {source}: {value!r}')
+    return mode
+
+
+def _choose_interactive_cppcheck_mode(input_fn: Callable[[str], str]) -> str:
+    menu = (
+        'PVAS cppcheck scan mode:\n'
+        '  1) fast (default)\n'
+        '  2) deep\n'
+        'Select cppcheck mode [1]: '
+    )
+    answer = input_fn(menu).strip().lower()
+    return {'': 'fast', '1': 'fast', 'fast': 'fast', '2': 'deep', 'deep': 'deep'}.get(answer, 'fast')
+
+
+def resolve_cppcheck_mode(args, out_root: pathlib.Path, *, argv: list[str] | None = None,
+                          environ: dict | None = None, input_fn: Callable[[str], str] = input,
+                          stdin_is_tty: bool | None = None) -> CppcheckModeConfig:
+    environ = os.environ if environ is None else environ
+    cli_mode = getattr(args, 'cppcheck_mode', None)
+    env_mode = environ.get('PVAS_CPPCHECK_MODE') or ''
+    if cli_mode:
+        return CppcheckModeConfig(_normalize_cppcheck_mode(cli_mode, 'cli'), 'cli-cppcheck-mode')
+    if env_mode:
+        return CppcheckModeConfig(_normalize_cppcheck_mode(env_mode, 'env'), 'env-cppcheck-mode')
+
+    mode_file = out_root / CPPCHECK_MODE_PATH
+    if getattr(args, 'resume', False) and mode_file.exists():
+        previous = load_json(mode_file, default={}) or {}
+        previous_mode = previous.get('mode')
+        if previous_mode in CPPCHECK_MODES:
+            return CppcheckModeConfig(previous_mode, 'resume-cppcheck-mode', previous_mode_source=previous.get('mode_source', ''))
+
+    prompt_disabled = bool(getattr(args, 'no_startup_prompt', False)) or environ.get('PVAS_WORKFLOW_PROMPT') == '0'
+    use_tty = sys.stdin.isatty() if stdin_is_tty is None else stdin_is_tty
+    if use_tty and not prompt_disabled:
+        return CppcheckModeConfig(_choose_interactive_cppcheck_mode(input_fn), 'interactive-tty')
+    if getattr(args, 'no_startup_prompt', False):
+        return CppcheckModeConfig('fast', 'cli-no-startup-prompt')
+    if environ.get('PVAS_WORKFLOW_PROMPT') == '0':
+        return CppcheckModeConfig('fast', 'env-no-startup-prompt')
+    return CppcheckModeConfig('fast', 'default-noninteractive')
+
+
 def resolve_startup_config(args, out_root: pathlib.Path, *, argv: list[str] | None = None,
                            environ: dict | None = None, input_fn: Callable[[str], str] = input,
                            stdin_is_tty: bool | None = None) -> StartupConfig:
@@ -391,6 +457,10 @@ def apply_startup_config(config: StartupConfig) -> None:
     os.environ['PVAS_ALLOW_DEGRADED'] = '1' if config.allow_degraded else '0'
     os.environ['PVAS_CONTEXT_EFFICIENT'] = '1' if config.context_efficient else '0'
     os.environ['PVAS_PACKET_STRICT_BUDGET'] = '1' if config.packet_strict_budget else '0'
+
+
+def apply_cppcheck_mode(config: CppcheckModeConfig) -> None:
+    os.environ['PVAS_CPPCHECK_MODE'] = config.mode
 
 
 def intake_network_policy(intake_dir: pathlib.Path) -> str:
@@ -533,6 +603,8 @@ def main() -> int:
     ap.add_argument('--no-startup-prompt', action='store_true',
                     help='Disable interactive startup preset selection')
     ap.add_argument('--mode', choices=['default', 'strict'])
+    ap.add_argument('--cppcheck-mode', choices=sorted(CPPCHECK_MODES),
+                    help='cppcheck scan depth: fast uses warning checks; deep adds style/performance/portability')
     ap.add_argument('--allow-degraded', action='store_true', default=None)
     ap.add_argument('--install-assist', action='store_true', default=env_flag('PVAS_INSTALL_ASSIST', default=True))
     ap.add_argument('--max-candidates', default=os.environ.get('PVAS_MAX_CANDIDATES', '20'))
@@ -548,13 +620,16 @@ def main() -> int:
     max_candidates = int(args.max_candidates)
     try:
         startup = resolve_startup_config(args, out, argv=sys.argv[1:])
+        cppcheck_mode = resolve_cppcheck_mode(args, out, argv=sys.argv[1:])
     except ValueError as exc:
         print(f'[PVAS-STARTUP] {exc}', file=sys.stderr)
         return 2
     apply_startup_config(startup)
+    apply_cppcheck_mode(cppcheck_mode)
     args.mode = startup.mode
     args.allow_degraded = startup.allow_degraded
     write_json(out / STARTUP_PATH, startup.as_dict())
+    write_json(out / CPPCHECK_MODE_PATH, cppcheck_mode.as_dict())
 
     # System gates retained as pre-business gates.
     contract = run_stage(
@@ -623,7 +698,20 @@ def main() -> int:
         if rc != 0:
             return StageResult(False, issues=[tool_out[-1000:] or 'scope selection failed'])
         matrix_path = out / '01-profile' / 'required-tools-matrix.json'
-        cmd = [sys.executable, 'tools/generate_tool_matrix.py', '--package-profile', str(out / '01-profile/package-profile.json'), '--profile', args.profile, '--network-policy', network_policy]
+        cmd = [
+            sys.executable,
+            'tools/generate_tool_matrix.py',
+            '--package-profile',
+            str(out / '01-profile/package-profile.json'),
+            '--profile',
+            args.profile,
+            '--network-policy',
+            network_policy,
+            '--cppcheck-mode',
+            cppcheck_mode.mode,
+            '--cppcheck-mode-source',
+            cppcheck_mode.mode_source,
+        ]
         if args.allow_network and network_policy == 'online-approved':
             cmd.append('--allow-network')
         cmd.extend(['--out', str(matrix_path)])

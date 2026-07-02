@@ -10,6 +10,7 @@ from enforced_audit_driver import (
     WORKFLOW_PRESETS,
     StageResult,
     request_confirmation,
+    resolve_cppcheck_mode,
     resolve_startup_config,
     run_stage,
     validate_finding_schema,
@@ -24,6 +25,20 @@ def test_driver_generates_tool_matrix_before_running_tools():
     assert 'tools/generate_tool_matrix.py' in text
     assert 'required-tools-matrix.json' in text
     assert 'tools/run_tools.sh' in text
+
+
+def test_driver_records_cppcheck_mode_before_generating_matrix():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    assert 'resolve_cppcheck_mode' in text
+    assert 'cppcheck-mode.json' in text
+    assert '--cppcheck-mode' in text
+    assert '--cppcheck-mode-source' in text
+
+
+def test_run_tools_standalone_generates_matrix_with_cppcheck_mode():
+    text = (ROOT / 'tools' / 'run_tools.sh').read_text()
+    assert '--cppcheck-mode' in text
+    assert 'PVAS_CPPCHECK_MODE:-fast' in text
 
 
 def test_driver_enforces_ai_hypothesis_stage():
@@ -231,6 +246,7 @@ class Args:
     resume = False
     mode = None
     allow_degraded = None
+    cppcheck_mode = None
 
 
 def startup_args(**kwargs):
@@ -308,8 +324,90 @@ def test_startup_overrides_are_recorded():
         assert cfg.overrides['packet_strict_budget']['source'] == 'env'
 
 
+def test_cppcheck_mode_tty_empty_answer_selects_fast():
+    with temp_audit_dir() as td:
+        cfg = resolve_cppcheck_mode(
+            startup_args(),
+            pathlib.Path(td),
+            environ={},
+            input_fn=lambda _prompt: '',
+            stdin_is_tty=True,
+        )
+        assert cfg.mode == 'fast'
+        assert cfg.mode_source == 'interactive-tty'
+
+
+def test_cppcheck_mode_tty_deep_answer_selects_deep():
+    with temp_audit_dir() as td:
+        cfg = resolve_cppcheck_mode(
+            startup_args(),
+            pathlib.Path(td),
+            environ={},
+            input_fn=lambda _prompt: '2',
+            stdin_is_tty=True,
+        )
+        assert cfg.mode == 'deep'
+        assert cfg.mode_source == 'interactive-tty'
+
+
+def test_cppcheck_mode_noninteractive_selects_fast():
+    with temp_audit_dir() as td:
+        cfg = resolve_cppcheck_mode(startup_args(), pathlib.Path(td), environ={}, stdin_is_tty=False)
+        assert cfg.mode == 'fast'
+        assert cfg.mode_source == 'default-noninteractive'
+
+
+def test_cppcheck_mode_cli_and_env_skip_prompt():
+    def fail_input(_prompt):
+        raise AssertionError('cppcheck prompt should be skipped for explicit modes')
+
+    with temp_audit_dir() as td:
+        cli = resolve_cppcheck_mode(
+            startup_args(cppcheck_mode='deep'),
+            pathlib.Path(td),
+            environ={'PVAS_CPPCHECK_MODE': 'fast'},
+            input_fn=fail_input,
+            stdin_is_tty=True,
+        )
+        env = resolve_cppcheck_mode(
+            startup_args(),
+            pathlib.Path(td),
+            environ={'PVAS_CPPCHECK_MODE': 'deep'},
+            input_fn=fail_input,
+            stdin_is_tty=True,
+        )
+        assert cli.mode == 'deep'
+        assert cli.mode_source == 'cli-cppcheck-mode'
+        assert env.mode == 'deep'
+        assert env.mode_source == 'env-cppcheck-mode'
+
+
+def test_cppcheck_mode_resume_reuses_previous_artifact():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        path = audit / 'machine/cppcheck-mode.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'mode': 'deep', 'mode_source': 'interactive-tty'}))
+        cfg = resolve_cppcheck_mode(startup_args(resume=True), audit, environ={}, stdin_is_tty=False)
+        assert cfg.mode == 'deep'
+        assert cfg.mode_source == 'resume-cppcheck-mode'
+        assert cfg.previous_mode_source == 'interactive-tty'
+
+
+def test_cppcheck_mode_prompt_disabled_selects_fast():
+    with temp_audit_dir() as td:
+        cli = resolve_cppcheck_mode(startup_args(no_startup_prompt=True), pathlib.Path(td), environ={}, stdin_is_tty=True)
+        env = resolve_cppcheck_mode(startup_args(), pathlib.Path(td), environ={'PVAS_WORKFLOW_PROMPT': '0'}, stdin_is_tty=True)
+        assert cli.mode == 'fast'
+        assert cli.mode_source == 'cli-no-startup-prompt'
+        assert env.mode == 'fast'
+        assert env.mode_source == 'env-no-startup-prompt'
+
+
 if __name__ == '__main__':
     test_driver_generates_tool_matrix_before_running_tools()
+    test_driver_records_cppcheck_mode_before_generating_matrix()
+    test_run_tools_standalone_generates_matrix_with_cppcheck_mode()
     test_driver_enforces_ai_hypothesis_stage()
     test_driver_executes_review_and_validation_semantics()
     test_write_step_rejects_blocked_terminal_state()
@@ -319,4 +417,15 @@ if __name__ == '__main__':
     test_validated_finding_schema_requires_validation_evidence()
     test_driver_uses_validation_poc_path()
     test_driver_blocks_when_poc_generation_fails()
+    test_startup_default_noninteractive_is_strict_efficient()
+    test_startup_tty_menu_maps_three_presets()
+    test_startup_explicit_preset_sources_skip_prompt()
+    test_startup_resume_reuses_previous_workflow_startup()
+    test_startup_overrides_are_recorded()
+    test_cppcheck_mode_tty_empty_answer_selects_fast()
+    test_cppcheck_mode_tty_deep_answer_selects_deep()
+    test_cppcheck_mode_noninteractive_selects_fast()
+    test_cppcheck_mode_cli_and_env_skip_prompt()
+    test_cppcheck_mode_resume_reuses_previous_artifact()
+    test_cppcheck_mode_prompt_disabled_selects_fast()
     print('driver workflow gate tests passed')

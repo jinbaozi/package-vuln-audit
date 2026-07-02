@@ -472,6 +472,16 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
     }, attempts
 
 
+def cppcheck_summary_metadata(tool: dict) -> dict:
+    if tool.get("name") != "cppcheck":
+        return {}
+    metadata = {}
+    for key in ("cppcheck_mode", "cppcheck_mode_source", "mode_limitations"):
+        if key in tool:
+            metadata[key] = tool[key]
+    return metadata
+
+
 def expand_command_for_files(command: list[str], source: pathlib.Path, raw: pathlib.Path, files: list[pathlib.Path]) -> list[str]:
     expanded: list[str] = []
     for part in command:
@@ -898,6 +908,7 @@ def main() -> int:
     incomplete = []
     for tool in matrix.get("tools", []):
         row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
+        row.update(cppcheck_summary_metadata(tool))
         row = annotate_summary_row(row)
         print_tool_status(row)
         rows.append(row)

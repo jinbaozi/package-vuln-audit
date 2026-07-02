@@ -116,7 +116,7 @@ CLAUDE.md
 推荐使用方式：
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient cppcheck_mode=fast
 ```
 
 `output_dir=audit-output` 相对当前 Claude Code 会话/命令的工作目录解析。推荐从被审计项目根目录启动；如果从 skill 仓库或其他目录审计外部源码，请显式指定绝对输出目录。
@@ -153,7 +153,7 @@ install/verify-install.sh --target /path/to/repo --platform opencode
 推荐使用方式：
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20 workflow_preset=strict-efficient cppcheck_mode=fast
 /package-profile source_path=. output_dir=audit-output
 /hypothesis-hunt profile=audit-output/01-profile/package-profile.json
 /candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
@@ -237,11 +237,12 @@ Codex 小节只说明 `AGENTS.md` / skill 指令和 driver 直接运行入口；
 ```text
 使用 package-vuln-audit-skill 对当前项目做一次授权防御性漏洞审计。
 
-入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
+入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20 cppcheck_mode=fast
 审计目标：当前仓库
 输出目录：audit-output（相对当前进程 cwd）
 profile：standard
 候选数量上限：20
+cppcheck 模式：fast（默认；deep 需显式选择）
 
 执行要求：
 - 按 skill 指令读取 SKILL.md、AGENTS.md、相关 workflows、agents、schemas、templates 和 references。
@@ -252,6 +253,7 @@ profile：standard
 - raw logs、SARIF、fuzz 输出、大规模源码切片和完整候选全集不得直接进入父上下文。
 - 默认使用 `workflow_preset=strict-efficient`；如需旧行为复现/调试，显式使用 `--workflow-preset compat-default`。
 - strict-efficient 表示 strict 工具门禁、缺少 strict-required 工具时进入 tool-install-assistant 或阻断，除非显式授权 degraded；context efficient 和 strict packet budget 默认开启。
+- cppcheck 默认使用 `fast` 模式（默认/error 检查 + warning）；`deep` 需通过 `--cppcheck-mode deep` 或 `PVAS_CPPCHECK_MODE=deep` 显式选择。非交互或禁用提示时不会阻塞选择，自动使用 fast 并记录到 `audit-output/machine/cppcheck-mode.json`。
 - 传统工具缺失时，不要静默跳过；必须记录 missing/not-installed、说明能力降级、生成安装计划，并按 preset 和显式覆盖项阻断、降级或进入受控安装辅助。
 - 上下文高效是完整审计默认语义，不是降级；工具矩阵、Top-N、candidate review、CVSS、公开漏洞关联和报告门禁仍保持完整覆盖。
 - strict packet budget 默认开启；max_candidates=20；候选 packet 默认最多 3 个函数、每个函数 ±80 行；超预算时必须拆包或阻断，不能静默丢弃关键源码切片或证据。
@@ -270,7 +272,7 @@ cd /path/to/target-project
 python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
 ```
 
-交互式 TTY 中，如果没有指定 `--workflow-preset` 或 `PVAS_WORKFLOW_PRESET`，driver 会显示三档预设菜单，回车默认 `strict-efficient`。CI、脚本和 agent 非交互调用不会阻塞，会直接使用默认预设。脚本化运行建议显式固定预设并禁用提示：
+交互式 TTY 中，如果没有指定 `--workflow-preset` 或 `PVAS_WORKFLOW_PRESET`，driver 会显示三档预设菜单，回车默认 `strict-efficient`。没有指定 `--cppcheck-mode` 或 `PVAS_CPPCHECK_MODE` 时，driver 还会显示 cppcheck 模式菜单，回车默认 `fast`。CI、脚本和 agent 非交互调用不会阻塞，会直接使用默认预设和 cppcheck `fast`。脚本化运行建议显式固定预设并禁用提示：
 
 ```bash
 cd /path/to/target-project
@@ -279,10 +281,11 @@ python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py \
   --out audit-output \
   --max-candidates 20 \
   --workflow-preset strict-efficient \
+  --cppcheck-mode fast \
   --no-startup-prompt
 ```
 
-可用 `PVAS_WORKFLOW_PRESET` 设置同名预设，或用 `PVAS_WORKFLOW_PROMPT=0` 禁用 TTY 启动提示。显式 `--mode`、`PVAS_TOOL_MODE`、`PVAS_ALLOW_DEGRADED`、`PVAS_CONTEXT_EFFICIENT`、`PVAS_PACKET_STRICT_BUDGET` 会覆盖预设中的对应字段，并记录到 `audit-output/machine/workflow-startup.json`。
+可用 `PVAS_WORKFLOW_PRESET` 设置同名预设，或用 `PVAS_WORKFLOW_PROMPT=0` 禁用 TTY 启动提示。显式 `--mode`、`PVAS_TOOL_MODE`、`PVAS_ALLOW_DEGRADED`、`PVAS_CONTEXT_EFFICIENT`、`PVAS_PACKET_STRICT_BUDGET` 会覆盖预设中的对应字段，并记录到 `audit-output/machine/workflow-startup.json`。cppcheck 模式可用 `--cppcheck-mode {fast,deep}` 或 `PVAS_CPPCHECK_MODE` 设置，并记录到 `audit-output/machine/cppcheck-mode.json`。
 
 #### 严格模式审计
 
@@ -549,6 +552,8 @@ profile 不等于“所有工具一定运行”。工具是否运行取决于：
 - 默认不直接执行系统包管理器。
 - 优先 offline bundle、用户目录安装、受控前缀和可验证来源。
 - 父 agent 只读取安装摘要、安装计划和决策结果，不读取完整安装日志。
+
+cppcheck 默认使用 `fast` 模式：执行默认/error 检查和 warning，省略 style/performance/portability 以控制默认审计耗时。`deep` 模式保留完整 `warning,style,performance,portability` 检查集，需通过 `--cppcheck-mode deep` 或 `PVAS_CPPCHECK_MODE=deep` 显式选择。完成的 fast 扫描是有意选择的覆盖 profile，不视为 degraded；cppcheck 缺失、失败、停滞或输出异常仍按严格工具门禁处理。
 
 ### 5.3 Agents 与上下文隔离
 

@@ -110,6 +110,26 @@ def test_cppcheck_matrix_uses_sharded_runner_and_gcc_template():
     assert cppcheck["output_validator"] == "cppcheck-gcc-template"
     assert cppcheck["expected_output"] == "<raw>/cppcheck.out"
     assert "--template=gcc" in cppcheck["command"]
+    assert "--enable=warning" in cppcheck["command"]
+    assert "--enable=warning,style,performance,portability" not in cppcheck["command"]
+    assert cppcheck["cppcheck_mode"] == "fast"
+    assert cppcheck["cppcheck_mode_source"] == "default-fast"
+    assert "style/performance/portability" in cppcheck["mode_limitations"]
+
+
+def test_cppcheck_deep_matrix_preserves_existing_enable_set():
+    matrix = run_matrix({
+        "package_name": "demo",
+        "primary_language": ["C/C++"],
+        "profiles": ["binary-parser"],
+        "build_system": ["make"],
+        "input_surfaces": ["files"],
+    }, "standard", "--cppcheck-mode", "deep", "--cppcheck-mode-source", "test-explicit")
+    cppcheck = next(t for t in matrix["tools"] if t["name"] == "cppcheck")
+    assert "--enable=warning,style,performance,portability" in cppcheck["command"]
+    assert cppcheck["cppcheck_mode"] == "deep"
+    assert cppcheck["cppcheck_mode_source"] == "test-explicit"
+    assert "may take longer" in cppcheck["mode_limitations"]
 
 
 if __name__ == "__main__":
@@ -119,4 +139,5 @@ if __name__ == "__main__":
     test_restricted_network_does_not_use_semgrep_auto_config()
     test_online_approved_can_use_semgrep_auto_config()
     test_cppcheck_matrix_uses_sharded_runner_and_gcc_template()
+    test_cppcheck_deep_matrix_preserves_existing_enable_set()
     print("tool matrix tests passed")

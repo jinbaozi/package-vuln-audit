@@ -30,7 +30,7 @@ cp -a /path/to/package-vuln-audit-skill/adapters/claude-code/agents/*.md .claude
 Use slash commands from Claude Code:
 
 ```text
-/package-vuln-audit source_path=. output_dir=audit-output workflow_preset=strict-efficient
+/package-vuln-audit source_path=. output_dir=audit-output workflow_preset=strict-efficient cppcheck_mode=fast
 /package-profile source_path=. output_dir=audit-output
 /hypothesis-hunt profile=audit-output/01-profile/package-profile.json
 /candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
@@ -46,16 +46,18 @@ README 2.4 is the canonical source for this prompt. Keep platform command syntax
 ```text
 使用 package-vuln-audit-skill 对当前项目做一次授权防御性漏洞审计。
 
-入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
+入口参数：source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20 cppcheck_mode=fast
 审计目标：当前仓库
 输出目录：audit-output（相对当前进程 cwd）
 profile：standard
 候选数量上限：20
+cppcheck 模式：fast（默认；deep 需显式选择）
 
 执行要求：
 - 完整审计必须通过 `tools/enforced_audit_driver.py` 的完整 workflow gate；低层脚本只能用于调试或单阶段复现，不能替代 gate。
 - 父上下文必须保持 summary-only：只读取阶段 summary、schema 化 JSON、candidate packet、validation result、finding index 和 final report；raw logs、SARIF、fuzz 输出、大规模源码切片和完整候选全集不得直接进入父上下文。
 - 默认使用 `workflow_preset=strict-efficient`；缺少 strict-required 工具时进入 tool-install-assistant 或阻断，除非显式授权 degraded；context efficient 和 strict packet budget 默认开启。
+- cppcheck 默认使用 `fast`；`deep` 需通过 `--cppcheck-mode deep` 或 `PVAS_CPPCHECK_MODE=deep` 显式选择。非交互或禁用提示时自动使用 fast，不阻塞审计启动。
 - 传统工具缺失时不能静默跳过；必须记录 missing/not-installed、说明能力降级、生成安装计划，并按 preset 和显式覆盖项处理。
 - context efficient 不减少工具矩阵、Top-N、candidate review、CVSS、公开漏洞关联和报告门禁；strict packet budget 要求超预算候选拆包或阻断。
 - 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
@@ -78,6 +80,7 @@ python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py \
   --source . \
   --out audit-output \
   --workflow-preset strict-efficient \
+  --cppcheck-mode fast \
   --no-startup-prompt
 ```
 

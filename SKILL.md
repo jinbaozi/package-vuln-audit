@@ -117,6 +117,8 @@ Required behavior:
 - Avoid root/system package manager changes by default.
 - Complete-audit workflow defaults to `strict-efficient`: strict environment profile, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Use `strict-degraded` for explicit degraded continuation, or `compat-default` only for legacy reproduction/debugging.
 
+cppcheck defaults to `fast` mode: default/error checks plus `warning`. `deep` mode adds `style,performance,portability` and is opt-in through `--cppcheck-mode deep` or `PVAS_CPPCHECK_MODE=deep`. Interactive complete-audit driver runs prompt for this choice when no explicit mode is set; non-interactive runs and disabled startup prompts use `fast` automatically and record the choice in `audit-output/machine/cppcheck-mode.json`. A completed fast scan is an intentional coverage profile, not degraded execution.
+
 ## osv-scanner (Known Vulnerability Scan)
 
 osv-scanner is a strict-required tool for known-dependency-vulnerability matching against the OSV database. It runs during the traditional tool scan phase (`run_tools.sh`) as `osv-scanner scan --format json <source>`.

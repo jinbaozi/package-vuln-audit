@@ -17,6 +17,7 @@ from tool_catalog import CATALOG, PROFILE_TOOLS  # noqa: E402
 
 SEMGRP_EVIDENCE = "complete-audit baseline required by workflow gate design"
 NETWORK_POLICY_VALUES = {"offline", "restricted", "online-approved"}
+CPPCHECK_MODE_VALUES = {"fast", "deep"}
 
 
 def is_c_cpp_project(profile: dict) -> bool:
@@ -63,7 +64,26 @@ def local_semgrep_config() -> pathlib.Path | None:
     return None
 
 
-def command_template(name: str, *, network_policy: str, allow_network: bool, package_profile: dict | None = None) -> list[str]:
+def cppcheck_enable_arg(mode: str) -> str:
+    if mode == "deep":
+        return "--enable=warning,style,performance,portability"
+    return "--enable=warning"
+
+
+def cppcheck_mode_limitations(mode: str) -> str:
+    if mode == "deep":
+        return "deep mode includes warning, style, performance, and portability checks; may take longer"
+    return "fast mode runs cppcheck default/error checks plus warning; style/performance/portability checks are omitted by design"
+
+
+def command_template(
+    name: str,
+    *,
+    network_policy: str,
+    allow_network: bool,
+    package_profile: dict | None = None,
+    cppcheck_mode: str = "fast",
+) -> list[str]:
     if name == "rg":
         return ["rg", "-n", "strcpy|strcat|sprintf|vsprintf|memcpy|memmove|malloc|calloc|realloc|free|system\\(|popen\\(|mktemp|tmpnam|open\\(|unlink\\(", "<source>"]
     if name == "semgrep":
@@ -77,7 +97,7 @@ def command_template(name: str, *, network_policy: str, allow_network: bool, pac
             return ["semgrep", "scan", "--config", "p/c", "--json", "--output", "<raw>/semgrep.json", "<source>"]
         return ["semgrep", "scan", "--json", "--output", "<raw>/semgrep.json", "<source>"]
     if name == "cppcheck":
-        return ["cppcheck", "--enable=warning,style,performance,portability", "--template=gcc", "<source>"]
+        return ["cppcheck", cppcheck_enable_arg(cppcheck_mode), "--template=gcc", "<source>"]
     if name == "osv-scanner":
         return ["osv-scanner", "scan", "--format", "json", "<source>"]
     if name == "npm":
@@ -85,9 +105,22 @@ def command_template(name: str, *, network_policy: str, allow_network: bool, pac
     return [CATALOG[name]["binary"], *CATALOG[name].get("version_args", ["--version"])]
 
 
-def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries: int, *, network_policy: str, allow_network: bool, out_root: pathlib.Path | None = None) -> dict:
+def build_matrix(
+    package_profile: dict,
+    env_profile: str,
+    timeout: str,
+    retries: int,
+    *,
+    network_policy: str,
+    allow_network: bool,
+    out_root: pathlib.Path | None = None,
+    cppcheck_mode: str = "fast",
+    cppcheck_mode_source: str = "default-fast",
+) -> dict:
     if network_policy not in NETWORK_POLICY_VALUES:
         raise ValueError(f"network_policy must be one of {sorted(NETWORK_POLICY_VALUES)}")
+    if cppcheck_mode not in CPPCHECK_MODE_VALUES:
+        raise ValueError(f"cppcheck_mode must be one of {sorted(CPPCHECK_MODE_VALUES)}")
     names = list(PROFILE_TOOLS[env_profile])
     if "semgrep" not in names:
         names.insert(0, "semgrep")
@@ -95,7 +128,13 @@ def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries:
     for name in names:
         applicability, evidence, allow_degraded = tool_applicability(name, package_profile, env_profile)
         meta = CATALOG[name]
-        command = command_template(name, network_policy=network_policy, allow_network=allow_network, package_profile=package_profile)
+        command = command_template(
+            name,
+            network_policy=network_policy,
+            allow_network=allow_network,
+            package_profile=package_profile,
+            cppcheck_mode=cppcheck_mode,
+        )
         env = {}
         if name == "semgrep":
             env_base = out_root / "00-environment" if out_root else pathlib.Path("<raw>").parent / "00-environment"
@@ -130,6 +169,9 @@ def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries:
                 "output_validator": "cppcheck-gcc-template",
                 "expected_output": "<raw>/cppcheck.out",
                 "shard_size": 100,
+                "cppcheck_mode": cppcheck_mode,
+                "cppcheck_mode_source": cppcheck_mode_source,
+                "mode_limitations": cppcheck_mode_limitations(cppcheck_mode),
             })
         tools.append(tool_row)
     return {
@@ -151,11 +193,25 @@ def main() -> int:
     ap.add_argument("--retries", type=int, default=1)
     ap.add_argument("--network-policy", default=os.environ.get("PVAS_NETWORK_POLICY", "restricted"), choices=sorted(NETWORK_POLICY_VALUES))
     ap.add_argument("--allow-network", action="store_true", default=os.environ.get("PVAS_ALLOW_NETWORK", "0") == "1")
+    ap.add_argument("--cppcheck-mode", choices=sorted(CPPCHECK_MODE_VALUES), default=None)
+    ap.add_argument("--cppcheck-mode-source", default=None)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     profile = load_json(pathlib.Path(args.package_profile))
     out = pathlib.Path(args.out)
+    env_cppcheck_mode = os.environ.get("PVAS_CPPCHECK_MODE") or ""
+    if args.cppcheck_mode:
+        cppcheck_mode = args.cppcheck_mode
+        cppcheck_mode_source = args.cppcheck_mode_source or "cli-cppcheck-mode"
+    elif env_cppcheck_mode:
+        cppcheck_mode = env_cppcheck_mode.strip().lower()
+        if cppcheck_mode not in CPPCHECK_MODE_VALUES:
+            ap.error(f"invalid PVAS_CPPCHECK_MODE {env_cppcheck_mode!r}")
+        cppcheck_mode_source = args.cppcheck_mode_source or "env-cppcheck-mode"
+    else:
+        cppcheck_mode = "fast"
+        cppcheck_mode_source = args.cppcheck_mode_source or "default-fast"
     matrix = build_matrix(
         profile,
         args.profile,
@@ -164,6 +220,8 @@ def main() -> int:
         network_policy=args.network_policy,
         allow_network=args.allow_network,
         out_root=out.parent.parent if out.parent.name == "01-profile" else None,
+        cppcheck_mode=cppcheck_mode,
+        cppcheck_mode_source=cppcheck_mode_source,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(matrix, indent=2, ensure_ascii=False))

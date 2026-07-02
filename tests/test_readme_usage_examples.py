@@ -58,12 +58,16 @@ def test_canonical_prompt_contains_cross_platform_requirements():
         "source_path=.",
         "output_dir=audit-output",
         "workflow_preset=strict-efficient",
+        "cppcheck_mode=fast",
         "max_candidates=20",
         "tools/enforced_audit_driver.py",
         "strict-efficient",
         "strict-degraded",
         "compat-default",
         "--workflow-preset",
+        "--cppcheck-mode",
+        "PVAS_CPPCHECK_MODE",
+        "cppcheck-mode.json",
         "--no-startup-prompt",
         "audit-output",
         "cwd",
@@ -90,6 +94,7 @@ def test_adapter_installs_embed_recommended_complete_audit_prompt():
         text = (ROOT / "adapters" / adapter / "INSTALL.md").read_text()
         assert "Recommended complete-audit prompt" in text
         assert "workflow_preset=strict-efficient" in text
+        assert "cppcheck_mode=fast" in text
         for required in [
             "source_path=.",
             "output_dir=audit-output",
@@ -113,6 +118,8 @@ def test_complete_audit_command_templates_document_workflow_preset():
         text = path.read_text()
         assert "workflow_preset" in text
         assert "strict-efficient" in text
+        assert "cppcheck_mode" in text
+        assert "--cppcheck-mode" in text
         assert "canonical prompt" in text or "README 2.4" in text
 
 
@@ -125,6 +132,8 @@ def test_codex_adapter_docs_reference_canonical_strict_efficient_prompt():
         assert "strict-efficient" in text
         assert "README 2.4" in text
         assert "workflow_preset=strict-efficient" in text
+        assert "cppcheck_mode=fast" in text
+        assert "--cppcheck-mode fast" in text
         assert "summary-only" in text
 
 

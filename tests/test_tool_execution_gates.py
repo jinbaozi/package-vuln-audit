@@ -68,7 +68,15 @@ def run_tool_matrix(matrix: pathlib.Path, source: pathlib.Path, out: pathlib.Pat
     ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
-def cppcheck_matrix(td: pathlib.Path, *, shard_size=2, timeout="1s"):
+def cppcheck_matrix(
+    td: pathlib.Path,
+    *,
+    shard_size=2,
+    timeout="1s",
+    enable="warning,style,performance,portability",
+    mode="deep",
+    mode_source="test-fixture",
+):
     matrix = {
         "schema_version": "1.0",
         "environment_profile": "standard",
@@ -78,7 +86,7 @@ def cppcheck_matrix(td: pathlib.Path, *, shard_size=2, timeout="1s"):
             "binary": "cppcheck",
             "applicability": "mandatory",
             "evidence": "cppcheck C/C++ static analysis coverage",
-            "command": ["cppcheck", "--enable=warning,style,performance,portability", "--template=gcc", "<source>"],
+            "command": ["cppcheck", f"--enable={enable}", "--template=gcc", "<source>"],
             "timeout": timeout,
             "watchdog": {"strategy": "adaptive", "idle_timeout": timeout},
             "retry_policy": {"max_attempts": 1},
@@ -86,6 +94,9 @@ def cppcheck_matrix(td: pathlib.Path, *, shard_size=2, timeout="1s"):
             "shard_size": shard_size,
             "output_validator": "cppcheck-gcc-template",
             "expected_output": "<raw>/cppcheck.out",
+            "cppcheck_mode": mode,
+            "cppcheck_mode_source": mode_source,
+            "mode_limitations": "fixture cppcheck mode metadata",
         }],
     }
     path = td / "matrix.json"
@@ -375,6 +386,37 @@ def test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings():
         assert row["shards_completed"] == 1
 
 
+def test_cppcheck_fast_mode_command_executes_and_metadata_is_recorded():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        args_log = td / "cppcheck-args.txt"
+        fake = bindir / "cppcheck"
+        write_executable(fake, f"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > {args_log}\nexit 0\n")
+        file_list = write_source_files(td, ["one.c"])
+        matrix = cppcheck_matrix(
+            td,
+            shard_size=4,
+            enable="warning",
+            mode="fast",
+            mode_source="default-noninteractive",
+        )
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        args_text = args_log.read_text()
+        assert "--enable=warning" in args_text
+        assert "style,performance,portability" not in args_text
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "completed"
+        assert row["cppcheck_mode"] == "fast"
+        assert row["cppcheck_mode_source"] == "default-noninteractive"
+        assert row["mode_limitations"] == "fixture cppcheck mode metadata"
+
+
 def test_cppcheck_shards_all_complete_before_merging():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -486,6 +528,7 @@ if __name__ == "__main__":
     test_watchdog_records_stalled_mandatory_tool_and_blocks_after_exit()
     test_osv_no_package_sources_is_not_applicable()
     test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings()
+    test_cppcheck_fast_mode_command_executes_and_metadata_is_recorded()
     test_cppcheck_shards_all_complete_before_merging()
     test_cppcheck_nonzero_shard_blocks_and_preserves_attempt()
     test_cppcheck_stalled_shard_splits_and_then_completes()

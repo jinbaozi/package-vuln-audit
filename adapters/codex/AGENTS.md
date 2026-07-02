@@ -9,16 +9,18 @@ For complete audits, invoke `tools/enforced_audit_driver.py`. Direct calls to lo
 Complete-audit prompts must reuse README 2.4 as the canonical prompt. The normalized entry parameters are:
 
 ```text
-source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20
+source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candidates=20 cppcheck_mode=fast
 ```
 
 `strict-efficient` is the default complete-audit preset: strict tool gates, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Parent context remains summary-only; do not carry raw logs, SARIF, fuzz output, large source slices, or complete candidate sets into Codex conversation context. Candidate and Likely items are not reportable vulnerabilities; only Validated and explicitly marked Needs Manual Review items may enter human-readable reports. Validated findings require CVSS rationale and public vulnerability correlation.
+
+cppcheck defaults to `fast` mode. Use `--cppcheck-mode deep` or `PVAS_CPPCHECK_MODE=deep` only when style/performance/portability checks are explicitly needed. Non-interactive audits and disabled startup prompts do not block for this choice; they use fast and record it under `audit-output/machine/cppcheck-mode.json`.
 
 The default `audit-output/` path is relative to the current Codex or driver process cwd, not automatically relative to `--source`. Start Codex from the audited repository root, or run:
 
 ```bash
 cd /path/to/target-project
-python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --workflow-preset strict-efficient
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --workflow-preset strict-efficient --cppcheck-mode fast
 ```
 
 If running from the skill repository or another directory while auditing external source, pass an explicit absolute `--out /path/to/output`.
