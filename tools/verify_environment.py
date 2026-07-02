@@ -136,6 +136,7 @@ def main() -> int:
             for r in rows:
                 if r['status'] == 'missing':
                     print(f"[PVAS-TOOL-MISSING] {r['name']} not installed. Impact: {r['impact']}", file=sys.stderr)
+            print(f"[PVAS-TOOL-MISSING-SUMMARY] {len(missing)} tools missing ({len(blocking_missing)} mandatory) — see {check_path}", file=sys.stderr)
             print(f"[PVAS-ENV] wrote {check_path}", file=sys.stderr)
     return 2 if decision == 'block' else 0
 

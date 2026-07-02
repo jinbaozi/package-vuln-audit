@@ -235,6 +235,10 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
     network_used = bool(tool.get("network_required") and command_mentions_remote_semgrep(command))
     if shutil.which(binary) is None:
         reason = "not-installed"
+        blocking = tool.get("applicability") in BLOCKING_APPLICABILITY
+        if blocking:
+            print(f"[PVAS-TOOL-MISSING] {name} not installed. Impact: {tool.get('evidence', '')}", file=sys.stderr)
+            print(f"[PVAS-TOOL-MISSING] {name} is required ({tool.get('applicability', 'unknown')}). Blocking execution.", file=sys.stderr)
         attempt = {
             "tool": name,
             "attempt": 1,
@@ -242,7 +246,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "command": command,
             "elapsed_ms": 0,
             "exit_code": None,
-            "recovery_action": "tool-install-assistant" if tool.get("applicability") in BLOCKING_APPLICABILITY else "record-missing",
+            "recovery_action": "tool-install-assistant" if blocking else "record-missing",
             "watchdog_events": [],
             "network_used": False,
         }
@@ -252,7 +256,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "output": "",
             "reason": reason,
             "notes": tool.get("evidence", ""),
-            "strict_decision": "needs-install",
+            "strict_decision": "block" if blocking else "needs-install",
             "coverage_impact": tool.get("evidence", ""),
             "watchdog_events": [],
             "network_used": False,
@@ -404,7 +408,8 @@ def main() -> int:
         elif row["status"] in {"incomplete", "not-installed"}:
             incomplete.append(row["name"])
 
-    strict_decision = "block" if abnormal else "continue"
+    not_installed_blocking = [r["name"] for r in rows if r.get("strict_decision") == "block"]
+    strict_decision = "block" if (abnormal or not_installed_blocking) else "continue"
     summary = {
         "tools": rows,
         "raw_outputs": [r["output"] for r in rows if r.get("output")],
@@ -417,7 +422,10 @@ def main() -> int:
     }
     write_json(out / "tool-summary.json", summary)
     write_json(out / "tool-execution-attempts.json", {"attempts": attempts})
-    return 2 if abnormal else 0
+    if not_installed_blocking:
+        print(f"[PVAS-TOOL-MISSING] blocking due to missing required tools: {', '.join(not_installed_blocking)}", file=sys.stderr)
+        print("[PVAS-TOOL-MISSING] run controlled install-assistant or ensure tools are installed before retry", file=sys.stderr)
+    return 2 if (abnormal or not_installed_blocking) else 0
 
 
 if __name__ == "__main__":

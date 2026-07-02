@@ -68,18 +68,19 @@ def run_tool_matrix(matrix: pathlib.Path, source: pathlib.Path, out: pathlib.Pat
     ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
-def test_semgrep_missing_is_recorded_without_execution_block():
+def test_semgrep_missing_is_recorded_and_blocks():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         matrix = base_matrix(td, semgrep_binary="missing-semgrep")
         out = td / "tools"
         p = run_tool_matrix(matrix, td, out)
-        assert p.returncode == 0
+        assert p.returncode == 2
+        assert "[PVAS-TOOL-MISSING] semgrep not installed" in p.stderr
         summary = json.loads((out / "tool-summary.json").read_text())
         semgrep = next(t for t in summary["tools"] if t["name"] == "semgrep")
         assert semgrep["status"] == "not-installed"
         assert semgrep["reason"] == "not-installed"
-        assert semgrep["strict_decision"] == "needs-install"
+        assert semgrep["strict_decision"] == "block"
 
 
 def test_semgrep_success_completes_and_not_applicable_is_preserved():
@@ -206,20 +207,22 @@ def test_osv_no_package_sources_is_not_applicable():
                 "retry_policy": {"max_attempts": 1},
             }]
         }
+        # Add package manifest so preflight passes and osv-scanner actually runs
+        (td / "package.json").write_text('{"name":"test"}')
         matrix_path = td / "matrix.json"
         matrix_path.write_text(json.dumps(matrix))
         env = os.environ.copy()
         env["PATH"] = f"{bindir}:{env.get('PATH','')}"
         out = td / "tools"
         p = run_tool_matrix(matrix_path, td, out, env=env)
-        assert p.returncode == 0
+        assert p.returncode == 0, f"exit {p.returncode}: {p.stderr[:500]}"
         row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
         assert row["status"] == "not-applicable"
         assert row["reason"] == "no-package-sources"
 
 
 if __name__ == "__main__":
-    test_semgrep_missing_is_recorded_without_execution_block()
+    test_semgrep_missing_is_recorded_and_blocks()
     test_semgrep_success_completes_and_not_applicable_is_preserved()
     test_no_local_semgrep_rules_is_incomplete_not_blocking()
     test_watchdog_allows_progress_past_soft_timeout()

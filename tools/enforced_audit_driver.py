@@ -376,21 +376,19 @@ def main() -> int:
         return 2
 
     def exec_ai_hypothesis():
-        run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out / '02-tools/raw'), '--out', str(out / '03-candidates/raw-candidates.json')], allow_fail=True)
-        run([sys.executable, 'tools/rank_candidates.py', '--input', str(out / '03-candidates/raw-candidates.json'), '--out', str(out / '03-candidates/ranked-candidates.json')], allow_fail=True)
-        run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out / '03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out / '03-candidates/packets'), '--max-packets', str(max_candidates)], allow_fail=True)
+        run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out / '02-tools/raw'), '--out', str(out / '03-candidates/raw-candidates.json')])
+        run([sys.executable, 'tools/rank_candidates.py', '--input', str(out / '03-candidates/raw-candidates.json'), '--out', str(out / '03-candidates/ranked-candidates.json')])
+        run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out / '03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out / '03-candidates/packets'), '--max-packets', str(max_candidates)])
         post_budget = out / '03-candidates/context-budget-post-packet.json'
-        rc, tool_out = run([sys.executable, 'tools/context_budget.py', '--profile-dir', str(out / '01-profile'), '--packet-dir', str(out / '03-candidates/packets'), '--out', str(post_budget)], allow_fail=True)
+        rc, tool_out = run([sys.executable, 'tools/context_budget.py', '--profile-dir', str(out / '01-profile'), '--packet-dir', str(out / '03-candidates/packets'), '--out', str(post_budget)])
         if rc != 0:
             return StageResult(False, issues=[tool_out[-1000:] or 'post-packet context budget failed'])
         budget = load_json(post_budget, required=True)
         decision = budget.get('decision')
         if decision not in {'safe', 'warning', 'split-required'}:
             return StageResult(False, issues=[f'post-packet budget decision={decision}'])
-        rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)], allow_fail=True)
-        if rc != 0:
-            return StageResult(False, issues=[tool_out[-1000:] or 'AI hypothesis task preparation failed'])
-        rc, tool_out = run([sys.executable, 'tools/exec_ai_hypothesis_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)])
+        rc, tool_out = run([sys.executable, 'tools/exec_ai_hypothesis_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)])
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypothesis generation failed'])
     def post_ai_hypothesis():
         rc, tool_out = run([sys.executable, 'tools/validate_hypotheses.py', '--hypotheses', str(out / '03-candidates/ai-hypotheses.json'), '--out', str(out / '03-candidates/ai-hypotheses-validation.json')], allow_fail=True)

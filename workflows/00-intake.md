@@ -35,7 +35,7 @@ but has not supplied a richer intake artifact:
   "authorization": "authorized defensive audit",
   "scope_summary": "Source package security audit within the provided path.",
   "source_path": ".",
-  "network_policy": "restricted",
+   "network_policy": "online-approved",
   "build_permission": "ask-before-build",
   "fuzz_permission": "disabled-by-default",
   "disclosure_policy": "internal-only until findings are validated and coordinated"

@@ -25,7 +25,8 @@ def slice_file(path, start, end, max_lines, line_cache=None):
                     break
                 lines.append(f'{i}: {line.rstrip()}')
         return '\n'.join(lines) if lines else '[source unavailable]'
-    except Exception:
+    except Exception as e:
+        print(f'[PVAS-TOOL] Warning: failed to slice {path}: {e}', file=sys.stderr)
         return '[source unavailable]'
 
 def make_packet_text(c, loc, snippet):

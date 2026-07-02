@@ -233,6 +233,8 @@ def main() -> int:
     ap.add_argument('--authorize-system-install', action='store_true', default=os.environ.get('PVAS_AUTHORIZE_SYSTEM_INSTALL', '0') in {'1','true','yes','on'})
     ap.add_argument('--interactive-sudo', action='store_true', default=os.environ.get('PVAS_INTERACTIVE_SUDO', '1') in {'1','true','yes','on'},
                     help='when set, prompt user via sudo -v before executing dnf commands')
+    ap.add_argument('--interactive-authorize', action='store_true',
+                    help='when set, prompt user per-tool before installation instead of requiring pre-authorization via --authorize-tool')
     ap.add_argument('--out', default='audit-output/00-environment')
     args = ap.parse_args()
 
@@ -265,6 +267,12 @@ def main() -> int:
     tool_rows = []
     for tool in tools:
         authorized = args.authorize_all or tool in authorized_set
+        if not authorized and args.interactive_authorize and not ((args.dry_run and not args.execute) or args.mock_only):
+            try:
+                resp = input(f"Authorize installation of '{tool}'? [y/N] ").strip().lower()
+                authorized = resp in ('y', 'yes')
+            except (EOFError, KeyboardInterrupt):
+                print("", file=sys.stderr)
         row = summarize_plan(tool, authorized, args.authorize_system_install, args.network_mode)
         row['version_constraint'] = ''
         row['offline_bundle_hash'] = hash_details.get(tool, {})
@@ -377,6 +385,10 @@ def main() -> int:
         digest_lines.append('failures=' + '; '.join(sorted(set(failure_summary))))
     (out / 'install-assistant-log-digest.txt').write_text('\n'.join(digest_lines) + '\n')
     print(f'[PVAS-INSTALL-ASSIST] decision={decision}; wrote {summary_path} and {decision_path}')
+    if decision == DECISION_DRY and not args.mock_only:
+        print(f'[PVAS-INSTALL-ASSIST] To proceed with installation, re-run with --execute', file=sys.stderr)
+        if not args.authorize_all and not args.authorize_tool:
+            print(f'[PVAS-INSTALL-ASSIST] You may also need --authorize-tool <name>, --authorize-all, or --interactive-authorize', file=sys.stderr)
     return 0 if decision in {'resume', DECISION_DRY} else 2
 
 if __name__ == '__main__':

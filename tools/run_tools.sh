@@ -38,4 +38,4 @@ for f in "$PROFILE_DIR/binutils-source-files.txt" "$PROFILE_DIR"/*/source-files.
 done
 python3 "$SCRIPT_DIR/run_tool_matrix.py" --matrix "$MATRIX" --source "$SRC" --out "$OUT" "${FILE_LIST_ARGS[@]}"
 ENV_OUT="$(dirname "$OUT")/00-environment"
-python3 "$SCRIPT_DIR/generate_install_plan.py" --tool-summary "$OUT/tool-summary.json" --out "$ENV_OUT" >/dev/null || true
+python3 "$SCRIPT_DIR/generate_install_plan.py" --tool-summary "$OUT/tool-summary.json" --out "$ENV_OUT" || true

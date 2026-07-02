@@ -21,7 +21,8 @@ def main():
             data=load_json(sem, default={})
             for r in data.get('results',[])[:200]:
                 add_candidate(c, f'T-CAND-{n:04d}', r.get('extra',{}).get('message','Semgrep result'), 'semgrep', r.get('path'), r.get('start',{}).get('line'), {'tool_refs':['semgrep']}, 10); n+=1
-        except Exception: pass
+        except Exception as e:
+            print(f'[PVAS-TOOL] Warning: failed to parse semgrep.json: {e}', file=sys.stderr)
     rg=raw/'rg.out'
     if rg.exists():
         for line in rg.read_text(errors='ignore').splitlines()[:300]:

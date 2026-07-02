@@ -57,7 +57,8 @@ def load_traversal(profile_dir: pathlib.Path):
     manifest=profile_dir/'traversal-manifest.json'
     if manifest.exists():
         try: return load_json(manifest, default={})
-        except Exception: pass
+        except Exception as e:
+            print(f'[PVAS-BUDGET] Warning: failed to load traversal manifest: {e}', file=sys.stderr)
     all_files=(profile_dir/'all-files.txt').read_text(errors='ignore').splitlines() if (profile_dir/'all-files.txt').exists() else []
     source_files=(profile_dir/'source-files.txt').read_text(errors='ignore').splitlines() if (profile_dir/'source-files.txt').exists() else []
     return {'all_files_count':len(all_files),'source_files_count':len(source_files),'excluded_dirs':[], 'large_files_skipped':0, 'truncated':False}
@@ -72,8 +73,8 @@ def packet_entries(packet_dir: pathlib.Path):
             indexed = data.get('packets', [])
             if indexed:
                 return indexed
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'[PVAS-BUDGET] Warning: failed to load packet-index.json: {e}', file=sys.stderr)
     for p in sorted(packet_dir.glob('*.md')):
         tokens=count_tokens_file(p)
         packets.append({'id':p.stem,'file':str(p),'estimated_tokens':tokens,'within_budget':tokens <= PACKET_BUDGET})
