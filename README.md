@@ -95,6 +95,13 @@
 
 ### 2.1 Claude Code
 
+推荐使用安装脚本，从 skill 仓库根目录执行：
+
+```bash
+install/install.sh --target /path/to/repo --platform claude-code --mode copy --force
+install/verify-install.sh --target /path/to/repo --platform claude-code
+```
+
 安装适配器后，目标仓库中会出现以下关键入口：
 
 ```text
@@ -115,11 +122,10 @@ CLAUDE.md
 也可以按阶段执行：
 
 ```text
-/package-profile
-/package-vuln-audit
-/hypothesis-hunt
-/candidate-review
-/validate
+/package-profile source_path=. output_dir=audit-output
+/hypothesis-hunt profile=audit-output/01-profile/package-profile.json
+/candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
+/validate candidate=audit-output/03-candidates/packets/T-CAND-0001.md
 ```
 
 Claude Code 适配器要求：
@@ -132,6 +138,13 @@ Claude Code 适配器要求：
 
 ### 2.2 opencode
 
+推荐使用安装脚本，从 skill 仓库根目录执行：
+
+```bash
+install/install.sh --target /path/to/repo --platform opencode --mode copy --force
+install/verify-install.sh --target /path/to/repo --platform opencode
+```
+
 安装适配器后，目标仓库中会出现以下关键入口：
 
 ```text
@@ -142,6 +155,16 @@ Claude Code 适配器要求：
 ```
 
 推荐使用方式：
+
+```text
+/package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20
+/package-profile source_path=. output_dir=audit-output
+/hypothesis-hunt profile=audit-output/01-profile/package-profile.json
+/candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
+/validate candidate=audit-output/03-candidates/packets/T-CAND-0001.md
+```
+
+也可以用自然语言触发 coordinator：
 
 ```text
 请使用 package-vuln-audit 工作流审计当前仓库。
@@ -167,6 +190,13 @@ opencode 适配器提供 `coordinator` 主 agent，并将高噪声任务拆给�
 
 ### 2.3 Codex
 
+推荐使用安装脚本，从 skill 仓库根目录执行：
+
+```bash
+install/install.sh --target /path/to/repo --platform codex --mode copy --force
+install/verify-install.sh --target /path/to/repo --platform codex
+```
+
 Codex 适配器主要依赖目标仓库根目录的 `AGENTS.md` 和 `.codex/skills/package-vuln-audit/`。
 
 安装适配器后，目标仓库中会出现以下关键入口：
@@ -177,6 +207,13 @@ AGENTS.md
 ```
 
 推荐使用方式：
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+在 Codex 对话中也可以使用：
 
 ```text
 请按 AGENTS.md 中的 package-vuln-audit 规则，对当前仓库做一次授权防御性源码漏洞审计。
@@ -219,6 +256,16 @@ profile：standard
 ```bash
 cd /path/to/target-project
 python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+推荐在完整审计中启用上下文高效模式。该模式不减少工具覆盖、不降低默认 Top-N、不跳过候选评审；它只限制 raw 输出和重复上下文进入父 agent：
+
+```bash
+cd /path/to/target-project
+PVAS_CONTEXT_EFFICIENT=1 \
+PVAS_PACKET_STRICT_BUDGET=1 \
+PVAS_TERMINAL_SUMMARY_CHARS=1000 \
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output --max-candidates 20
 ```
 
 #### 严格模式审计
@@ -507,6 +554,9 @@ profile 不等于“所有工具一定运行”。工具是否运行取决于：
 - 原始工具日志保留在磁盘，不进入父上下文。
 - 每个 candidate 尽量单独评审，避免不同候选证据互相污染。
 - candidate packet 生成后必须重新执行 Context Budget Guard。
+- `PVAS_CONTEXT_EFFICIENT=1` 表示“上下文高效完整审计”，不是降级模式；工具矩阵、Top-N、candidate review、CVSS 和报告门禁仍保持完整覆盖。
+- `PVAS_PACKET_STRICT_BUDGET=1` 会在单个 packet 超预算且无法安全拆分时阻断，不能静默丢弃关键源码切片或证据。
+- `PVAS_TERMINAL_SUMMARY_CHARS` 只限制终端摘要和 stage issue 摘要长度；完整 raw 日志仍落盘，并通过 `tool-summary.json` 的 `raw_output_ref`、`output_bytes`、`result_count` 索引。
 
 ### 5.4 Schemas 与模板
 

@@ -8,7 +8,17 @@ From the root of the repository you want to audit:
 
 ```bash
 mkdir -p .claude/commands .claude/agents .claude/skills/package-vuln-audit
-cp -a /path/to/package-vuln-audit-skill/SKILL.md .claude/skills/package-vuln-audit/SKILL.md
+cp -a /path/to/package-vuln-audit-skill/SKILL.md \
+      /path/to/package-vuln-audit-skill/AGENTS.md \
+      /path/to/package-vuln-audit-skill/README.md \
+      /path/to/package-vuln-audit-skill/workflows \
+      /path/to/package-vuln-audit-skill/recipes \
+      /path/to/package-vuln-audit-skill/agents \
+      /path/to/package-vuln-audit-skill/tools \
+      /path/to/package-vuln-audit-skill/schemas \
+      /path/to/package-vuln-audit-skill/templates \
+      /path/to/package-vuln-audit-skill/references \
+      .claude/skills/package-vuln-audit/
 cp -a /path/to/package-vuln-audit-skill/AGENTS.md ./AGENTS.md
 cp -a /path/to/package-vuln-audit-skill/adapters/claude-code/CLAUDE.md ./CLAUDE.md
 cp -a /path/to/package-vuln-audit-skill/adapters/claude-code/commands/*.md .claude/commands/
@@ -23,8 +33,8 @@ Use slash commands from Claude Code:
 /package-vuln-audit source_path=. output_dir=audit-output
 /package-profile source_path=. output_dir=audit-output
 /hypothesis-hunt profile=audit-output/01-profile/package-profile.json
-/candidate-review candidate=audit-output/03-candidates/CAND-001.md
-/validate-finding candidate=audit-output/03-candidates/CAND-001.md
+/candidate-review candidate=audit-output/03-candidates/packets/T-CAND-0001.md
+/validate candidate=audit-output/03-candidates/packets/T-CAND-0001.md
 ```
 
 `output_dir=audit-output` is resolved under the current Claude Code command process working directory. Start Claude Code from the repository being audited, or use an explicit absolute output directory when auditing external source from another cwd.

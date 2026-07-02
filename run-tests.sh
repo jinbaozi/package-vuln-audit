@@ -19,6 +19,7 @@ python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
 python3 -u tests/test_final_summary_gates.py
 python3 -u tests/test_workflow_gate_docs.py
+python3 -u tests/test_readme_usage_examples.py
 python3 -u tests/test_report_admission.py
 python3 -u tests/test_make_ai_packets.py
 python3 -u tests/test_bilingual_output.py

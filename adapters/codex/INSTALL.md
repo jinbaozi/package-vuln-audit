@@ -9,6 +9,17 @@ From the audited repository root:
 ```bash
 cp -a /path/to/package-vuln-audit-skill/adapters/codex/AGENTS.md ./AGENTS.md
 mkdir -p .codex/skills/package-vuln-audit
+cp -a /path/to/package-vuln-audit-skill/SKILL.md \
+      /path/to/package-vuln-audit-skill/AGENTS.md \
+      /path/to/package-vuln-audit-skill/README.md \
+      /path/to/package-vuln-audit-skill/workflows \
+      /path/to/package-vuln-audit-skill/recipes \
+      /path/to/package-vuln-audit-skill/agents \
+      /path/to/package-vuln-audit-skill/tools \
+      /path/to/package-vuln-audit-skill/schemas \
+      /path/to/package-vuln-audit-skill/templates \
+      /path/to/package-vuln-audit-skill/references \
+      .codex/skills/package-vuln-audit/
 cp -a /path/to/package-vuln-audit-skill/adapters/codex/skills/package-vuln-audit/* .codex/skills/package-vuln-audit/
 ```
 
