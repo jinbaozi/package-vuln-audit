@@ -35,6 +35,7 @@ registered_schemas:
   - tool-install-plan.schema.json
   - tool-summary.schema.json
   - validation-result.schema.json
+  - workflow-step.schema.json
   - exception-index.schema.json
   - intake.schema.json
   - openeuler-vuln-registry.schema.json

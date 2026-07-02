@@ -29,6 +29,8 @@ The plan is advisory by default. It prioritizes Python/pipx/uv, npm/npx, user-lo
 
 `tools/run_tools.sh` does not fail when an optional scanner is missing. It records `not-installed` in `tool-summary.json`, prints `[PVAS-TOOL-MISSING]`, and writes an install plan to `audit-output/00-environment/tool-install-plan.md`.
 
+For complete audits, run `tools/enforced_audit_driver.py`. Mandatory, profile-required, and recommended tools that apply to the package must finish as `completed`, `completed-with-findings`, or `not-applicable`. `not-installed`, `incomplete`, `malformed-output`, `nonzero-exit`, and stalled execution are converted to `blocked-recovery-required` or `blocked-pending-confirmation` and the driver blocks. In non-interactive mode the driver writes `audit-output/machine/user-confirmations/confirmation-required.json`; resume requires a matching approved entry in `confirmation-decisions.json` and `--resume`.
+
 ## Strict mode recommendation
 
 For controlled CI or formal audit baselines, run an environment check first and fail the pipeline if a required profile is degraded.

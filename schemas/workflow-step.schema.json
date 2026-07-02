@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workflow Step Conclusion",
+  "type": "object",
+  "required": [
+    "step_id",
+    "status",
+    "decision",
+    "inputs_checked",
+    "outputs_written",
+    "required_artifacts_present",
+    "blocking_issues",
+    "limitations",
+    "attempt_count",
+    "artifact_refs",
+    "generated_at"
+  ],
+  "properties": {
+    "step_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "completed-with-recovery",
+        "not-applicable",
+        "failed-after-retries"
+      ]
+    },
+    "decision": {
+      "type": "string"
+    },
+    "inputs_checked": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs_written": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "required_artifacts_present": {
+      "type": "boolean"
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_error_summary": {
+      "type": "string"
+    },
+    "recovery_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "details": {
+      "type": "object"
+    },
+    "generated_at": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

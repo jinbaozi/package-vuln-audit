@@ -3,13 +3,9 @@
 Run complete package vulnerability audit.
 
 Delegate:
-1. `@package-profiler` for package profile and recipes.
-2. `@tool-runner` for approved tool execution and summary.
-3. `@hypothesis-hunter` for AI hypotheses missed by tools.
-4. `@candidate-reviewer` for CAND packets.
-5. `@validator` for Likely candidates.
-6. `@cvss-scorer` for Likely/Validated scoring.
-7. `@report-writer` for admitted findings.
+1. Run `tools/enforced_audit_driver.py --source <source_path> --out <output_dir>` for complete audits.
+2. Use `@package-profiler`, `@tool-runner`, `@hypothesis-hunter`, `@candidate-reviewer`, `@validator`, `@cvss-scorer`, and `@report-writer` only through driver-required stage packets and artifacts.
+3. Treat direct lower-level script calls as single-stage debugging, not complete-audit completion.
 
 Coordinator reads only summaries and final indexes.
 

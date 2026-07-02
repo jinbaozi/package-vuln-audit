@@ -29,6 +29,11 @@ REQUIRED_FINAL_REPORT_SECTIONS_ZH = [
     '严重程度分布',
     '风险概览',
 ]
+BUSINESS_WORKFLOWS = [
+    '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
+    '04-ai-hypothesis', '05-candidate-review', '06-validation',
+    '07-cvss-scoring', '08-report', '09-progressive-disclosure',
+]
 
 CJK = re.compile(r'[\u4e00-\u9fff]')
 CODE_BLOCK = re.compile(r'```.*?```', re.S)
@@ -103,6 +108,23 @@ def validate_final_report_sections(root: pathlib.Path, errors, warnings):
             errors.append(f'{label}: unfilled template placeholders: {", ".join(unfilled[:5])}')
 
 
+def validate_workflow_steps(root: pathlib.Path, errors: list[str]) -> None:
+    for step_id in BUSINESS_WORKFLOWS:
+        required_paths = [
+            root / 'machine' / 'workflow-steps' / f'{step_id}.json',
+            root / 'zh-CN' / 'workflow-steps' / f'{step_id}.md',
+            root / 'en-US' / 'workflow-steps' / f'{step_id}.md',
+        ]
+        for path in required_paths:
+            if not path.is_file():
+                errors.append(f'missing workflow step conclusion: {path}')
+        machine = required_paths[0]
+        if machine.is_file():
+            data = load_json(machine, {})
+            if not isinstance(data, dict) or data.get('status') not in {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}:
+                errors.append(f'{machine}: invalid or missing workflow step status')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--findings')
@@ -111,6 +133,7 @@ def main() -> int:
     ap.add_argument('--poc-root')
     ap.add_argument('--manual-root')
     ap.add_argument('--check-language-isolation', action='store_true')
+    ap.add_argument('--require-workflow-steps', action='store_true')
     ap.add_argument('--language-isolation-only', action='store_true',
                     help='Only run CJK isolation check (skip report completeness gates)')
     ap.add_argument('--out', default='audit-output/machine/report-completeness.json')
@@ -187,6 +210,8 @@ def main() -> int:
 
     # Validate final summary report sections
     validate_final_report_sections(root, errors, warnings)
+    if args.require_workflow_steps:
+        validate_workflow_steps(root, errors)
 
     if args.check_language_isolation:
         errors.extend(check_language_isolation(root))

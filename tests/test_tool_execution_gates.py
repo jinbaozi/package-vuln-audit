@@ -78,7 +78,7 @@ def test_semgrep_missing_is_recorded_and_blocks():
         assert "[PVAS-TOOL-MISSING] semgrep not installed" in p.stderr
         summary = json.loads((out / "tool-summary.json").read_text())
         semgrep = next(t for t in summary["tools"] if t["name"] == "semgrep")
-        assert semgrep["status"] == "not-installed"
+        assert semgrep["status"] == "blocked-recovery-required"
         assert semgrep["reason"] == "not-installed"
         assert semgrep["strict_decision"] == "block"
 
@@ -106,7 +106,7 @@ def test_semgrep_success_completes_and_not_applicable_is_preserved():
         assert "watchdog_events" in attempts["attempts"][0]
 
 
-def test_no_local_semgrep_rules_is_incomplete_not_blocking():
+def test_no_local_semgrep_rules_blocks_mandatory_tool():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         bindir = td / "bin"
@@ -121,11 +121,50 @@ def test_no_local_semgrep_rules_is_incomplete_not_blocking():
         env["PATH"] = f"{bindir}:{env.get('PATH','')}"
         out = td / "tools"
         p = run_tool_matrix(matrix, td, out, env=env)
-        assert p.returncode == 0
+        assert p.returncode == 2
         summary = json.loads((out / "tool-summary.json").read_text())
         semgrep = next(t for t in summary["tools"] if t["name"] == "semgrep")
-        assert semgrep["status"] == "incomplete"
+        assert semgrep["status"] == "blocked-recovery-required"
         assert semgrep["reason"] == "no-local-rules"
+        assert semgrep["strict_decision"] == "block"
+
+
+def test_mandatory_nonzero_exit_blocks_recovery():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "semgrep"
+        write_executable(fake, "#!/usr/bin/env bash\nexit 7\n")
+        matrix = base_matrix(td, semgrep_binary="semgrep")
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_tool_matrix(matrix, td, out, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "nonzero-exit"
+        assert row["strict_decision"] == "block"
+
+
+def test_mandatory_malformed_semgrep_output_blocks_recovery():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "semgrep"
+        write_executable(fake, "#!/usr/bin/env bash\nwhile [[ $# -gt 0 ]]; do if [[ \"$1\" == \"--output\" ]]; then shift; echo 'not-json' > \"$1\"; fi; shift || true; done\n")
+        matrix = base_matrix(td, semgrep_binary="semgrep")
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_tool_matrix(matrix, td, out, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "malformed-output"
+        assert row["strict_decision"] == "block"
 
 
 def test_watchdog_allows_progress_past_soft_timeout():
@@ -158,13 +197,13 @@ def test_watchdog_allows_progress_past_soft_timeout():
         assert row["status"] == "completed"
 
 
-def test_watchdog_marks_idle_hang_abnormal():
+def test_watchdog_records_stalled_mandatory_tool_and_blocks_after_exit():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         bindir = td / "bin"
         bindir.mkdir()
         fake = bindir / "hang-tool"
-        write_executable(fake, "#!/usr/bin/env bash\nsleep 5\n")
+        write_executable(fake, "#!/usr/bin/env bash\nsleep 0.7\n")
         matrix = {
             "tools": [{
                 "name": "hang-tool",
@@ -185,8 +224,9 @@ def test_watchdog_marks_idle_hang_abnormal():
         p = run_tool_matrix(matrix_path, td, out, env=env)
         assert p.returncode == 2
         row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
-        assert row["status"] == "abnormal"
-        assert row["reason"] == "abnormal-timeout"
+        assert row["status"] == "blocked-pending-confirmation"
+        assert row["reason"] == "stalled"
+        assert any(e["event"] == "stalled-diagnostic" for e in row["watchdog_events"])
 
 
 def test_osv_no_package_sources_is_not_applicable():
@@ -224,8 +264,10 @@ def test_osv_no_package_sources_is_not_applicable():
 if __name__ == "__main__":
     test_semgrep_missing_is_recorded_and_blocks()
     test_semgrep_success_completes_and_not_applicable_is_preserved()
-    test_no_local_semgrep_rules_is_incomplete_not_blocking()
+    test_no_local_semgrep_rules_blocks_mandatory_tool()
+    test_mandatory_nonzero_exit_blocks_recovery()
+    test_mandatory_malformed_semgrep_output_blocks_recovery()
     test_watchdog_allows_progress_past_soft_timeout()
-    test_watchdog_marks_idle_hang_abnormal()
+    test_watchdog_records_stalled_mandatory_tool_and_blocks_after_exit()
     test_osv_no_package_sources_is_not_applicable()
     print("tool execution gate tests passed")

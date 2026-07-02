@@ -4,6 +4,8 @@ Use the portable `package-vuln-audit` skill for authorized defensive source-code
 
 ## Execution model
 
+For complete audits, invoke `tools/enforced_audit_driver.py`. Direct calls to lower-level scripts such as `tools/run_tools.sh`, normalizers, validators, or report generators are allowed for debugging a single stage, but they do not satisfy the complete-audit workflow gate.
+
 Codex may not always expose native subagents. When subagents are unavailable, simulate them through fresh task packets and fresh invocations:
 
 - `coordinator` → summary-only orchestrator, reads summaries and dispatches

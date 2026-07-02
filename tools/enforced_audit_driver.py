@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import pathlib
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,7 @@ from pvas_io import load_json, write_json
 from validate_validation_results import finding_errors as validation_finding_errors
 
 FINAL_STATUSES = {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}
+TOOL_BLOCKING_STATUSES = {'blocked-pending-confirmation', 'blocked-recovery-required', 'abnormal'}
 BUSINESS_WORKFLOWS = [
     '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
     '04-ai-hypothesis', '05-candidate-review', '06-validation',
@@ -199,6 +201,14 @@ def run_stage(step_id: str, preflight: Callable[[], StageResult | bool | None] |
                            'issues': issues, 'recovery_actions': recovery_actions})
             attempts.append(record)
             write_json(attempts_dir / f'{step_id}.json', {'step_id': step_id, 'attempts': attempts})
+            if str(last.decision).startswith('blocked-'):
+                final = StageResult(False, decision=last.decision, outputs=outputs, issues=issues, details=last.details)
+                write_step(out_root, step_id, 'failed-after-retries', last.decision, inputs=inputs, outputs=outputs,
+                           issues=issues, attempt_count=attempt, last_error_summary=last_error,
+                           recovery_actions=['obtain user confirmation and rerun with --resume'], artifact_refs=outputs,
+                           details=last.details)
+                refresh_exception_index(out_root)
+                return final
 
     issues = list(last.issues) if last.issues else [last_error or 'stage failed after retries']
     final = StageResult(False, decision='failed', outputs=outputs, issues=issues)
@@ -225,14 +235,99 @@ def intake_network_policy(intake_dir: pathlib.Path) -> str:
 def tool_scan_decision(summary_path: pathlib.Path) -> tuple[bool, list[str]]:
     summary = load_json(summary_path, default={})
     tools = summary.get('tools') if isinstance(summary, dict) else []
-    abnormal = [t.get('name', '?') for t in tools if isinstance(t, dict) and t.get('status') == 'abnormal']
+    abnormal = [
+        t.get('name', '?') for t in tools
+        if isinstance(t, dict)
+        and (t.get('status') in TOOL_BLOCKING_STATUSES or t.get('strict_decision') == 'block')
+    ]
     limitations = []
     for t in tools:
         if not isinstance(t, dict):
             continue
-        if t.get('status') in {'incomplete', 'not-installed'}:
+        if t.get('status') in {'incomplete', 'not-installed', 'blocked-pending-confirmation', 'blocked-recovery-required'}:
             limitations.append(f"{t.get('name', '?')}: {t.get('reason') or t.get('status')}")
     return bool(abnormal), limitations
+
+
+def _confirmation_dir(out_root: pathlib.Path) -> pathlib.Path:
+    return out_root / 'machine' / 'user-confirmations'
+
+
+def _load_confirmation_required(out_root: pathlib.Path) -> dict:
+    return load_json(_confirmation_dir(out_root) / 'confirmation-required.json', default={}) or {}
+
+
+def _load_confirmation_decisions(out_root: pathlib.Path) -> list[dict]:
+    data = load_json(_confirmation_dir(out_root) / 'confirmation-decisions.json', default={}) or {}
+    if isinstance(data, dict):
+        decisions = data.get('decisions', [])
+        return decisions if isinstance(decisions, list) else []
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def validate_resume_confirmation(out_root: pathlib.Path, token: str | None = None, action: str | None = None) -> StageResult:
+    required = _load_confirmation_required(out_root)
+    expected_token = token or required.get('token')
+    expected_action = action or required.get('action')
+    if not expected_token or not expected_action:
+        return StageResult(False, issues=['missing confirmation token or action'])
+    for decision in _load_confirmation_decisions(out_root):
+        if not isinstance(decision, dict):
+            continue
+        if (
+            decision.get('token') == expected_token
+            and decision.get('action') == expected_action
+            and decision.get('decision') == 'approved'
+        ):
+            return StageResult(True, decision='continue', details={'confirmation_token': expected_token, 'confirmation_action': expected_action})
+    return StageResult(False, issues=['missing approved confirmation decision'])
+
+
+def _write_confirmation_decision(out_root: pathlib.Path, decision: dict) -> None:
+    path = _confirmation_dir(out_root) / 'confirmation-decisions.json'
+    decisions = _load_confirmation_decisions(out_root)
+    decisions.append(decision)
+    write_json(path, {'decisions': decisions})
+
+
+def request_confirmation(out_root: pathlib.Path, action: str, step_id: str, reason: dict,
+                         *, interactive: bool | None = None) -> StageResult:
+    token = secrets.token_urlsafe(18)
+    payload = {
+        'schema_version': '1.0',
+        'status': 'pending',
+        'step_id': step_id,
+        'action': action,
+        'reason': reason,
+        'token': token,
+        'instructions': [
+            'Review the requested action and its audit impact.',
+            'To resume non-interactively, add an approved matching token to confirmation-decisions.json and rerun enforced_audit_driver.py --resume.',
+        ],
+        'generated_at': _iso_now(),
+    }
+    write_json(_confirmation_dir(out_root) / 'confirmation-required.json', payload)
+    use_tty = sys.stdin.isatty() if interactive is None else interactive
+    if use_tty:
+        answer = input(f"PVAS confirmation required for {action} at {step_id}. Approve? [y/N] ").strip().lower()
+        if answer == 'y':
+            _write_confirmation_decision(out_root, {
+                'token': token,
+                'action': action,
+                'step_id': step_id,
+                'decision': 'approved',
+                'decided_by': os.environ.get('USER', 'interactive-user'),
+                'decided_at': _iso_now(),
+            })
+            return StageResult(True, decision='continue', details={'confirmation_token': token, 'confirmation_action': action})
+    return StageResult(
+        False,
+        decision='blocked-pending-confirmation',
+        issues=[f'user confirmation required for {action}; see machine/user-confirmations/confirmation-required.json'],
+        details={'confirmation_token': token, 'confirmation_action': action},
+    )
 
 
 def _findings(path: str | None) -> list[dict]:
@@ -275,6 +370,7 @@ def main() -> int:
     ap.add_argument('--public-records', help='Normalized public vuln records JSON')
     ap.add_argument('--allow-network', action='store_true', default=False, help='Allow fetching public vulnerability sources from network')
     ap.add_argument('--fetch-package', help='Package name for public vulnerability source fetching')
+    ap.add_argument('--resume', action='store_true', help='Resume after an approved user confirmation decision')
     args = ap.parse_args()
 
     out = pathlib.Path(args.out)
@@ -365,6 +461,36 @@ def main() -> int:
         rc, tool_out = run(['bash', 'tools/run_tools.sh', args.source, str(out / '02-tools')], allow_fail=True)
         abnormal, tool_limitations = tool_scan_decision(out / '02-tools/tool-summary.json')
         should_fail = abnormal or (rc != 0 and not (out / '02-tools/tool-summary.json').is_file())
+        if should_fail and (out / '02-tools/tool-summary.json').is_file():
+            summary = load_json(out / '02-tools/tool-summary.json', default={}) or {}
+            blocked_tools = [
+                {
+                    'name': t.get('name'),
+                    'status': t.get('status'),
+                    'reason': t.get('reason'),
+                    'coverage_impact': t.get('coverage_impact'),
+                }
+                for t in summary.get('tools', [])
+                if isinstance(t, dict) and (t.get('status') in TOOL_BLOCKING_STATUSES or t.get('strict_decision') == 'block')
+            ]
+            action = 'recover-required-tools'
+            if args.resume:
+                resume = validate_resume_confirmation(out, action=action)
+                if resume.ok:
+                    return StageResult(
+                        True,
+                        limitations=tool_limitations + [f"user-approved continuation after blocked tool scan: {', '.join(t.get('name') or '?' for t in blocked_tools)}"],
+                        details=resume.details,
+                    )
+                return resume
+            confirmation = request_confirmation(out, action, '03-tool-scan', {'tools': blocked_tools, 'runner_exit_code': rc}, interactive=None)
+            if not confirmation.ok:
+                return confirmation
+            return StageResult(
+                True,
+                limitations=tool_limitations + [f"user-approved continuation after blocked tool scan: {', '.join(t.get('name') or '?' for t in blocked_tools)}"],
+                details=confirmation.details,
+            )
         return StageResult(not should_fail,
                            issues=['traditional tool scan abnormal; see tool-summary.json and tool-execution-attempts.json'] if should_fail else [],
                            limitations=tool_limitations + ([] if rc == 0 else [tool_out[-1000:]]))
@@ -500,7 +626,7 @@ def main() -> int:
             run([sys.executable, 'tools/apply_correlation_to_findings.py', '--findings', args.findings, '--correlation', str(corr), '--out', args.findings], allow_fail=False)
             run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--out', str(out), '--skip-final-report'], allow_fail=False)
         run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', args.findings, '--out', str(out / '06-report')] + (['--correlation', str(corr)] if corr.exists() else []), allow_fail=False)
-        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
+        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=['report completeness failed'])
         return StageResult(True, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')])

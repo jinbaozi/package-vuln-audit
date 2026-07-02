@@ -18,12 +18,7 @@ This adapter delegates to the portable root skill. Use the root `SKILL.md`, `AGE
 
 ## Minimum workflow
 
-- Profile package.
-- Select recipe.
-- Run tools or record unavailable tools.
-- Generate AI hypotheses separately from tool hits.
-- Build CAND packets.
-- Review each CAND packet independently.
-- Validate only Likely candidates.
-- Score only Likely/Validated items.
+- Run `tools/enforced_audit_driver.py --source <source> --out audit-output` for complete audits.
+- Let the driver enforce profiling, scope selection, tool execution, AI hypotheses, candidate review, validation, CVSS, report, and disclosure stages.
+- Use direct lower-level script calls only for debugging or rerunning one stage; they are not a complete audit.
 - Report only Validated and Needs Manual Review findings.
