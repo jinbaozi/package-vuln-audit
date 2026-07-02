@@ -24,6 +24,9 @@ set -o pipefail
 python3 "$SCRIPT_DIR/profile_manifest.py" from-all-files "$SRC" "$OUT" \
   --max-source "$MAX_SOURCE_FILES" --max-bytes "$MAX_FILE_BYTES" --exclude-dirs "$EXCLUDE_DIRS"
 
+python3 "$SCRIPT_DIR/profile_registry.py" "$SRC" "$OUT" \
+  --max-files "$MAX_FILES" --exclude-dirs "$EXCLUDE_DIRS"
+
 if git -C "$SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git -C "$SRC" log --oneline -n 200 > "$OUT/git-log.txt" || true
 else

@@ -76,6 +76,13 @@ def cppcheck_mode_limitations(mode: str) -> str:
     return "fast mode runs cppcheck default/error checks plus warning; style/performance/portability checks are omitted by design"
 
 
+def cppcheck_jobs() -> int:
+    try:
+        return max(int(os.environ.get("PVAS_CPPCHECK_JOBS", "1")), 1)
+    except ValueError:
+        return 1
+
+
 def command_template(
     name: str,
     *,
@@ -83,6 +90,7 @@ def command_template(
     allow_network: bool,
     package_profile: dict | None = None,
     cppcheck_mode: str = "fast",
+    cppcheck_scope: dict | None = None,
 ) -> list[str]:
     if name == "rg":
         return ["rg", "-n", "strcpy|strcat|sprintf|vsprintf|memcpy|memmove|malloc|calloc|realloc|free|system\\(|popen\\(|mktemp|tmpnam|open\\(|unlink\\(", "<source>"]
@@ -97,7 +105,16 @@ def command_template(
             return ["semgrep", "scan", "--config", "p/c", "--json", "--output", "<raw>/semgrep.json", "<source>"]
         return ["semgrep", "scan", "--json", "--output", "<raw>/semgrep.json", "<source>"]
     if name == "cppcheck":
-        return ["cppcheck", cppcheck_enable_arg(cppcheck_mode), "--template=gcc", "<source>"]
+        base = [
+            "cppcheck",
+            cppcheck_enable_arg(cppcheck_mode),
+            "--template=gcc",
+            "--cppcheck-build-dir=<raw>/cppcheck-build-dir",
+            f"-j{cppcheck_jobs()}",
+        ]
+        if cppcheck_scope and cppcheck_scope.get("scope_mode") == "compile-database" and cppcheck_scope.get("compile_database"):
+            return [*base, f"--project={cppcheck_scope['compile_database']}"]
+        return [*base, "<source>"]
     if name == "osv-scanner":
         return ["osv-scanner", "scan", "--format", "json", "<source>"]
     if name == "npm":
@@ -116,6 +133,8 @@ def build_matrix(
     out_root: pathlib.Path | None = None,
     cppcheck_mode: str = "fast",
     cppcheck_mode_source: str = "default-fast",
+    cppcheck_scope_path: pathlib.Path | None = None,
+    cppcheck_scope: dict | None = None,
 ) -> dict:
     if network_policy not in NETWORK_POLICY_VALUES:
         raise ValueError(f"network_policy must be one of {sorted(NETWORK_POLICY_VALUES)}")
@@ -134,6 +153,7 @@ def build_matrix(
             allow_network=allow_network,
             package_profile=package_profile,
             cppcheck_mode=cppcheck_mode,
+            cppcheck_scope=cppcheck_scope,
         )
         env = {}
         if name == "semgrep":
@@ -164,14 +184,22 @@ def build_matrix(
             "final_decision_rationale": "",
         }
         if name == "cppcheck":
+            scope_mode = str(cppcheck_scope.get("scope_mode") or "unspecified") if cppcheck_scope else "unspecified"
             tool_row.update({
-                "execution_mode": "sharded",
+                "execution_mode": "project" if scope_mode == "compile-database" else "sharded",
                 "output_validator": "cppcheck-gcc-template",
                 "expected_output": "<raw>/cppcheck.out",
                 "shard_size": 100,
                 "cppcheck_mode": cppcheck_mode,
                 "cppcheck_mode_source": cppcheck_mode_source,
                 "mode_limitations": cppcheck_mode_limitations(cppcheck_mode),
+                "cppcheck_scope_mode": scope_mode,
+                "cppcheck_scope_file": str(cppcheck_scope_path) if cppcheck_scope_path else "",
+                "cppcheck_compile_database": str(cppcheck_scope.get("compile_database") or "") if cppcheck_scope else "",
+                "cppcheck_profile_ids": list(cppcheck_scope.get("profile_ids") or []) if cppcheck_scope else [],
+                "scope_limitations": list(cppcheck_scope.get("limitations") or []) if cppcheck_scope else [],
+                "cppcheck_build_dir": "<raw>/cppcheck-build-dir",
+                "cppcheck_jobs": cppcheck_jobs(),
             })
         tools.append(tool_row)
     return {
@@ -195,6 +223,7 @@ def main() -> int:
     ap.add_argument("--allow-network", action="store_true", default=os.environ.get("PVAS_ALLOW_NETWORK", "0") == "1")
     ap.add_argument("--cppcheck-mode", choices=sorted(CPPCHECK_MODE_VALUES), default=None)
     ap.add_argument("--cppcheck-mode-source", default=None)
+    ap.add_argument("--cppcheck-scope", default=None)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -212,6 +241,10 @@ def main() -> int:
     else:
         cppcheck_mode = "fast"
         cppcheck_mode_source = args.cppcheck_mode_source or "default-fast"
+    cppcheck_scope_path = pathlib.Path(args.cppcheck_scope) if args.cppcheck_scope else pathlib.Path(args.package_profile).parent / "cppcheck-scope.json"
+    cppcheck_scope = None
+    if cppcheck_scope_path.exists():
+        cppcheck_scope = load_json(cppcheck_scope_path, default={})
     matrix = build_matrix(
         profile,
         args.profile,
@@ -222,6 +255,8 @@ def main() -> int:
         out_root=out.parent.parent if out.parent.name == "01-profile" else None,
         cppcheck_mode=cppcheck_mode,
         cppcheck_mode_source=cppcheck_mode_source,
+        cppcheck_scope_path=cppcheck_scope_path if cppcheck_scope else None,
+        cppcheck_scope=cppcheck_scope,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(matrix, indent=2, ensure_ascii=False))

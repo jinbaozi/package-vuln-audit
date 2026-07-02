@@ -24,6 +24,12 @@ CPPCHECK_SECURITY_TERMS = (
     'unsafe', 'useafter', 'zerodiv',
 )
 CPPCHECK_HIGH_VALUE_SEVERITIES = {'error', 'warning'}
+CPPCHECK_COVERAGE_LIMITATION_IDS = {
+    'toomanyconfigs',
+    'unknownmacro',
+    'syntaxerror',
+    'normalchecklevelmaxbranches',
+}
 
 
 def parse_cppcheck_line(line):
@@ -48,6 +54,13 @@ def cppcheck_is_high_value(item):
     return any(term in cid or term in msg for term in CPPCHECK_SECURITY_TERMS)
 
 
+def cppcheck_limitation_id(item):
+    cid = (item.get('id') or '').strip()
+    if cid.lower() in CPPCHECK_COVERAGE_LIMITATION_IDS:
+        return cid
+    return ''
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
     raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}
@@ -67,7 +80,7 @@ def main():
                 add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), {'tool_refs':['rg'], 'sink':m.group(3).strip()[:200]}, 5); n+=1
     cpp=raw/'cppcheck.out'
     if cpp.exists():
-        total=0; promoted=0; suppressed=0; by_severity={}; by_id={}
+        total=0; promoted=0; suppressed=0; limitation_count=0; by_severity={}; by_id={}; limitations={}
         for line in cpp.read_text(errors='ignore').splitlines():
             item=parse_cppcheck_line(line)
             if not item:
@@ -75,6 +88,11 @@ def main():
             total+=1
             sev=item['severity']; by_severity[sev]=by_severity.get(sev,0)+1
             cid=item['id'] or 'unknown'; by_id[cid]=by_id.get(cid,0)+1
+            limitation_id=cppcheck_limitation_id(item)
+            if limitation_id:
+                limitation_count+=1
+                limitations[limitation_id]=limitations.get(limitation_id,0)+1
+                continue
             if not cppcheck_is_high_value(item):
                 suppressed+=1
                 continue
@@ -86,6 +104,8 @@ def main():
             'total_results': total,
             'promoted_count': promoted,
             'low_value_suppressed_count': suppressed,
+            'coverage_limitation_count': limitation_count,
+            'coverage_limitations': limitations,
             'by_severity': by_severity,
             'by_id': by_id,
         }

@@ -21,7 +21,7 @@ ABNORMAL_STATUSES = {"abnormal"}
 BLOCKING_STATUSES = {"blocked-pending-confirmation", "blocked-recovery-required"}
 TIMEOUT_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(ms|s|m|h)?\s*$", re.I)
 LOCAL_DB_TOOLS = {"codeql", "grype", "trivy", "syft"}
-CPPCHECK_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".inc"}
+CPPCHECK_IMPL_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".c++"}
 CPPCHECK_EXCLUDE_PARTS = {".git", "build", "dist", "out", "target", "node_modules", "vendor", "third_party", "audit-output", "__pycache__"}
 CPPCHECK_GCC_RE = re.compile(
     r"^(?P<file>.+?):(?P<line>\d+):(?:(?P<column>\d+):)?\s*"
@@ -330,7 +330,9 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
     row, attempts = preflight_tool(tool, raw, source=source if name == "osv-scanner" else None)
     if row:
         return row, attempts
-    if name == "cppcheck" and tool.get("execution_mode") == "sharded":
+    if name == "cppcheck":
+        if tool.get("execution_mode") == "project":
+            return run_cppcheck_project(tool, source, raw)
         return run_cppcheck_sharded(tool, source, raw, file_list=file_list)
 
     command = expand_command(tool["command"], source, raw, file_list=file_list)
@@ -476,7 +478,18 @@ def cppcheck_summary_metadata(tool: dict) -> dict:
     if tool.get("name") != "cppcheck":
         return {}
     metadata = {}
-    for key in ("cppcheck_mode", "cppcheck_mode_source", "mode_limitations"):
+    for key in (
+        "cppcheck_mode",
+        "cppcheck_mode_source",
+        "mode_limitations",
+        "cppcheck_scope_mode",
+        "cppcheck_scope_file",
+        "cppcheck_compile_database",
+        "cppcheck_profile_ids",
+        "scope_limitations",
+        "cppcheck_build_dir",
+        "cppcheck_jobs",
+    ):
         if key in tool:
             metadata[key] = tool[key]
     return metadata
@@ -503,7 +516,11 @@ def cppcheck_output_bytes(paths: list[pathlib.Path]) -> int:
 
 
 def is_cppcheck_source(path: pathlib.Path) -> bool:
-    return path.suffix.lower() in CPPCHECK_EXTENSIONS
+    return path.suffix.lower() in CPPCHECK_IMPL_EXTENSIONS
+
+
+def is_cppcheck_translation_unit(path: pathlib.Path) -> bool:
+    return path.suffix.lower() in CPPCHECK_IMPL_EXTENSIONS
 
 
 def discover_cppcheck_files(source: pathlib.Path) -> list[pathlib.Path]:
@@ -539,6 +556,67 @@ def cppcheck_file_scope(source: pathlib.Path, file_list: list[pathlib.Path] | No
     return files
 
 
+def _scope_path(tool: dict) -> pathlib.Path | None:
+    value = str(tool.get("cppcheck_scope_file") or "")
+    return pathlib.Path(value) if value else None
+
+
+def _load_cppcheck_scope(tool: dict) -> tuple[dict | None, list[str]]:
+    path = _scope_path(tool)
+    if not path:
+        return None, ["cppcheck scope artifact not configured; used conservative fallback file discovery"]
+    if not path.exists():
+        return None, ["cppcheck scope artifact missing; used conservative fallback file discovery"]
+    try:
+        data = json.loads(path.read_text(errors="ignore"))
+    except json.JSONDecodeError:
+        return None, ["cppcheck scope artifact malformed; used conservative fallback file discovery"]
+    if not isinstance(data, dict):
+        return None, ["cppcheck scope artifact malformed; used conservative fallback file discovery"]
+    return data, []
+
+
+def cppcheck_scope_files_from_artifact(scope: dict) -> list[pathlib.Path]:
+    files: list[pathlib.Path] = []
+    for value in scope.get("included_files") or []:
+        path = pathlib.Path(str(value))
+        if path.exists() and is_cppcheck_translation_unit(path):
+            files.append(path)
+    return files
+
+
+def apply_cppcheck_scope_metadata(row: dict, tool: dict, scope: dict | None, limitations: list[str]) -> dict:
+    if scope:
+        row["cppcheck_scope_mode"] = str(scope.get("scope_mode") or tool.get("cppcheck_scope_mode") or "unspecified")
+        row["cppcheck_compile_database"] = str(scope.get("compile_database") or tool.get("cppcheck_compile_database") or "")
+        row["cppcheck_profile_ids"] = list(scope.get("profile_ids") or tool.get("cppcheck_profile_ids") or [])
+        combined_limitations = list(scope.get("limitations") or [])
+        combined_limitations.extend(limitations)
+        row["scope_limitations"] = combined_limitations
+    else:
+        row["cppcheck_scope_mode"] = "fallback-file-list"
+        row["cppcheck_compile_database"] = str(tool.get("cppcheck_compile_database") or "")
+        row["cppcheck_profile_ids"] = list(tool.get("cppcheck_profile_ids") or [])
+        row["scope_limitations"] = limitations
+    for key in ("cppcheck_mode", "cppcheck_mode_source", "mode_limitations", "cppcheck_scope_file", "cppcheck_build_dir", "cppcheck_jobs"):
+        if key in tool:
+            row[key] = tool[key]
+    return row
+
+
+def cppcheck_effective_files(tool: dict, source: pathlib.Path, file_list: list[pathlib.Path] | None) -> tuple[list[pathlib.Path], dict | None, list[str], pathlib.Path | None]:
+    if file_list is not None:
+        return cppcheck_file_scope(source, file_list), None, [], None
+    scope, limitations = _load_cppcheck_scope(tool)
+    if scope:
+        compile_database = scope.get("compile_database")
+        if scope.get("scope_mode") == "compile-database" and compile_database:
+            return cppcheck_scope_files_from_artifact(scope), scope, limitations, pathlib.Path(str(compile_database))
+        files = cppcheck_scope_files_from_artifact(scope)
+        return cppcheck_file_scope(source, files), scope, limitations, None
+    return cppcheck_file_scope(source, None), None, limitations, None
+
+
 def chunks(items: list[pathlib.Path], size: int) -> list[list[pathlib.Path]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
@@ -547,6 +625,101 @@ def write_cppcheck_file_list(raw: pathlib.Path, files: list[pathlib.Path]) -> pa
     path = raw / "cppcheck.files.txt"
     path.write_text("\n".join(str(f) for f in files) + ("\n" if files else ""))
     return path
+
+
+def run_cppcheck_project(tool: dict, source: pathlib.Path, raw: pathlib.Path) -> tuple[dict, list[dict]]:
+    name = tool["name"]
+    binary = tool["binary"]
+    scope, limitations = _load_cppcheck_scope(tool)
+    final_output = raw / "cppcheck.out"
+    command = expand_command(tool["command"], source, raw)
+    if shutil.which(binary) is None:
+        reason = "not-installed"
+        blocking = is_blocking_tool(tool)
+        if blocking:
+            print(f"[PVAS-TOOL-MISSING] {name} not installed. Impact: {tool.get('evidence', '')}", file=sys.stderr)
+            print(f"[PVAS-TOOL-MISSING] {name} is required ({tool.get('applicability', 'unknown')}). Blocking execution.", file=sys.stderr)
+        row = {
+            "name": name,
+            "status": "blocked-recovery-required" if blocking else "not-installed",
+            "output": "",
+            "reason": reason,
+            "notes": tool.get("evidence", ""),
+            "strict_decision": "block" if blocking else "needs-install",
+            "coverage_impact": tool.get("evidence", ""),
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "shards_total": 0,
+            "shards_completed": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+            "partial_outputs": [],
+            "file_list": "",
+        }
+        return apply_cppcheck_scope_metadata(row, tool, scope, limitations), [{
+            "tool": name,
+            "attempt": 1,
+            "status": reason,
+            "command": command,
+            "elapsed_ms": 0,
+            "exit_code": None,
+            "recovery_action": "tool-install-assistant" if blocking else "record-missing",
+            "watchdog_events": [],
+            "network_used": False,
+            "output_bytes": 0,
+        }]
+
+    env = expand_env(tool.get("env") or {}, source, raw)
+    rc, elapsed_ms, events, reason = run_with_watchdog(command, env, final_output, tool)
+    abnormal = reason in {"spawn-failed", "abnormal-timeout"}
+    if reason == "stalled" and is_blocking_tool(tool):
+        status, status_reason = "blocked-pending-confirmation", "stalled"
+    elif abnormal:
+        status, status_reason = "abnormal", reason
+    elif rc == 0:
+        result_count = cppcheck_diagnostic_count(final_output)
+        status, status_reason = ("completed-with-findings", "") if result_count else ("completed", "")
+    else:
+        status, status_reason = "incomplete", "nonzero-exit"
+    result_count = cppcheck_diagnostic_count(final_output) if final_output.exists() else 0
+    status, status_reason, strict_decision = block_required_status(tool, status, status_reason)
+    output_path = str(final_output) if final_output.exists() and status not in BLOCKING_STATUSES else ""
+    coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
+    row = {
+        "name": name,
+        "status": status,
+        "output": output_path,
+        "reason": status_reason,
+        "notes": tool.get("evidence", ""),
+        "strict_decision": strict_decision,
+        "coverage_impact": coverage,
+        "watchdog_events": events,
+        "network_used": False,
+        "result_count": result_count,
+        "shards_total": 1,
+        "shards_completed": 1 if rc == 0 else 0,
+        "output_bytes": output_size(final_output),
+        "raw_output_ref": output_path,
+        "terminal_summary_truncated": False,
+        "partial_outputs": [str(final_output)] if final_output.exists() else [],
+        "file_list": "",
+    }
+    attempt = {
+        "tool": name,
+        "attempt": 1,
+        "status": status if status in BLOCKING_STATUSES else "completed" if rc == 0 else "abnormal" if abnormal else "incomplete",
+        "command": command,
+        "elapsed_ms": elapsed_ms,
+        "exit_code": rc,
+        "recovery_action": "none" if rc == 0 else "manual-review",
+        "watchdog_events": events,
+        "network_used": False,
+        "output": str(final_output),
+        "output_bytes": output_size(final_output),
+    }
+    return apply_cppcheck_scope_metadata(row, tool, scope, limitations), [attempt]
 
 
 def run_cppcheck_shard(command: list[str], env: dict[str, str], output: pathlib.Path, tool: dict) -> tuple[int | None, int, list[dict], str]:
@@ -625,7 +798,16 @@ def cppcheck_attempt_status(reason: str, rc: int | None) -> str:
 def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> tuple[dict, list[dict]]:
     name = tool["name"]
     binary = tool["binary"]
-    files = cppcheck_file_scope(source, file_list)
+    files, scope, scope_limitations, compile_database = cppcheck_effective_files(tool, source, file_list)
+    if compile_database and compile_database.exists():
+        project_tool = dict(tool)
+        project_tool["execution_mode"] = "project"
+        project_tool["command"] = [
+            part for part in tool["command"]
+            if part != "<source>" and not str(part).startswith("--project=")
+        ]
+        project_tool["command"].append(f"--project={compile_database}")
+        return run_cppcheck_project(project_tool, source, raw)
     file_list_path = write_cppcheck_file_list(raw, files)
     final_output = raw / "cppcheck.out"
     if final_output.exists():
@@ -638,7 +820,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
         if blocking:
             print(f"[PVAS-TOOL-MISSING] {name} not installed. Impact: {tool.get('evidence', '')}", file=sys.stderr)
             print(f"[PVAS-TOOL-MISSING] {name} is required ({tool.get('applicability', 'unknown')}). Blocking execution.", file=sys.stderr)
-        return {
+        row = {
             "name": name,
             "status": "blocked-recovery-required" if blocking else "not-installed",
             "output": "",
@@ -656,7 +838,8 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
             "terminal_summary_truncated": False,
             "partial_outputs": [],
             "file_list": str(file_list_path),
-        }, [{
+        }
+        return apply_cppcheck_scope_metadata(row, tool, scope, scope_limitations), [{
             "tool": name,
             "attempt": 1,
             "status": reason,
@@ -670,7 +853,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
         }]
 
     if not files:
-        return {
+        row = {
             "name": name,
             "status": "not-applicable",
             "output": "",
@@ -688,7 +871,8 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
             "terminal_summary_truncated": False,
             "partial_outputs": [],
             "file_list": str(file_list_path),
-        }, []
+        }
+        return apply_cppcheck_scope_metadata(row, tool, scope, scope_limitations), []
 
     try:
         shard_size = max(int(tool.get("shard_size") or DEFAULT_CPPCHECK_SHARD_SIZE), 1)
@@ -831,7 +1015,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
     total_shards = effective_shards
     output_paths = [str(path) for path in partial_outputs]
     coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
-    return {
+    row = {
         "name": name,
         "status": status,
         "output": output_path,
@@ -849,7 +1033,8 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
         "terminal_summary_truncated": False,
         "partial_outputs": output_paths,
         "file_list": str(file_list_path),
-    }, attempts
+    }
+    return apply_cppcheck_scope_metadata(row, tool, scope, scope_limitations), attempts
 
 
 def _load_file_list(path: str) -> list[pathlib.Path]:

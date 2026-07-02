@@ -12,6 +12,7 @@ python3 -u tests/test_context_budget_per_agent.py
 python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_tool_install_plan.py
 python3 -u tests/test_strict_mode.py
+python3 -u tests/test_cppcheck_scope_profile.py
 python3 -u tests/test_tool_matrix.py
 python3 -u tests/test_tool_execution_gates.py
 python3 -u tests/test_driver_workflow_gates.py
