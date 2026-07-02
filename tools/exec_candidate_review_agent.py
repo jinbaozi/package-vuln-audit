@@ -247,9 +247,18 @@ def main() -> int:
     use_llm = args.llm_mode == "auto" and _llm_available()
 
     summary: list[dict] = []
+    skipped: list[dict] = []
     for c in selected:
         cid = str(c.get("id", "CAND"))
         packet_text = packets.get(cid, "")
+        if not packet_text:
+            skipped.append({
+                "id": cid,
+                "reason": "missing candidate packet",
+                "packet": str(packet_dir / f"{cid}.md"),
+            })
+            print(f"[PVAS-REVIEW] {cid}: skipped (missing candidate packet)")
+            continue
 
         decision: str
         reasons: list[str]
@@ -285,16 +294,31 @@ def main() -> int:
         })
         print(f"[PVAS-REVIEW] {cid}: {decision} ({'; '.join(reasons[:2])})")
 
+    expected_count = len(selected)
+    reviewed_count = len(summary)
+    explicitly_skipped_count = len(skipped)
+    coverage_complete = expected_count == reviewed_count + explicitly_skipped_count and explicitly_skipped_count == 0
     write_json(args.summary_out, {
-        "reviewed_count": len(summary),
+        "expected_count": expected_count,
+        "reviewed_count": reviewed_count,
+        "explicitly_skipped_count": explicitly_skipped_count,
+        "coverage_complete": coverage_complete,
+        "skipped": skipped,
+        "batch_summaries": [{
+            "batch_id": "batch-001",
+            "expected_count": expected_count,
+            "reviewed_count": reviewed_count,
+            "explicitly_skipped_count": explicitly_skipped_count,
+            "coverage_complete": coverage_complete,
+        }],
         "candidates": summary,
         "execution": {
             "role": "candidate-reviewer",
             "mode": "llm-assisted" if use_llm else "heuristic",
         },
     })
-    print(f"[PVAS-REVIEW] reviewed {len(summary)} candidate packet(s)")
-    return 0
+    print(f"[PVAS-REVIEW] reviewed {reviewed_count}/{expected_count} candidate packet(s)")
+    return 0 if coverage_complete else 2
 
 
 if __name__ == "__main__":

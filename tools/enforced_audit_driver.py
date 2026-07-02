@@ -54,6 +54,25 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def _summary_limit() -> int:
+    try:
+        return max(int(os.environ.get('PVAS_TERMINAL_SUMMARY_CHARS', '1000')), 80)
+    except ValueError:
+        return 1000
+
+
+def _truncate_text(text: str, limit: int | None = None) -> str:
+    text = str(text)
+    limit = _summary_limit() if limit is None else limit
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 15, 0)] + '...[truncated]'
+
+
+def _truncate_list(items: list[str]) -> list[str]:
+    return [_truncate_text(str(item)) for item in items]
+
+
 def run(cmd: list[str], allow_fail: bool = False) -> tuple[int, str]:
     p = subprocess.run(cmd, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if p.returncode and not allow_fail:
@@ -145,7 +164,7 @@ def _coerce_stage_result(value) -> StageResult:
 
 def _summarize_error(exc: BaseException) -> str:
     text = ''.join(traceback.format_exception_only(type(exc), exc)).strip()
-    return text[-1000:]
+    return _truncate_text(text)
 
 
 def run_stage(step_id: str, preflight: Callable[[], StageResult | bool | None] | None,
@@ -195,7 +214,7 @@ def run_stage(step_id: str, preflight: Callable[[], StageResult | bool | None] |
             return final
         except Exception as exc:
             last_error = _summarize_error(exc)
-            issues = list(last.issues) if last.issues else [last_error]
+            issues = _truncate_list(list(last.issues)) if last.issues else [last_error]
             record.update({'status': 'failed-attempt', 'decision': 'retry' if attempt <= retry else 'fail',
                            'finished_at': _iso_now(), 'error': last_error,
                            'issues': issues, 'recovery_actions': recovery_actions})
@@ -211,6 +230,7 @@ def run_stage(step_id: str, preflight: Callable[[], StageResult | bool | None] |
                 return final
 
     issues = list(last.issues) if last.issues else [last_error or 'stage failed after retries']
+    issues = _truncate_list(issues)
     final = StageResult(False, decision='failed', outputs=outputs, issues=issues)
     write_step(out_root, step_id, 'failed-after-retries', 'failed', inputs=inputs, outputs=outputs,
                issues=issues, attempt_count=retry + 1, last_error_summary=last_error,

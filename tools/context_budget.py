@@ -18,6 +18,7 @@ PACKET_BUDGET=int(os.getenv('PVAS_PACKET_BUDGET_TOKENS','8000'))
 BATCH_BUDGET=int(os.getenv('PVAS_PACKET_REVIEW_BATCH_TOKENS','160000'))
 MAX_PACKET_COUNT=int(os.getenv('PVAS_MAX_PACKET_COUNT_PER_REVIEW','20'))
 LONG_CONTEXT_MODE=os.getenv('PVAS_LONG_CONTEXT_MODE','off')
+CONTEXT_EFFICIENT_MODE=os.getenv('PVAS_CONTEXT_EFFICIENT','').lower() in {'1','true','yes','on'}
 
 ROLE_TARGETS={
   'coordinator': (40000, ['summary','index','profile','budget'], ['full_repository','raw_source_dump','raw_tool_log','raw_fuzz_log','full_build_log','all_candidate_packets']),
@@ -80,6 +81,17 @@ def packet_entries(packet_dir: pathlib.Path):
         packets.append({'id':p.stem,'file':str(p),'estimated_tokens':tokens,'within_budget':tokens <= PACKET_BUDGET})
     return packets
 
+def packet_index_metadata(packet_dir: pathlib.Path) -> dict:
+    index_path = packet_dir / 'packet-index.json'
+    if not index_path.exists():
+        return {}
+    try:
+        data = load_json(index_path, default={})
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f'[PVAS-BUDGET] Warning: failed to load packet-index metadata: {e}', file=sys.stderr)
+        return {}
+
 def load_l4_patterns(root: pathlib.Path) -> list[str]:
     manifest = manifest_io.manifest_path(root)
     if not manifest.is_file():
@@ -88,7 +100,15 @@ def load_l4_patterns(root: pathlib.Path) -> list[str]:
 
 def path_hits_l4(path: str, patterns: list[str]) -> bool:
     norm = path.replace('\\', '/')
-    return any(fnmatch.fnmatch(norm, p) for p in patterns)
+    parts = [p for p in norm.split('/') if p]
+    basename = parts[-1] if parts else ''
+    explicit = (
+        basename in {'all-files.txt', 'source-files.txt'}
+        or 'raw' in parts
+        or basename == 'packets'
+        or 'packet-full' in norm
+    )
+    return explicit or any(fnmatch.fnmatch(norm, p) for p in patterns)
 
 def check_coordinator_paths(paths: list[str], root: pathlib.Path) -> list[str]:
     patterns = load_l4_patterns(root)
@@ -113,6 +133,7 @@ def decide(max_single, batches):
 
 def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
     traversal=load_traversal(profile_dir)
+    packet_index=packet_index_metadata(packet_dir)
     packets=packet_entries(packet_dir)
     batches=batch_packets(packets, BATCH_BUDGET, MAX_PACKET_COUNT)
     max_batch=max([b['estimated_tokens'] for b in batches] or [0])
@@ -133,6 +154,8 @@ def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
         'agent_hard_input_limit_tokens': DEFAULT_HARD,
         'agent_output_reserve_tokens': DEFAULT_RESERVE,
         'long_context_mode': LONG_CONTEXT_MODE,
+        'context_efficient_mode': CONTEXT_EFFICIENT_MODE,
+        'context_efficient_semantics': 'raw artifacts remain on disk; coordinator reads summaries; tool and candidate coverage are not reduced',
         'note': '200K is a per-agent hard context window, not a workflow-wide shared budget and not a target payload size.'
       },
       'agents': role_profiles(),
@@ -141,6 +164,11 @@ def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
         'packet_budget_tokens': PACKET_BUDGET,
         'review_batch_tokens': BATCH_BUDGET,
         'max_packet_count_per_review': MAX_PACKET_COUNT,
+        'expected_candidate_count': packet_index.get('expected_candidate_count', len(packets)),
+        'packet_count': packet_index.get('packet_count', len(packets)),
+        'batch_count': packet_index.get('batch_count', len(batches)),
+        'deduplicated_slice_count': packet_index.get('deduplicated_slice_count', len(packets)),
+        'coverage_complete': packet_index.get('coverage_complete', True),
         'estimated_total_tokens': total_packets,
         'packets': packets,
         'batches': batches,

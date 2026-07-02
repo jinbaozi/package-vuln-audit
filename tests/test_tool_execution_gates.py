@@ -68,6 +68,59 @@ def run_tool_matrix(matrix: pathlib.Path, source: pathlib.Path, out: pathlib.Pat
     ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
+def cppcheck_matrix(td: pathlib.Path, *, shard_size=2, timeout="1s"):
+    matrix = {
+        "schema_version": "1.0",
+        "environment_profile": "standard",
+        "package": "fixture",
+        "tools": [{
+            "name": "cppcheck",
+            "binary": "cppcheck",
+            "applicability": "mandatory",
+            "evidence": "cppcheck C/C++ static analysis coverage",
+            "command": ["cppcheck", "--enable=warning,style,performance,portability", "--template=gcc", "<source>"],
+            "timeout": timeout,
+            "watchdog": {"strategy": "adaptive", "idle_timeout": timeout},
+            "retry_policy": {"max_attempts": 1},
+            "execution_mode": "sharded",
+            "shard_size": shard_size,
+            "output_validator": "cppcheck-gcc-template",
+            "expected_output": "<raw>/cppcheck.out",
+        }],
+    }
+    path = td / "matrix.json"
+    path.write_text(json.dumps(matrix))
+    return path
+
+
+def write_source_files(td: pathlib.Path, names: list[str]) -> pathlib.Path:
+    source = td / "src"
+    source.mkdir()
+    paths = []
+    for name in names:
+        path = source / name
+        path.write_text("int main(void) { return 0; }\n")
+        paths.append(path)
+    file_list = td / "source-files.txt"
+    file_list.write_text("\n".join(str(p) for p in paths))
+    return file_list
+
+
+def run_cppcheck_matrix(matrix: pathlib.Path, source: pathlib.Path, out: pathlib.Path, file_list: pathlib.Path, env=None):
+    return subprocess.run([
+        sys.executable,
+        str(ROOT / "tools" / "run_tool_matrix.py"),
+        "--matrix",
+        str(matrix),
+        "--source",
+        str(source),
+        "--out",
+        str(out),
+        "--file-list",
+        str(file_list),
+    ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
 def test_semgrep_missing_is_recorded_and_blocks():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -104,6 +157,44 @@ def test_semgrep_success_completes_and_not_applicable_is_preserved():
         attempts = json.loads((out / "tool-execution-attempts.json").read_text())
         assert attempts["attempts"][0]["tool"] == "semgrep"
         assert "watchdog_events" in attempts["attempts"][0]
+
+
+def test_tool_output_is_raw_only_and_terminal_gets_bounded_summary():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "noisy-tool"
+        write_executable(fake, "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('RAWLOG-' + 'x' * 5000)\nPY\n")
+        matrix = {
+            "tools": [{
+                "name": "noisy-tool",
+                "binary": "noisy-tool",
+                "applicability": "mandatory",
+                "evidence": "large output capture",
+                "command": ["noisy-tool"],
+                "timeout": "5s",
+                "retry_policy": {"max_attempts": 1},
+            }]
+        }
+        matrix_path = td / "matrix.json"
+        matrix_path.write_text(json.dumps(matrix))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        env["PVAS_TERMINAL_SUMMARY_CHARS"] = "120"
+        p = run_tool_matrix(matrix_path, td, out, env=env)
+        assert p.returncode == 0
+        assert "RAWLOG-" not in p.stdout
+        assert len(p.stdout) < 600
+        raw_text = (out / "raw" / "noisy-tool.out").read_text()
+        assert "RAWLOG-" in raw_text
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["output_bytes"] == len(raw_text)
+        assert row["raw_output_ref"].endswith("raw/noisy-tool.out")
+        assert isinstance(row["terminal_summary_truncated"], bool)
+        if row["terminal_summary_truncated"]:
+            assert "[truncated]" in p.stdout
 
 
 def test_no_local_semgrep_rules_blocks_mandatory_tool():
@@ -261,13 +352,142 @@ def test_osv_no_package_sources_is_not_applicable():
         assert row["reason"] == "no-package-sources"
 
 
+def test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *.c ]] && echo \"$arg:3:1: warning: unsafe copy [bufferAccessOutOfBounds]\" >&2; done\n")
+        file_list = write_source_files(td, ["one.c"])
+        matrix = cppcheck_matrix(td, shard_size=4)
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        merged = (out / "raw" / "cppcheck.out").read_text()
+        assert "bufferAccessOutOfBounds" in merged
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "completed-with-findings"
+        assert row["result_count"] == 1
+        assert row["shards_total"] == 1
+        assert row["shards_completed"] == 1
+
+
+def test_cppcheck_shards_all_complete_before_merging():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *.c ]] && echo \"$arg:5:1: warning: shard hit [memleak]\" >&2; done\n")
+        file_list = write_source_files(td, ["one.c", "two.c", "three.c", "four.c", "five.c"])
+        matrix = cppcheck_matrix(td, shard_size=2)
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "completed-with-findings"
+        assert row["shards_total"] == 3
+        assert row["shards_completed"] == 3
+        merged = (out / "raw" / "cppcheck.out").read_text()
+        assert "one.c" in merged
+        assert "five.c" in merged
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        cpp_attempts = [a for a in attempts if a["tool"] == "cppcheck"]
+        assert len(cpp_attempts) == 3
+        assert {a["shard_index"] for a in cpp_attempts} == {1, 2, 3}
+
+
+def test_cppcheck_nonzero_shard_blocks_and_preserves_attempt():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\nfor arg in \"$@\"; do [[ \"$arg\" == *fail.c ]] && echo \"$arg:7:1: error: failed [internalError]\" >&2 && exit 7; done\nexit 0\n")
+        file_list = write_source_files(td, ["ok.c", "fail.c", "later.c"])
+        matrix = cppcheck_matrix(td, shard_size=1)
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "nonzero-exit"
+        assert row["shards_completed"] == 1
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        failed = [a for a in attempts if a["exit_code"] == 7]
+        assert failed
+        assert failed[0]["recovery_action"] == "manual-review"
+
+
+def test_cppcheck_stalled_shard_splits_and_then_completes():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, """#!/usr/bin/env python3
+import sys, time
+files = [a for a in sys.argv[1:] if a.endswith('.c')]
+if len(files) > 1:
+    time.sleep(0.5)
+    sys.exit(0)
+for path in files:
+    print(f"{path}:9:1: warning: split hit [uninitvar]", file=sys.stderr)
+""")
+        file_list = write_source_files(td, ["one.c", "two.c"])
+        matrix = cppcheck_matrix(td, shard_size=2, timeout="0.1s")
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "completed-with-findings"
+        assert row["shards_total"] == 2
+        assert row["shards_completed"] == 2
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        assert any(a["status"] == "blocked-pending-confirmation" and a["recovery_action"] == "split-scope" for a in attempts)
+
+
+def test_cppcheck_single_file_stall_blocks_for_confirmation():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\nsleep 0.5\n")
+        file_list = write_source_files(td, ["one.c"])
+        matrix = cppcheck_matrix(td, shard_size=1, timeout="0.1s")
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-pending-confirmation"
+        assert row["reason"] == "stalled"
+
+
 if __name__ == "__main__":
     test_semgrep_missing_is_recorded_and_blocks()
     test_semgrep_success_completes_and_not_applicable_is_preserved()
+    test_tool_output_is_raw_only_and_terminal_gets_bounded_summary()
     test_no_local_semgrep_rules_blocks_mandatory_tool()
     test_mandatory_nonzero_exit_blocks_recovery()
     test_mandatory_malformed_semgrep_output_blocks_recovery()
     test_watchdog_allows_progress_past_soft_timeout()
     test_watchdog_records_stalled_mandatory_tool_and_blocks_after_exit()
     test_osv_no_package_sources_is_not_applicable()
+    test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings()
+    test_cppcheck_shards_all_complete_before_merging()
+    test_cppcheck_nonzero_shard_blocks_and_preserves_attempt()
+    test_cppcheck_stalled_shard_splits_and_then_completes()
+    test_cppcheck_single_file_stall_blocks_for_confirmation()
     print("tool execution gate tests passed")

@@ -21,6 +21,10 @@ def test_tool_summary_schema_accepts_blocked_required_tool():
             'coverage_impact': 'semgrep rule coverage unavailable',
             'watchdog_events': [],
             'network_used': False,
+            'result_count': 0,
+            'output_bytes': 123,
+            'raw_output_ref': 'audit-output/02-tools/raw/semgrep.out',
+            'terminal_summary_truncated': False,
         }],
         'raw_outputs': [],
         'summary': 'Tool execution blocked: semgrep',
@@ -59,6 +63,7 @@ def main():
     try:
         import jsonschema
         for s,f in mapping.items(): jsonschema.validate(load(FIXTURES/f), load(SCHEMAS/s))
+        test_tool_summary_schema_accepts_blocked_required_tool()
     except ImportError:
         for s,f in mapping.items(): smoke(load(SCHEMAS/s), load(FIXTURES/f))
     print('schema tests passed')

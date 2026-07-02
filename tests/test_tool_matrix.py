@@ -97,10 +97,26 @@ def test_online_approved_can_use_semgrep_auto_config():
     assert semgrep["network_required"] is True
 
 
+def test_cppcheck_matrix_uses_sharded_runner_and_gcc_template():
+    matrix = run_matrix({
+        "package_name": "demo",
+        "primary_language": ["C/C++"],
+        "profiles": ["binary-parser"],
+        "build_system": ["make"],
+        "input_surfaces": ["files"],
+    })
+    cppcheck = next(t for t in matrix["tools"] if t["name"] == "cppcheck")
+    assert cppcheck["execution_mode"] == "sharded"
+    assert cppcheck["output_validator"] == "cppcheck-gcc-template"
+    assert cppcheck["expected_output"] == "<raw>/cppcheck.out"
+    assert "--template=gcc" in cppcheck["command"]
+
+
 if __name__ == "__main__":
     test_standard_profile_marks_semgrep_mandatory()
     test_npm_can_be_not_applicable_for_non_node_project()
     test_binutils_profile_includes_build_tools()
     test_restricted_network_does_not_use_semgrep_auto_config()
     test_online_approved_can_use_semgrep_auto_config()
+    test_cppcheck_matrix_uses_sharded_runner_and_gcc_template()
     print("tool matrix tests passed")

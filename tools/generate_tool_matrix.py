@@ -104,7 +104,7 @@ def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries:
                 "SEMGREP_LOG_FILE": str(env_base / "semgrep.log"),
             }
         network_required = name in {"codeql", "grype", "trivy", "syft"} or (name == "semgrep" and "--config" in command and "auto" in command)
-        tools.append({
+        tool_row = {
             "name": name,
             "binary": meta["binary"],
             "applicability": applicability,
@@ -123,7 +123,15 @@ def build_matrix(package_profile: dict, env_profile: str, timeout: str, retries:
             "degraded_continuation_allowed": bool(allow_degraded),
             "final_status": "planned",
             "final_decision_rationale": "",
-        })
+        }
+        if name == "cppcheck":
+            tool_row.update({
+                "execution_mode": "sharded",
+                "output_validator": "cppcheck-gcc-template",
+                "expected_output": "<raw>/cppcheck.out",
+                "shard_size": 100,
+            })
+        tools.append(tool_row)
     return {
         "schema_version": "1.0",
         "environment_profile": env_profile,

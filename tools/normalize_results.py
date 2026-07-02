@@ -12,9 +12,45 @@ def add_candidate(cands, cid, title, component, file=None, line=None, evidence=N
         loc['start_line']=int(line); loc['end_line']=int(line)
     cands.append({'id':cid,'type':'T-CAND','status':'Raw Tool Hit','title':title,'component':component,'profile':'unknown','source_locations':[loc],'evidence':evidence or {},'confidence':'low','provisional_severity':'unknown','rank_score':score,'missing_evidence':['source-to-sink','validation'],'disclosure_level':'D0-internal-candidate'})
 
+CPPCHECK_RE = re.compile(
+    r'^(?P<file>.+?):(?P<line>\d+):(?:(?P<column>\d+):)?\s*'
+    r'(?P<severity>error|warning|style|performance|portability|information):\s*'
+    r'(?P<message>.*?)(?:\s*\[(?P<id>[^\]]+)\])?\s*$',
+    re.I,
+)
+CPPCHECK_SECURITY_TERMS = (
+    'array', 'bounds', 'buffer', 'crash', 'dangling', 'deadlock', 'doublefree',
+    'free', 'leak', 'memory', 'mem', 'null', 'overflow', 'resource', 'uninit',
+    'unsafe', 'useafter', 'zerodiv',
+)
+CPPCHECK_HIGH_VALUE_SEVERITIES = {'error', 'warning'}
+
+
+def parse_cppcheck_line(line):
+    m = CPPCHECK_RE.match(line)
+    if not m:
+        return None
+    return {
+        'file': m.group('file'),
+        'line': m.group('line'),
+        'severity': (m.group('severity') or '').lower(),
+        'message': (m.group('message') or '').strip(),
+        'id': (m.group('id') or '').strip(),
+    }
+
+
+def cppcheck_is_high_value(item):
+    cid = item.get('id', '').lower()
+    msg = item.get('message', '').lower()
+    severity = item.get('severity', '')
+    if severity in CPPCHECK_HIGH_VALUE_SEVERITIES:
+        return True
+    return any(term in cid or term in msg for term in CPPCHECK_SECURITY_TERMS)
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
-    raw=pathlib.Path(args.tools_dir); c=[]; n=1
+    raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}
     sem=raw/'semgrep.json'
     if sem.exists():
         try:
@@ -31,9 +67,27 @@ def main():
                 add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), {'tool_refs':['rg'], 'sink':m.group(3).strip()[:200]}, 5); n+=1
     cpp=raw/'cppcheck.out'
     if cpp.exists():
-        for line in cpp.read_text(errors='ignore').splitlines()[:200]:
-            m=re.match(r'([^:]+):(\d+):.*?:\s*(.*)', line)
-            if m:
-                add_candidate(c, f'T-CAND-{n:04d}', m.group(3)[:120] or 'Cppcheck result', 'cppcheck', m.group(1), m.group(2), {'tool_refs':['cppcheck']}, 8); n+=1
-    write_json(args.out, {'candidates': c})
+        total=0; promoted=0; suppressed=0; by_severity={}; by_id={}
+        for line in cpp.read_text(errors='ignore').splitlines():
+            item=parse_cppcheck_line(line)
+            if not item:
+                continue
+            total+=1
+            sev=item['severity']; by_severity[sev]=by_severity.get(sev,0)+1
+            cid=item['id'] or 'unknown'; by_id[cid]=by_id.get(cid,0)+1
+            if not cppcheck_is_high_value(item):
+                suppressed+=1
+                continue
+            title=(item['message'] or 'Cppcheck result')[:120]
+            evidence={'tool_refs':['cppcheck'], 'cppcheck_severity':item['severity'], 'cppcheck_id':item['id'], 'message':item['message']}
+            add_candidate(c, f'T-CAND-{n:04d}', title, 'cppcheck', item['file'], item['line'], evidence, 8)
+            n+=1; promoted+=1
+        summaries['cppcheck']={
+            'total_results': total,
+            'promoted_count': promoted,
+            'low_value_suppressed_count': suppressed,
+            'by_severity': by_severity,
+            'by_id': by_id,
+        }
+    write_json(args.out, {'candidates': c, 'tool_summaries': summaries})
 if __name__=='__main__': main()

@@ -21,6 +21,67 @@ ABNORMAL_STATUSES = {"abnormal"}
 BLOCKING_STATUSES = {"blocked-pending-confirmation", "blocked-recovery-required"}
 TIMEOUT_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(ms|s|m|h)?\s*$", re.I)
 LOCAL_DB_TOOLS = {"codeql", "grype", "trivy", "syft"}
+CPPCHECK_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".inc"}
+CPPCHECK_EXCLUDE_PARTS = {".git", "build", "dist", "out", "target", "node_modules", "vendor", "third_party", "audit-output", "__pycache__"}
+CPPCHECK_GCC_RE = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+):(?:(?P<column>\d+):)?\s*"
+    r"(?P<severity>error|warning|style|performance|portability|information):\s*"
+    r"(?P<message>.*?)(?:\s*\[(?P<id>[^\]]+)\])?\s*$",
+    re.I,
+)
+DEFAULT_CPPCHECK_SHARD_SIZE = 100
+
+
+def terminal_summary_chars() -> int:
+    try:
+        return max(int(os.environ.get("PVAS_TERMINAL_SUMMARY_CHARS", "1000")), 80)
+    except ValueError:
+        return 1000
+
+
+def truncate_text(text: str, limit: int | None = None) -> tuple[str, bool]:
+    limit = terminal_summary_chars() if limit is None else limit
+    if len(text) <= limit:
+        return text, False
+    return text[: max(limit - 15, 0)] + "...[truncated]", True
+
+
+def semgrep_result_count(path: pathlib.Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        parsed = json.loads(path.read_text(errors="ignore"))
+    except json.JSONDecodeError:
+        return 0
+    results = parsed.get("results") if isinstance(parsed, dict) else None
+    return len(results) if isinstance(results, list) else 0
+
+
+def annotate_summary_row(row: dict) -> dict:
+    output = str(row.get("output") or "")
+    output_path = pathlib.Path(output) if output else None
+    if "raw_output_ref" not in row:
+        row["raw_output_ref"] = output
+    if "output_bytes" not in row:
+        row["output_bytes"] = output_size(output_path) if output_path else 0
+    if "result_count" not in row:
+        row["result_count"] = 0
+    row.setdefault("terminal_summary_truncated", False)
+    return row
+
+
+def print_tool_status(row: dict) -> None:
+    payload = {
+        "tool": row.get("name"),
+        "status": row.get("status"),
+        "reason": row.get("reason", ""),
+        "output": row.get("raw_output_ref") or row.get("output", ""),
+        "result_count": row.get("result_count", 0),
+        "bytes": row.get("output_bytes", 0),
+    }
+    text, truncated = truncate_text(json.dumps(payload, sort_keys=True))
+    row["terminal_summary_truncated"] = truncated
+    print(f"[PVAS-TOOL] {text}")
 
 
 def expand_command(command: list[str], source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> list[str]:
@@ -172,6 +233,10 @@ def preflight_tool(tool: dict, raw: pathlib.Path, source: pathlib.Path | None = 
             "coverage_impact": "none",
             "watchdog_events": [],
             "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
         }, attempts
     if name == "osv-scanner" and source is not None:
         osv_status, osv_reason = _check_osv_applicable(source)
@@ -183,10 +248,14 @@ def preflight_tool(tool: dict, raw: pathlib.Path, source: pathlib.Path | None = 
                 "reason": osv_reason or "no package manifests detected",
                 "notes": tool.get("evidence", ""),
                 "strict_decision": "continue",
-                "coverage_impact": "none",
-                "watchdog_events": [],
-                "network_used": False,
-            }, attempts
+            "coverage_impact": "none",
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+        }, attempts
     raw.mkdir(parents=True, exist_ok=True)
     return None, attempts
 
@@ -261,6 +330,8 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
     row, attempts = preflight_tool(tool, raw, source=source if name == "osv-scanner" else None)
     if row:
         return row, attempts
+    if name == "cppcheck" and tool.get("execution_mode") == "sharded":
+        return run_cppcheck_sharded(tool, source, raw, file_list=file_list)
 
     command = expand_command(tool["command"], source, raw, file_list=file_list)
     env = expand_env(tool.get("env") or {}, source, raw, file_list=file_list)
@@ -292,6 +363,10 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "coverage_impact": tool.get("evidence", ""),
             "watchdog_events": [],
             "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
         }, [attempt]
     if name == "semgrep" and no_semgrep_config(tool.get("command", [])):
         status, reason, strict_decision = block_required_status(tool, "incomplete", "no-local-rules")
@@ -305,6 +380,10 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "coverage_impact": "semgrep rule-based SAST coverage missing",
             "watchdog_events": [],
             "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
         }, attempts
     if name in LOCAL_DB_TOOLS and tool.get("network_policy") in {"offline", "restricted"} and tool.get("offline_fallback"):
         status, reason, strict_decision = block_required_status(tool, "incomplete", "missing-local-db")
@@ -318,6 +397,10 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "coverage_impact": f"{name} offline database coverage missing",
             "watchdog_events": [],
             "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
         }, attempts
 
     max_attempts = int(tool.get("retry_policy", {}).get("max_attempts", 1))
@@ -339,6 +422,8 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "recovery_action": "none" if final_rc == 0 else "retry" if attempt_no < max_attempts and abnormal else "manual-review",
             "watchdog_events": final_events,
             "network_used": network_used,
+            "output": str(final_output),
+            "output_bytes": output_size(final_output),
         })
         if final_rc == 0 or not abnormal:
             break
@@ -364,6 +449,9 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
         if semgrep_status:
             status = semgrep_status
             reason = semgrep_reason or reason
+    output_ref = output_path
+    output_ref_path = pathlib.Path(output_ref) if output_ref else final_output
+    result_count = semgrep_result_count(output_ref_path) if name == "semgrep" else 0
 
     status, reason, strict_decision = block_required_status(tool, status, reason)
     coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
@@ -377,6 +465,380 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
         "coverage_impact": coverage,
         "watchdog_events": final_events,
         "network_used": network_used,
+        "result_count": result_count,
+        "output_bytes": output_size(output_ref_path),
+        "raw_output_ref": output_ref,
+        "terminal_summary_truncated": False,
+    }, attempts
+
+
+def expand_command_for_files(command: list[str], source: pathlib.Path, raw: pathlib.Path, files: list[pathlib.Path]) -> list[str]:
+    expanded: list[str] = []
+    for part in command:
+        if part == "<source>":
+            expanded.extend(str(f) for f in files)
+        else:
+            expanded.append(part.replace("<source>", str(source)).replace("<raw>", str(raw)))
+    return expanded
+
+
+def cppcheck_diagnostic_count(path: pathlib.Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text(errors="ignore").splitlines() if CPPCHECK_GCC_RE.match(line))
+
+
+def cppcheck_output_bytes(paths: list[pathlib.Path]) -> int:
+    return sum(output_size(path) for path in paths)
+
+
+def is_cppcheck_source(path: pathlib.Path) -> bool:
+    return path.suffix.lower() in CPPCHECK_EXTENSIONS
+
+
+def discover_cppcheck_files(source: pathlib.Path) -> list[pathlib.Path]:
+    if source.is_file():
+        return [source] if is_cppcheck_source(source) else []
+    if not source.is_dir():
+        return []
+    files: list[pathlib.Path] = []
+    for path in source.rglob("*"):
+        if not path.is_file() or not is_cppcheck_source(path):
+            continue
+        try:
+            rel_parts = path.relative_to(source).parts
+        except ValueError:
+            rel_parts = path.parts
+        if any(part in CPPCHECK_EXCLUDE_PARTS for part in rel_parts):
+            continue
+        files.append(path)
+    return sorted(files)
+
+
+def cppcheck_file_scope(source: pathlib.Path, file_list: list[pathlib.Path] | None) -> list[pathlib.Path]:
+    selected = file_list if file_list is not None else discover_cppcheck_files(source)
+    files: list[pathlib.Path] = []
+    seen: set[str] = set()
+    for path in selected:
+        if not is_cppcheck_source(path) or not path.exists():
+            continue
+        key = str(path.resolve())
+        if key not in seen:
+            files.append(path)
+            seen.add(key)
+    return files
+
+
+def chunks(items: list[pathlib.Path], size: int) -> list[list[pathlib.Path]]:
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def write_cppcheck_file_list(raw: pathlib.Path, files: list[pathlib.Path]) -> pathlib.Path:
+    path = raw / "cppcheck.files.txt"
+    path.write_text("\n".join(str(f) for f in files) + ("\n" if files else ""))
+    return path
+
+
+def run_cppcheck_shard(command: list[str], env: dict[str, str], output: pathlib.Path, tool: dict) -> tuple[int | None, int, list[dict], str]:
+    watchdog = tool.get("watchdog") or {}
+    idle_timeout = parse_duration(watchdog.get("idle_timeout") or tool.get("timeout"), 600.0)
+    hard_limit_value = watchdog.get("hard_timeout") or tool.get("hard_timeout") or tool.get("hard_limit")
+    hard_limit = parse_duration(hard_limit_value, 0.0) if hard_limit_value else 0.0
+    watchdog_events: list[dict] = []
+    start = time.monotonic()
+    last_progress = start
+    last_size = output_size(output)
+    last_cpu = 0
+
+    merged_env = os.environ.copy()
+    merged_env.update(env)
+    try:
+        with output.open("w") as fh:
+            proc = subprocess.Popen(
+                command,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=merged_env,
+                start_new_session=True,
+            )
+            last_cpu = proc_cpu_ticks(proc.pid)
+            while True:
+                rc = proc.poll()
+                now = time.monotonic()
+                current_size = output_size(output)
+                current_cpu = proc_cpu_ticks(proc.pid)
+                if current_size > last_size or current_cpu > last_cpu:
+                    last_progress = now
+                    last_size = current_size
+                    last_cpu = current_cpu
+                    watchdog_events.append({
+                        "event": "progress",
+                        "elapsed_ms": int((now - start) * 1000),
+                        "output_bytes": current_size,
+                    })
+                if rc is not None:
+                    return rc, int((now - start) * 1000), watchdog_events, "exited"
+                if hard_limit and now - start > hard_limit:
+                    terminate_process(proc)
+                    watchdog_events.append({
+                        "event": "hard-limit",
+                        "elapsed_ms": int((time.monotonic() - start) * 1000),
+                        "output_bytes": current_size,
+                    })
+                    return None, int((time.monotonic() - start) * 1000), watchdog_events, "hard-limit"
+                if now - last_progress > idle_timeout:
+                    terminate_process(proc)
+                    watchdog_events.append({
+                        "event": "stalled",
+                        "elapsed_ms": int((time.monotonic() - start) * 1000),
+                        "output_bytes": current_size,
+                        "diagnostic": "cppcheck shard made no observed CPU/output progress",
+                    })
+                    return None, int((time.monotonic() - start) * 1000), watchdog_events, "stalled"
+                time.sleep(0.05)
+    except OSError as e:
+        watchdog_events.append({"event": "spawn-failed", "error": str(e)})
+        return None, int((time.monotonic() - start) * 1000), watchdog_events, "spawn-failed"
+
+
+def cppcheck_attempt_status(reason: str, rc: int | None) -> str:
+    if reason == "stalled":
+        return "blocked-pending-confirmation"
+    if reason in {"spawn-failed", "hard-limit"}:
+        return "abnormal"
+    if rc == 0:
+        return "completed"
+    return "incomplete"
+
+
+def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list[pathlib.Path] | None = None) -> tuple[dict, list[dict]]:
+    name = tool["name"]
+    binary = tool["binary"]
+    files = cppcheck_file_scope(source, file_list)
+    file_list_path = write_cppcheck_file_list(raw, files)
+    final_output = raw / "cppcheck.out"
+    if final_output.exists():
+        final_output.unlink()
+
+    command_for_missing = expand_command_for_files(tool["command"], source, raw, [source])
+    if shutil.which(binary) is None:
+        reason = "not-installed"
+        blocking = is_blocking_tool(tool)
+        if blocking:
+            print(f"[PVAS-TOOL-MISSING] {name} not installed. Impact: {tool.get('evidence', '')}", file=sys.stderr)
+            print(f"[PVAS-TOOL-MISSING] {name} is required ({tool.get('applicability', 'unknown')}). Blocking execution.", file=sys.stderr)
+        return {
+            "name": name,
+            "status": "blocked-recovery-required" if blocking else "not-installed",
+            "output": "",
+            "reason": reason,
+            "notes": tool.get("evidence", ""),
+            "strict_decision": "block" if blocking else "needs-install",
+            "coverage_impact": tool.get("evidence", ""),
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "shards_total": 0,
+            "shards_completed": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+            "partial_outputs": [],
+            "file_list": str(file_list_path),
+        }, [{
+            "tool": name,
+            "attempt": 1,
+            "status": reason,
+            "command": command_for_missing,
+            "elapsed_ms": 0,
+            "exit_code": None,
+            "recovery_action": "tool-install-assistant" if blocking else "record-missing",
+            "watchdog_events": [],
+            "network_used": False,
+            "output_bytes": 0,
+        }]
+
+    if not files:
+        return {
+            "name": name,
+            "status": "not-applicable",
+            "output": "",
+            "reason": "no-cppcheck-source-files",
+            "notes": tool.get("evidence", ""),
+            "strict_decision": "continue",
+            "coverage_impact": "none",
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "shards_total": 0,
+            "shards_completed": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+            "partial_outputs": [],
+            "file_list": str(file_list_path),
+        }, []
+
+    try:
+        shard_size = max(int(tool.get("shard_size") or DEFAULT_CPPCHECK_SHARD_SIZE), 1)
+    except (TypeError, ValueError):
+        shard_size = DEFAULT_CPPCHECK_SHARD_SIZE
+    initial_shards = chunks(files, shard_size)
+    env = expand_env(tool.get("env") or {}, source, raw)
+    attempts: list[dict] = []
+    partial_outputs: list[pathlib.Path] = []
+    completed_outputs: list[pathlib.Path] = []
+    watchdog_events: list[dict] = []
+    attempt_no = 0
+    output_no = 0
+    try:
+        stalled_retries = max(int(tool.get("stalled_retry_attempts", 1)), 0)
+    except (TypeError, ValueError):
+        stalled_retries = 1
+    effective_shards = len(initial_shards)
+
+    def execute_scope(scope_files: list[pathlib.Path], shard_index: int | str, shard_total: int) -> tuple[bool, str]:
+        nonlocal attempt_no, output_no, effective_shards
+        for stalled_try in range(stalled_retries + 1):
+            attempt_no += 1
+            output_no += 1
+            part_output = raw / f"cppcheck.part{output_no:04d}.out"
+            partial_outputs.append(part_output)
+            command = expand_command_for_files(tool["command"], source, raw, scope_files)
+            rc, elapsed_ms, events, reason = run_cppcheck_shard(command, env, part_output, tool)
+            watchdog_events.extend(events)
+            if rc == 0:
+                attempts.append({
+                    "tool": name,
+                    "attempt": attempt_no,
+                    "status": "completed",
+                    "command": command,
+                    "elapsed_ms": elapsed_ms,
+                    "exit_code": rc,
+                    "recovery_action": "none",
+                    "watchdog_events": events,
+                    "network_used": False,
+                    "shard_index": shard_index,
+                    "shard_total": shard_total,
+                    "shard_file_count": len(scope_files),
+                    "output": str(part_output),
+                    "output_bytes": output_size(part_output),
+                })
+                completed_outputs.append(part_output)
+                return True, ""
+
+            if reason == "stalled":
+                if stalled_try < stalled_retries:
+                    recovery_action = "retry"
+                elif len(scope_files) > 1:
+                    recovery_action = "split-scope"
+                else:
+                    recovery_action = "manual-confirmation"
+                attempts.append({
+                    "tool": name,
+                    "attempt": attempt_no,
+                    "status": "blocked-pending-confirmation",
+                    "command": command,
+                    "elapsed_ms": elapsed_ms,
+                    "exit_code": rc,
+                    "recovery_action": recovery_action,
+                    "watchdog_events": events,
+                    "network_used": False,
+                    "shard_index": shard_index,
+                    "shard_total": shard_total,
+                    "shard_file_count": len(scope_files),
+                    "output": str(part_output),
+                    "output_bytes": output_size(part_output),
+                })
+                if recovery_action == "retry":
+                    continue
+                if recovery_action == "split-scope":
+                    midpoint = max(len(scope_files) // 2, 1)
+                    left = scope_files[:midpoint]
+                    right = scope_files[midpoint:]
+                    child_total = 2 if right else 1
+                    if right:
+                        effective_shards += 1
+                    ok, child_reason = execute_scope(left, f"{shard_index}.1", child_total)
+                    if not ok:
+                        return False, child_reason
+                    if right:
+                        ok, child_reason = execute_scope(right, f"{shard_index}.2", child_total)
+                        if not ok:
+                            return False, child_reason
+                    return True, ""
+                return False, "stalled"
+
+            attempts.append({
+                "tool": name,
+                "attempt": attempt_no,
+                "status": cppcheck_attempt_status(reason, rc),
+                "command": command,
+                "elapsed_ms": elapsed_ms,
+                "exit_code": rc,
+                "recovery_action": "manual-review",
+                "watchdog_events": events,
+                "network_used": False,
+                "shard_index": shard_index,
+                "shard_total": shard_total,
+                "shard_file_count": len(scope_files),
+                "output": str(part_output),
+                "output_bytes": output_size(part_output),
+            })
+            if reason == "hard-limit":
+                return False, "hard-limit"
+            if reason == "spawn-failed":
+                return False, "spawn-failed"
+            return False, "nonzero-exit"
+        return False, "stalled"
+
+    blocked_reason = ""
+    for idx, shard_files in enumerate(initial_shards, start=1):
+        ok, blocked_reason = execute_scope(shard_files, idx, len(initial_shards))
+        if not ok:
+            break
+
+    if not blocked_reason:
+        with final_output.open("w") as dest:
+            for part in completed_outputs:
+                if part.exists():
+                    text = part.read_text(errors="ignore")
+                    if text:
+                        dest.write(text)
+                        if not text.endswith("\n"):
+                            dest.write("\n")
+        result_count = cppcheck_diagnostic_count(final_output)
+        status = "completed-with-findings" if result_count else "completed"
+        reason = ""
+    else:
+        result_count = 0
+        status = "blocked-pending-confirmation" if blocked_reason == "stalled" else "blocked-recovery-required"
+        reason = blocked_reason
+
+    status, reason, strict_decision = block_required_status(tool, status, reason)
+    output_path = str(final_output) if not blocked_reason else ""
+    total_shards = effective_shards
+    output_paths = [str(path) for path in partial_outputs]
+    coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
+    return {
+        "name": name,
+        "status": status,
+        "output": output_path,
+        "reason": reason,
+        "notes": tool.get("evidence", ""),
+        "strict_decision": strict_decision,
+        "coverage_impact": coverage,
+        "watchdog_events": watchdog_events,
+        "network_used": False,
+        "result_count": result_count,
+        "shards_total": total_shards,
+        "shards_completed": len(completed_outputs),
+        "output_bytes": output_size(final_output) if final_output.exists() else cppcheck_output_bytes(partial_outputs),
+        "raw_output_ref": output_path,
+        "terminal_summary_truncated": False,
+        "partial_outputs": output_paths,
+        "file_list": str(file_list_path),
     }, attempts
 
 
@@ -436,6 +898,8 @@ def main() -> int:
     incomplete = []
     for tool in matrix.get("tools", []):
         row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
+        row = annotate_summary_row(row)
+        print_tool_status(row)
         rows.append(row)
         attempts.extend(tool_attempts)
         if row["status"] in BLOCKING_STATUSES or row.get("strict_decision") == "block":

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import pathlib
 import sys
 
@@ -91,6 +92,35 @@ def test_run_stage_fails_when_declared_output_is_missing():
         step = json.loads((audit / 'machine/workflow-steps/05-candidate-review.json').read_text())
         assert step['status'] == 'failed-after-retries'
         assert any('missing declared output' in issue for issue in step['blocking_issues'])
+
+
+def test_run_stage_truncates_failure_issues_before_writing_workflow_json():
+    old = os.environ.get('PVAS_TERMINAL_SUMMARY_CHARS')
+    os.environ['PVAS_TERMINAL_SUMMARY_CHARS'] = '120'
+    try:
+        with temp_audit_dir() as td:
+            audit = pathlib.Path(td)
+            raw_issue = 'RAW-TOOL-LOG-' + ('x' * 5000)
+            ok = run_stage(
+                '03-tool-scan',
+                None,
+                lambda: StageResult(False, issues=[raw_issue]),
+                None,
+                out_root=audit,
+                retry=0,
+            )
+            assert not ok.ok
+            step = json.loads((audit / 'machine/workflow-steps/03-tool-scan.json').read_text())
+            attempts = json.loads((audit / 'machine/workflow-attempts/03-tool-scan.json').read_text())
+            assert len(step['blocking_issues'][0]) <= 140
+            assert len(step['last_error_summary']) <= 140
+            assert 'x' * 1000 not in json.dumps(step)
+            assert 'x' * 1000 not in json.dumps(attempts)
+    finally:
+        if old is None:
+            os.environ.pop('PVAS_TERMINAL_SUMMARY_CHARS', None)
+        else:
+            os.environ['PVAS_TERMINAL_SUMMARY_CHARS'] = old
 
 
 def test_noninteractive_confirmation_writes_required_artifact_and_blocks():
@@ -192,6 +222,7 @@ if __name__ == '__main__':
     test_write_step_rejects_blocked_terminal_state()
     test_run_stage_success_retry_and_failure()
     test_run_stage_fails_when_declared_output_is_missing()
+    test_run_stage_truncates_failure_issues_before_writing_workflow_json()
     test_validated_finding_schema_requires_validation_evidence()
     test_driver_uses_validation_poc_path()
     print('driver workflow gate tests passed')

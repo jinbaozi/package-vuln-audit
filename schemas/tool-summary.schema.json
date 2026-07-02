@@ -60,6 +60,34 @@
           },
           "network_used": {
             "type": "boolean"
+          },
+          "result_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "shards_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "shards_completed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "output_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "raw_output_ref": {
+            "type": "string"
+          },
+          "terminal_summary_truncated": {
+            "type": "boolean"
+          },
+          "partial_outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": true
