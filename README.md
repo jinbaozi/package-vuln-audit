@@ -201,6 +201,7 @@ profile：standard
 
 要求：
 - 严格读取 SKILL.md、AGENTS.md、workflows、agents、schemas、templates 和 references。
+- 完整审计必须通过 `tools/enforced_audit_driver.py` 执行；低层脚本只能用于调试或单阶段复现，不能替代 workflow gate。
 - 不要只阅读 workflow 描述后就生成报告。
 - 传统工具缺失时，不要静默跳过；按 strict/default 策略阻断、降级或进入受控安装辅助。
 - 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
@@ -443,8 +444,10 @@ profile 不等于“所有工具一定运行”。工具是否运行取决于：
 | 状态 | 含义 |
 |---|---|
 | `completed` | 成功执行并保留可用输出。 |
-| `blocked` | 计划内工具应执行但无法完成，完整审计被阻断。 |
+| `completed-with-findings` | 成功执行并产生候选线索输出。 |
 | `not-applicable` | 项目画像证明该工具不适用，并记录理由。 |
+| `blocked-pending-confirmation` | 必选范围内工具需要用户确认后才能终止、拆分 scope、降级或跳过。 |
+| `blocked-recovery-required` | 必选范围内工具失败，必须恢复工具、修正配置或通过受控确认后才能继续。 |
 
 以下状态只能作为中间状态，不能作为完整审计中的最终静默降级理由：
 
@@ -453,6 +456,8 @@ profile 不等于“所有工具一定运行”。工具是否运行取决于：
 - `not-installed`
 - `malformed-output`
 - `partial-output`
+- `incomplete`
+- `nonzero-exit`
 
 严格模式下，required 工具缺失时必须暂停审计或进入受控安装辅助流程。安装辅助策略默认保守：
 

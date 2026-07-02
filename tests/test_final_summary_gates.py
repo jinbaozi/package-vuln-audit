@@ -35,6 +35,30 @@ def test_report_completeness_requires_manual_plan():
         assert any("manual validation plan" in e for e in result["errors"])
 
 
+def test_report_completeness_requires_all_workflow_steps_when_enabled():
+    with temp_audit_dir() as td:
+        td = pathlib.Path(td)
+        findings = td / "findings.json"
+        corr = td / "corr.json"
+        out = td / "audit-output"
+        findings.write_text(json.dumps({"findings": []}))
+        corr.write_text(json.dumps({"correlations": []}))
+        (out / "zh-CN/05-内部安全报告").mkdir(parents=True)
+        (out / "en-US/05-internal-security-report").mkdir(parents=True)
+        (out / "zh-CN/05-内部安全报告/internal-security-report.md").write_text("公开披露状态与标准来源汇总表\n| A | B |\n|---|---|\n")
+        (out / "en-US/05-internal-security-report/internal-security-report.md").write_text("Public Disclosure Status and Standard Source Summary\n| A | B |\n|---|---|\n")
+        p = run_subprocess('tools/validate_report_completeness.py', [
+            '--findings', str(findings),
+            '--correlation', str(corr),
+            '--report-root', str(out),
+            '--require-workflow-steps',
+            '--out', str(out / 'machine/report-completeness.json'),
+        ], check=False)
+        assert p.returncode == 1
+        result = json.loads((out / "machine/report-completeness.json").read_text())
+        assert any("missing workflow step conclusion" in e for e in result["errors"])
+
+
 def test_final_summary_is_chinese_and_lists_manual_review():
     with temp_audit_dir() as td:
         td = pathlib.Path(td)
@@ -68,5 +92,6 @@ def test_final_summary_is_chinese_and_lists_manual_review():
 
 if __name__ == "__main__":
     test_report_completeness_requires_manual_plan()
+    test_report_completeness_requires_all_workflow_steps_when_enabled()
     test_final_summary_is_chinese_and_lists_manual_review()
     print("final summary gate tests passed")

@@ -5,7 +5,14 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from enforced_audit_driver import StageResult, run_stage, validate_finding_schema, write_step
+from enforced_audit_driver import (
+    StageResult,
+    request_confirmation,
+    run_stage,
+    validate_finding_schema,
+    validate_resume_confirmation,
+    write_step,
+)
 from tool_runner import temp_audit_dir
 
 
@@ -84,6 +91,68 @@ def test_run_stage_fails_when_declared_output_is_missing():
         step = json.loads((audit / 'machine/workflow-steps/05-candidate-review.json').read_text())
         assert step['status'] == 'failed-after-retries'
         assert any('missing declared output' in issue for issue in step['blocking_issues'])
+
+
+def test_noninteractive_confirmation_writes_required_artifact_and_blocks():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        result = request_confirmation(
+            audit,
+            'terminate-required-tool',
+            '03-tool-scan',
+            {'tool': 'semgrep', 'reason': 'stalled'},
+            interactive=False,
+        )
+        assert not result.ok
+        assert result.decision == 'blocked-pending-confirmation'
+        required = json.loads((audit / 'machine/user-confirmations/confirmation-required.json').read_text())
+        assert required['action'] == 'terminate-required-tool'
+        assert required['step_id'] == '03-tool-scan'
+        assert required['status'] == 'pending'
+        assert required['token']
+
+
+def test_resume_confirmation_accepts_matching_decision_token():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        result = request_confirmation(
+            audit,
+            'degrade-required-tool',
+            '03-tool-scan',
+            {'tool': 'semgrep'},
+            interactive=False,
+        )
+        required = json.loads((audit / 'machine/user-confirmations/confirmation-required.json').read_text())
+        decisions = audit / 'machine/user-confirmations/confirmation-decisions.json'
+        decisions.write_text(json.dumps({
+            'decisions': [{
+                'token': required['token'],
+                'action': 'degrade-required-tool',
+                'step_id': '03-tool-scan',
+                'decision': 'approved',
+                'decided_by': 'test',
+            }]
+        }))
+        assert not result.ok
+        assert validate_resume_confirmation(audit, required['token'], 'degrade-required-tool').ok
+        assert not validate_resume_confirmation(audit, 'wrong-token', 'degrade-required-tool').ok
+
+
+def test_run_stage_does_not_retry_pending_confirmation():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        result = run_stage(
+            '03-tool-scan',
+            None,
+            lambda: StageResult(False, decision='blocked-pending-confirmation', issues=['approval required']),
+            None,
+            out_root=audit,
+        )
+        assert not result.ok
+        attempts = json.loads((audit / 'machine/workflow-attempts/03-tool-scan.json').read_text())
+        assert len(attempts['attempts']) == 1
+        step = json.loads((audit / 'machine/workflow-steps/03-tool-scan.json').read_text())
+        assert step['decision'] == 'blocked-pending-confirmation'
 
 
 def test_validated_finding_schema_requires_validation_evidence():

@@ -9,6 +9,29 @@ def smoke(schema, data):
     for key in schema.get('required',[]):
         assert key in data, f'missing required key {key}'
 
+def test_tool_summary_schema_accepts_blocked_required_tool():
+    import jsonschema
+    schema = load(SCHEMAS/'tool-summary.schema.json')
+    data = {
+        'tools': [{
+            'name': 'semgrep',
+            'status': 'blocked-recovery-required',
+            'reason': 'malformed-output',
+            'strict_decision': 'block',
+            'coverage_impact': 'semgrep rule coverage unavailable',
+            'watchdog_events': [],
+            'network_used': False,
+        }],
+        'raw_outputs': [],
+        'summary': 'Tool execution blocked: semgrep',
+        'normalized_candidate_count': 0,
+        'errors': ['semgrep: blocked'],
+        'strict_decision': 'block',
+        'coverage_impact': [],
+        'incomplete_tools': [],
+    }
+    jsonschema.validate(data, schema)
+
 def main():
     mapping={
         'package-profile.schema.json':'sample-package-profile.json',
@@ -16,6 +39,7 @@ def main():
         'candidate.schema.json':'sample-candidate.json',
         'hypothesis.schema.json':'sample-hypothesis.json',
         'validation-result.schema.json':'sample-validation-result.json',
+        'workflow-step.schema.json':'sample-workflow-step.json',
         'cvss.schema.json':'sample-cvss.json',
         'finding.schema.json':'sample-finding.json',
         'context-budget.schema.json':'sample-context-budget.json',

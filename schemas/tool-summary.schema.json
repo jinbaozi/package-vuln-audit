@@ -24,6 +24,8 @@
           "status": {
             "enum": [
               "abnormal",
+              "blocked-pending-confirmation",
+              "blocked-recovery-required",
               "completed-with-findings",
               "incomplete",
               "not-applicable",
@@ -43,7 +45,12 @@
             "type": "string"
           },
           "strict_decision": {
-            "type": "string"
+            "enum": [
+              "block",
+              "continue",
+              "continue-needs-manual-review",
+              "needs-install"
+            ]
           },
           "coverage_impact": {
             "type": ["string", "array", "object"]
@@ -78,7 +85,16 @@
       }
     },
     "strict_decision": {
-      "type": "string"
+      "enum": [
+        "block",
+        "continue"
+      ]
+    },
+    "blocked_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "coverage_impact": {
       "type": "array"

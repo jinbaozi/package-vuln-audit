@@ -1,0 +1,22 @@
+{
+  "step_id": "03-tool-scan",
+  "status": "completed",
+  "decision": "continue",
+  "inputs_checked": [
+    "audit-output/01-profile/required-tools-matrix.json"
+  ],
+  "outputs_written": [
+    "audit-output/02-tools/tool-summary.json"
+  ],
+  "required_artifacts_present": true,
+  "blocking_issues": [],
+  "limitations": [],
+  "attempt_count": 1,
+  "last_error_summary": "",
+  "recovery_actions": [],
+  "artifact_refs": [
+    "audit-output/02-tools/tool-summary.json"
+  ],
+  "details": {},
+  "generated_at": "2026-07-02T00:00:00Z"
+}

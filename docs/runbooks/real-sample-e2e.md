@@ -20,6 +20,14 @@ cd package-vuln-audit-skill
 examples/toy-cpkg/run-audit-demo.sh
 ```
 
+The demo script is a fixture-level pipeline check. A complete audit must use:
+
+```bash
+python3 tools/enforced_audit_driver.py --source <source-tree> --out audit-output
+```
+
+Do not treat direct calls to lower-level scripts such as `tools/run_tools.sh` as a complete audit; they do not replace preflight, postflight, confirmation, bilingual step conclusions, report completeness, or disclosure gates.
+
 ## Expected artifacts
 
 ```text

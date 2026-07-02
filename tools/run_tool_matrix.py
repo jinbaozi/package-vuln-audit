@@ -18,6 +18,7 @@ from pvas_io import load_json, write_json
 
 BLOCKING_APPLICABILITY = {"mandatory", "profile-required", "recommended"}
 ABNORMAL_STATUSES = {"abnormal"}
+BLOCKING_STATUSES = {"blocked-pending-confirmation", "blocked-recovery-required"}
 TIMEOUT_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(ms|s|m|h)?\s*$", re.I)
 LOCAL_DB_TOOLS = {"codeql", "grype", "trivy", "syft"}
 
@@ -85,6 +86,24 @@ def terminate_process(proc: subprocess.Popen[str], grace_seconds: float = 2.0) -
         os.killpg(proc.pid, signal.SIGKILL)
     except Exception:
         proc.kill()
+
+
+def is_blocking_tool(tool: dict) -> bool:
+    return tool.get("applicability") in BLOCKING_APPLICABILITY
+
+
+def block_required_status(tool: dict, status: str, reason: str) -> tuple[str, str, str]:
+    if not is_blocking_tool(tool):
+        if status == "abnormal":
+            return status, reason, "block"
+        if status in {"incomplete", "not-installed"}:
+            return status, reason, "needs-install" if status == "not-installed" else "continue-needs-manual-review"
+        return status, reason, "continue"
+    if status in {"completed", "completed-with-findings", "not-applicable"}:
+        return status, reason, "continue"
+    if reason == "stalled":
+        return "blocked-pending-confirmation", reason, "block"
+    return "blocked-recovery-required", reason or status, "block"
 
 
 def command_mentions_remote_semgrep(command: list[str]) -> bool:
@@ -179,6 +198,8 @@ def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.P
     last_progress = start
     last_size = output_size(output)
     last_cpu = 0
+    blocking = is_blocking_tool(tool)
+    stalled = False
 
     merged_env = os.environ.copy()
     merged_env.update(env)
@@ -212,8 +233,19 @@ def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.P
                         "output_bytes": current_size,
                     })
                 if rc is not None:
-                    return rc, int((now - start) * 1000), watchdog_events, "exited"
+                    return rc, int((now - start) * 1000), watchdog_events, "stalled" if stalled else "exited"
                 if now - last_progress > soft_timeout:
+                    if blocking:
+                        stalled = True
+                        watchdog_events.append({
+                            "event": "stalled-diagnostic",
+                            "elapsed_ms": int((now - start) * 1000),
+                            "output_bytes": current_size,
+                            "diagnostic": "required tool made no observed CPU/output progress; waiting for process exit",
+                        })
+                        last_progress = now
+                        time.sleep(0.1)
+                        continue
                     terminate_process(proc)
                     watchdog_events.append({"event": "abnormal-timeout", "elapsed_ms": int((now - start) * 1000)})
                     return None, int((time.monotonic() - start) * 1000), watchdog_events, "abnormal-timeout"
@@ -235,7 +267,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
     network_used = bool(tool.get("network_required") and command_mentions_remote_semgrep(command))
     if shutil.which(binary) is None:
         reason = "not-installed"
-        blocking = tool.get("applicability") in BLOCKING_APPLICABILITY
+        blocking = is_blocking_tool(tool)
         if blocking:
             print(f"[PVAS-TOOL-MISSING] {name} not installed. Impact: {tool.get('evidence', '')}", file=sys.stderr)
             print(f"[PVAS-TOOL-MISSING] {name} is required ({tool.get('applicability', 'unknown')}). Blocking execution.", file=sys.stderr)
@@ -252,7 +284,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
         }
         return {
             "name": name,
-            "status": "not-installed",
+            "status": "blocked-recovery-required" if blocking else "not-installed",
             "output": "",
             "reason": reason,
             "notes": tool.get("evidence", ""),
@@ -262,25 +294,27 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             "network_used": False,
         }, [attempt]
     if name == "semgrep" and no_semgrep_config(tool.get("command", [])):
+        status, reason, strict_decision = block_required_status(tool, "incomplete", "no-local-rules")
         return {
             "name": name,
-            "status": "incomplete",
+            "status": status,
             "output": "",
-            "reason": "no-local-rules",
+            "reason": reason,
             "notes": "No local Semgrep rules were available and network-backed --config auto is not approved.",
-            "strict_decision": "continue-needs-manual-review",
+            "strict_decision": strict_decision,
             "coverage_impact": "semgrep rule-based SAST coverage missing",
             "watchdog_events": [],
             "network_used": False,
         }, attempts
     if name in LOCAL_DB_TOOLS and tool.get("network_policy") in {"offline", "restricted"} and tool.get("offline_fallback"):
+        status, reason, strict_decision = block_required_status(tool, "incomplete", "missing-local-db")
         return {
             "name": name,
-            "status": "incomplete",
+            "status": status,
             "output": "",
-            "reason": "missing-local-db",
+            "reason": reason,
             "notes": f"{name} requires a local database/bundle in {tool.get('network_policy')} mode.",
-            "strict_decision": "continue-needs-manual-review",
+            "strict_decision": strict_decision,
             "coverage_impact": f"{name} offline database coverage missing",
             "watchdog_events": [],
             "network_used": False,
@@ -298,7 +332,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
         attempts.append({
             "tool": name,
             "attempt": attempt_no,
-            "status": "abnormal" if abnormal else "completed" if final_rc == 0 else "incomplete",
+            "status": "blocked-pending-confirmation" if final_reason == "stalled" and is_blocking_tool(tool) else "abnormal" if abnormal else "completed" if final_rc == 0 else "incomplete",
             "command": command,
             "elapsed_ms": elapsed_ms,
             "exit_code": final_rc,
@@ -309,7 +343,9 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
         if final_rc == 0 or not abnormal:
             break
 
-    if final_reason == "spawn-failed":
+    if final_reason == "stalled" and is_blocking_tool(tool):
+        status, reason = "blocked-pending-confirmation", "stalled"
+    elif final_reason == "spawn-failed":
         status, reason = "abnormal", "spawn-failed"
     elif final_reason == "abnormal-timeout":
         status, reason = "abnormal", "abnormal-timeout"
@@ -329,9 +365,7 @@ def run_one(tool: dict, source: pathlib.Path, raw: pathlib.Path, file_list: list
             status = semgrep_status
             reason = semgrep_reason or reason
 
-    strict_decision = "block" if status == "abnormal" else "continue"
-    if status in {"incomplete", "not-installed"}:
-        strict_decision = "continue-needs-manual-review"
+    status, reason, strict_decision = block_required_status(tool, status, reason)
     coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
     return {
         "name": name,
@@ -398,34 +432,39 @@ def main() -> int:
     rows = []
     attempts = []
     abnormal = []
+    blocked = []
     incomplete = []
     for tool in matrix.get("tools", []):
         row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
         rows.append(row)
         attempts.extend(tool_attempts)
+        if row["status"] in BLOCKING_STATUSES or row.get("strict_decision") == "block":
+            blocked.append(row["name"])
         if row["status"] in ABNORMAL_STATUSES:
             abnormal.append(row["name"])
         elif row["status"] in {"incomplete", "not-installed"}:
             incomplete.append(row["name"])
 
-    not_installed_blocking = [r["name"] for r in rows if r.get("strict_decision") == "block"]
-    strict_decision = "block" if (abnormal or not_installed_blocking) else "continue"
+    strict_decision = "block" if (abnormal or blocked) else "continue"
+    errors = [f"{name}: abnormal" for name in abnormal] + [f"{name}: blocked" for name in blocked if name not in abnormal]
     summary = {
         "tools": rows,
         "raw_outputs": [r["output"] for r in rows if r.get("output")],
-        "summary": "Tool execution completed." if not abnormal else "Tool execution abnormal: " + ", ".join(abnormal),
+        "summary": "Tool execution completed." if not errors else "Tool execution blocked: " + ", ".join(errors),
         "normalized_candidate_count": 0,
-        "errors": [f"{name}: abnormal" for name in abnormal],
+        "errors": errors,
         "strict_decision": strict_decision,
+        "blocked_tools": blocked,
         "coverage_impact": [r for r in rows if r.get("coverage_impact")],
         "incomplete_tools": incomplete,
     }
     write_json(out / "tool-summary.json", summary)
     write_json(out / "tool-execution-attempts.json", {"attempts": attempts})
-    if not_installed_blocking:
-        print(f"[PVAS-TOOL-MISSING] blocking due to missing required tools: {', '.join(not_installed_blocking)}", file=sys.stderr)
+    missing_blocking = [r["name"] for r in rows if r.get("reason") == "not-installed" and r.get("strict_decision") == "block"]
+    if missing_blocking:
+        print(f"[PVAS-TOOL-MISSING] blocking due to missing required tools: {', '.join(missing_blocking)}", file=sys.stderr)
         print("[PVAS-TOOL-MISSING] run controlled install-assistant or ensure tools are installed before retry", file=sys.stderr)
-    return 2 if (abnormal or not_installed_blocking) else 0
+    return 2 if (abnormal or blocked) else 0
 
 
 if __name__ == "__main__":

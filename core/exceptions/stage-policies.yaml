@@ -78,6 +78,7 @@ policies:
     execution: [run_tools]
     postflight:
       - {check: no_abnormal_tools, artifact: audit-output/02-tools/tool-summary.json}
+      - {check: no_blocked_required_tools, artifact: audit-output/02-tools/tool-summary.json}
     required_artifacts:
       - audit-output/02-tools/tool-summary.json
 
