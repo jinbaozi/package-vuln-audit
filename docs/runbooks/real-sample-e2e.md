@@ -23,8 +23,11 @@ examples/toy-cpkg/run-audit-demo.sh
 The demo script is a fixture-level pipeline check. A complete audit must use:
 
 ```bash
-python3 tools/enforced_audit_driver.py --source <source-tree> --out audit-output
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
 ```
+
+The default `audit-output/` path is relative to the current driver process cwd. If you run the driver from the skill repository or another directory while auditing an external source tree, pass an explicit absolute `--out /path/to/output`.
 
 Do not treat direct calls to lower-level scripts such as `tools/run_tools.sh` as a complete audit; they do not replace preflight, postflight, confirmation, bilingual step conclusions, report completeness, or disclosure gates.
 

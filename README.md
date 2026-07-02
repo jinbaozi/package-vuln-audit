@@ -110,6 +110,8 @@ CLAUDE.md
 /package-vuln-audit source_path=. output_dir=audit-output allowed_tools=rg,semgrep,cppcheck,osv-scanner max_candidates=20
 ```
 
+`output_dir=audit-output` 相对当前 Claude Code 会话/命令的工作目录解析。推荐从被审计项目根目录启动；如果从 skill 仓库或其他目录审计外部源码，请显式指定绝对输出目录。
+
 也可以按阶段执行：
 
 ```text
@@ -148,6 +150,8 @@ Claude Code 适配器要求：
 profile：standard。
 要求：保持父上下文干净，只读取摘要和 schema 化产物；不要把 raw log、SARIF、fuzz 输出直接塞入主上下文。
 ```
+
+这里的 `audit-output` 是 opencode 进程当前工作目录下的目录；推荐当前工作目录就是被审计项目根目录。
 
 opencode 适配器提供 `coordinator` 主 agent，并将高噪声任务拆给多个 subagent，例如：
 
@@ -208,6 +212,13 @@ profile：standard
 - 只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
 - 每个 Validated finding 必须进行公开漏洞关联。
 - 最终输出中文主报告、机器 JSON、英文披露材料和剩余风险说明。
+```
+
+如果直接运行 driver，推荐先进入被审计项目根目录：
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
 ```
 
 #### 严格模式审计
@@ -344,7 +355,14 @@ Validated
 
 ### 4.1 输出目录
 
-默认审计输出目录为 `audit-output/`。推荐结构如下：
+默认审计输出目录为 `audit-output/`，并且相对智能体或 driver 进程的当前工作目录解析；它不自动相对 skill 仓库，也不自动相对 `--source`。推荐在被审计项目根目录启动智能体或运行 driver：
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+如果从 skill 仓库或其他目录审计外部源码，必须显式传入 `--out /path/to/output`，避免产物写入错误工作区。推荐结构如下：
 
 ```text
 audit-output/

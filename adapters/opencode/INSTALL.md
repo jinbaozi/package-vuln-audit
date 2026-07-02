@@ -23,6 +23,15 @@ cp -a /path/to/package-vuln-audit-skill/AGENTS.md ./AGENTS.md
 /validate candidate=audit-output/03-candidates/CAND-001.md
 ```
 
+`output_dir=audit-output` is resolved under the current opencode command process working directory. Start opencode from the repository being audited, or use an explicit absolute output directory when auditing external source from another cwd.
+
+Equivalent complete-audit driver form:
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
 ## Permission model
 
 The default coordinator must not read raw logs or write source. Tool execution should be delegated to `tool-runner`; code-slice review should be delegated to `candidate-reviewer`; validation should be delegated to `validator`.

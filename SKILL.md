@@ -88,6 +88,15 @@ Use CVSS v3.1 by default. Follow `references/cvss31-scoring-guide.md`. Candidate
 
 Final reports must be structured and reproducible. Required formats are Markdown and JSON. SARIF or original tool output should be indexed when available. PoC/test material belongs only under validation artifacts and only for validated local reproduction or regression testing.
 
+By default, `audit-output/` is relative to the agent or driver process current working directory, not the skill repository and not automatically relative to `--source`. Recommended complete-audit invocation:
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+If auditing external source while running from the skill repository or another directory, pass an explicit `--out /path/to/output` to avoid writing artifacts into the wrong workspace.
+
 ## Context Budget Guard v2.1
 
 This skill uses a per-agent independent context model. Each coordinator or subagent invocation has its own default 200K hard context window. The workflow uses multiple independent 200K agent windows and does not pool raw context into the coordinator.

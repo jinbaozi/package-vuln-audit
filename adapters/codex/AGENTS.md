@@ -6,6 +6,15 @@ Use the portable `package-vuln-audit` skill for authorized defensive source-code
 
 For complete audits, invoke `tools/enforced_audit_driver.py`. Direct calls to lower-level scripts such as `tools/run_tools.sh`, normalizers, validators, or report generators are allowed for debugging a single stage, but they do not satisfy the complete-audit workflow gate.
 
+The default `audit-output/` path is relative to the current Codex or driver process cwd, not automatically relative to `--source`. Start Codex from the audited repository root, or run:
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
+If running from the skill repository or another directory while auditing external source, pass an explicit absolute `--out /path/to/output`.
+
 Codex may not always expose native subagents. When subagents are unavailable, simulate them through fresh task packets and fresh invocations:
 
 - `coordinator` → summary-only orchestrator, reads summaries and dispatches

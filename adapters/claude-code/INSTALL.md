@@ -27,6 +27,15 @@ Use slash commands from Claude Code:
 /validate-finding candidate=audit-output/03-candidates/CAND-001.md
 ```
 
+`output_dir=audit-output` is resolved under the current Claude Code command process working directory. Start Claude Code from the repository being audited, or use an explicit absolute output directory when auditing external source from another cwd.
+
+Equivalent complete-audit driver form:
+
+```bash
+cd /path/to/target-project
+python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+```
+
 ## Safety
 
 Do not grant broad write access to source directories. Subagents should write only to `audit-output/`. Full tool logs, SARIF, sanitizer logs, and fuzz noise must stay out of the parent agent context.

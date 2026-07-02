@@ -11,14 +11,19 @@ This adapter delegates to the portable root skill. Use the root `SKILL.md`, `AGE
 
 1. Follow repository `AGENTS.md` first.
 2. Treat each subagent role as a fresh task packet if native subagents are unavailable.
-3. Write all outputs under `audit-output/`.
+3. Write all outputs under `audit-output/`, resolved relative to the current Codex/driver process cwd.
 4. Use schemas for artifacts and templates for reports.
 5. Do not paste raw tool logs into the parent context.
 6. Do not promote Candidate/Likely issues to formal findings.
 
 ## Minimum workflow
 
-- Run `tools/enforced_audit_driver.py --source <source> --out audit-output` for complete audits.
+- Run the driver from the audited project root for complete audits:
+  ```bash
+  cd /path/to/target-project
+  python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
+  ```
+- If running from the skill repository or another directory while auditing external source, pass an explicit absolute `--out /path/to/output`.
 - Let the driver enforce profiling, scope selection, tool execution, AI hypotheses, candidate review, validation, CVSS, report, and disclosure stages.
 - Use direct lower-level script calls only for debugging or rerunning one stage; they are not a complete audit.
 - Report only Validated and Needs Manual Review findings.
