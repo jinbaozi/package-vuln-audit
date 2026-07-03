@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PVAS_VERSION="0.10.0-alpha11"
 python3 -u tests/test_schemas.py
 python3 -u tests/test_manifest_io.py
 python3 -u tests/test_manifest.py
@@ -10,6 +11,7 @@ python3 -u tests/test_exception_index.py
 python3 -u tests/test_schema_fail_closed.py
 python3 -u tests/test_context_budget_per_agent.py
 python3 -u tests/test_rank_candidates.py
+python3 -u tests/test_validation_targets.py
 python3 -u tests/test_tool_install_plan.py
 python3 -u tests/test_strict_mode.py
 python3 -u tests/test_cppcheck_scope_profile.py
@@ -20,6 +22,7 @@ python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
 python3 -u tests/test_final_summary_gates.py
 python3 -u tests/test_workflow_gate_docs.py
+python3 -u tests/test_scope_policy_version.py
 python3 -u tests/test_readme_usage_examples.py
 python3 -u tests/test_report_admission.py
 python3 -u tests/test_make_ai_packets.py
@@ -55,4 +58,4 @@ if missing:
     sys.exit(1)
 print('required file check passed')
 PYCHECK
-echo "alpha10 unit checks passed"
+echo "$PVAS_VERSION unit checks passed"

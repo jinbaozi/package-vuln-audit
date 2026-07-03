@@ -303,7 +303,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="AI subagent for automated vulnerability validation and PoC generation"
     )
-    ap.add_argument("--findings", required=True, help="Path to findings JSON (Likely/Validated)")
+    ap.add_argument("--findings", help="Path to findings JSON (Likely/Validated)")
+    ap.add_argument("--targets", help="Path to validation-targets.json from candidate review")
     ap.add_argument("--packet-dir", default=None, help="Directory containing candidate packets (*.md)")
     ap.add_argument("--source-root", default=".", help="Source code root directory (for ASAN binaries)")
     ap.add_argument("--candidate-summary", default=None,
@@ -315,7 +316,15 @@ def main() -> int:
                     help="Write updated findings with validation results here")
     args = ap.parse_args()
 
-    findings = load_findings(pathlib.Path(args.findings))
+    if not args.findings and not args.targets:
+        print("[PVAS-VALIDATION] one of --findings or --targets is required", file=sys.stderr)
+        return 2
+
+    if args.targets:
+        target_data = load_json(pathlib.Path(args.targets), default={}, required=True)
+        findings = [t for t in target_data.get("targets", []) if isinstance(t, dict)] if isinstance(target_data, dict) else []
+    else:
+        findings = load_findings(pathlib.Path(args.findings))
     if not findings:
         write_json(pathlib.Path(args.out) / "validation-result-summary.json", {
             "status": "not-applicable",

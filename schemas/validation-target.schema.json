@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Validation Targets",
+  "type": "object",
+  "required": ["targets", "rejected_summary"],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["Likely"] },
+          "title": { "type": "string" },
+          "packet_ref": { "type": "string" },
+          "candidate_ref": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "rejected_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["Rejected"] },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "candidate_summary_ref": { "type": "string" },
+    "validation_summary_ref": { "type": "string" },
+    "generated_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

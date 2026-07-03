@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -9,6 +10,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from enforced_audit_driver import (
     WORKFLOW_PRESETS,
     StageResult,
+    resolve_invocation_paths,
     request_confirmation,
     resolve_cppcheck_mode,
     resolve_startup_config,
@@ -55,6 +57,10 @@ def test_driver_executes_review_and_validation_semantics():
     assert 'tools/exec_candidate_review_agent.py' in text
     assert "'--hypotheses', str(out / '03-candidates/ai-hypotheses.json')" in text
     assert 'candidate-summary.json' in text
+    assert 'tools/build_validation_targets.py' in text
+    assert 'validation-targets.json' in text
+    assert 'tools/finalize_finding_index.py' in text
+    assert 'finding-index.json' in text
     assert 'tools/validate_validation_results.py' in text
     assert 'validation-result-summary.json' in text
 
@@ -240,6 +246,63 @@ def test_driver_blocks_when_poc_generation_fails():
     assert "if poc_gen_rc != 0" in text
 
 
+def test_invocation_paths_are_resolved_from_invocation_cwd():
+    with temp_audit_dir() as td:
+        td = pathlib.Path(td)
+        invocation = td / 'target'
+        invocation.mkdir()
+        source = invocation / 'src'
+        source.mkdir()
+        out_rel = pathlib.Path('audit-output')
+        findings_rel = pathlib.Path('findings.json')
+        public_rel = pathlib.Path('records.json')
+        resolved = resolve_invocation_paths(
+            source='src',
+            out=str(out_rel),
+            findings=str(findings_rel),
+            public_records=str(public_rel),
+            invocation_cwd=invocation,
+        )
+        assert resolved['invocation_cwd'] == str(invocation.resolve())
+        assert resolved['skill_root'] == str(ROOT.resolve())
+        assert resolved['source_abs'] == str(source.resolve())
+        assert resolved['out_abs'] == str((invocation / out_rel).resolve())
+        assert resolved['findings_abs'] == str((invocation / findings_rel).resolve())
+        assert resolved['public_records_abs'] == str((invocation / public_rel).resolve())
+
+
+def test_driver_writes_intake_templates_and_requires_present_by_default():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    assert "'--require-present'" in text
+    assert 'intake.template.json' in text
+    assert 'scope.template.md' in text
+    assert 'if args.findings:' not in text
+
+
+def test_driver_missing_intake_from_external_cwd_writes_templates_under_invocation_out():
+    with temp_audit_dir() as td:
+        target = pathlib.Path(td) / 'target'
+        target.mkdir()
+        p = subprocess.run([
+            sys.executable,
+            str(ROOT / 'tools' / 'enforced_audit_driver.py'),
+            '--source', '.',
+            '--out', 'audit-output',
+            '--workflow-preset', 'strict-efficient',
+            '--cppcheck-mode', 'fast',
+            '--no-startup-prompt',
+        ], cwd=target, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        assert p.returncode == 2
+        audit = target / 'audit-output'
+        invocation = json.loads((audit / 'machine/invocation.json').read_text())
+        assert invocation['invocation_cwd'] == str(target.resolve())
+        assert invocation['source_abs'] == str(target.resolve())
+        assert invocation['out_abs'] == str(audit.resolve())
+        assert (audit / '00-intake/intake.template.json').is_file()
+        assert (audit / '00-intake/scope.template.md').is_file()
+        assert not (audit / '00-intake/intake.json').exists()
+
+
 class Args:
     workflow_preset = None
     no_startup_prompt = False
@@ -417,6 +480,9 @@ if __name__ == '__main__':
     test_validated_finding_schema_requires_validation_evidence()
     test_driver_uses_validation_poc_path()
     test_driver_blocks_when_poc_generation_fails()
+    test_invocation_paths_are_resolved_from_invocation_cwd()
+    test_driver_writes_intake_templates_and_requires_present_by_default()
+    test_driver_missing_intake_from_external_cwd_writes_templates_under_invocation_out()
     test_startup_default_noninteractive_is_strict_efficient()
     test_startup_tty_menu_maps_three_presets()
     test_startup_explicit_preset_sources_skip_prompt()

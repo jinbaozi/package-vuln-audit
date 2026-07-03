@@ -34,6 +34,7 @@ registered_schemas:
   - report.schema.json
   - tool-install-plan.schema.json
   - tool-summary.schema.json
+  - validation-target.schema.json
   - validation-result.schema.json
   - workflow-step.schema.json
   - exception-index.schema.json
@@ -108,6 +109,15 @@ artifacts:
     exception_policy:
       on_failed_after_retries: fail_pipeline
       on_recoverable: record_and_continue
+  - id: validation-targets
+    path_pattern: audit-output/04-validation/validation-targets.json
+    load_tier: L1
+    schema: validation-target.schema.json
+    step_id: "06-validation"
+  - id: finding-index
+    path_pattern: audit-output/05-findings/finding-index.json
+    load_tier: L1
+    step_id: "06-validation"
   - id: exception-index
     path_pattern: audit-output/machine/exception-index.json
     load_tier: L1

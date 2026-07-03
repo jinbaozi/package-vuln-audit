@@ -132,6 +132,51 @@ def test_cppcheck_deep_matrix_preserves_existing_enable_set():
     assert "may take longer" in cppcheck["mode_limitations"]
 
 
+def test_tool_summary_schema_has_admission_policy_fields():
+    schema = json.loads((ROOT / "schemas" / "tool-summary.schema.json").read_text())
+    tool_props = schema["properties"]["tools"]["items"]["properties"]
+    assert "coverage_profile" in tool_props
+    assert "accuracy_risk" in tool_props
+    assert "admission_policy" in tool_props
+    assert "negative_conclusion_allowed" in tool_props
+
+
+def test_admission_policy_marks_missing_required_tool_not_admissible():
+    sys.path.insert(0, str(ROOT / "tools"))
+    import run_tool_matrix
+
+    row = {
+        "name": "semgrep",
+        "status": "blocked-recovery-required",
+        "reason": "not-installed",
+        "strict_decision": "block",
+        "coverage_impact": "semgrep SAST missing",
+    }
+    annotated = run_tool_matrix.apply_admission_policy(row)
+    assert annotated["coverage_profile"] == "unavailable"
+    assert annotated["accuracy_risk"] == "missing_tool"
+    assert annotated["admission_policy"] == "not_admissible"
+    assert annotated["negative_conclusion_allowed"] is False
+
+
+def test_admission_policy_marks_partial_cppcheck_positive_only():
+    sys.path.insert(0, str(ROOT / "tools"))
+    import run_tool_matrix
+
+    row = {
+        "name": "cppcheck",
+        "status": "incomplete",
+        "reason": "partial-timeout",
+        "result_count": 2,
+        "coverage_impact": {"limitation": "partial cppcheck coverage"},
+    }
+    annotated = run_tool_matrix.apply_admission_policy(row)
+    assert annotated["coverage_profile"] == "partial"
+    assert annotated["accuracy_risk"] == "limited_coverage"
+    assert annotated["admission_policy"] == "positive_only"
+    assert annotated["negative_conclusion_allowed"] is False
+
+
 if __name__ == "__main__":
     test_standard_profile_marks_semgrep_mandatory()
     test_npm_can_be_not_applicable_for_non_node_project()
@@ -140,4 +185,7 @@ if __name__ == "__main__":
     test_online_approved_can_use_semgrep_auto_config()
     test_cppcheck_matrix_uses_sharded_runner_and_gcc_template()
     test_cppcheck_deep_matrix_preserves_existing_enable_set()
+    test_tool_summary_schema_has_admission_policy_fields()
+    test_admission_policy_marks_missing_required_tool_not_admissible()
+    test_admission_policy_marks_partial_cppcheck_positive_only()
     print("tool matrix tests passed")

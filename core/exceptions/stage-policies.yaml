@@ -114,12 +114,18 @@ policies:
     audit_output_dir: audit-output/04-validation
     retry_policy: *default_retry
     execution:
+      - build_validation_targets
+      - exec_validation_agent
+      - finalize_finding_index
       - validate_finding_schema
       - generate_manual_validation_plan
       - generate_poc_testcase
       - validate_poc_artifacts
     required_artifacts:
+      - audit-output/04-validation/validation-targets.json
+      - audit-output/04-validation/updated-findings.json
       - audit-output/04-validation/validation-summary.json
+      - audit-output/05-findings/finding-index.json
 
   - step_id: "07-cvss-scoring"
     audit_output_dir: audit-output/05-findings

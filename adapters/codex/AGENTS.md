@@ -14,6 +14,8 @@ source_path=. output_dir=audit-output workflow_preset=strict-efficient max_candi
 
 `strict-efficient` is the default complete-audit preset: strict tool gates, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Parent context remains summary-only; do not carry raw logs, SARIF, fuzz output, large source slices, or complete candidate sets into Codex conversation context. Candidate and Likely items are not reportable vulnerabilities; only Validated and explicitly marked Needs Manual Review items may enter human-readable reports. Validated findings require CVSS rationale and public vulnerability correlation.
 
+Complete audits require explicit `audit-output/00-intake/scope.md` and `audit-output/00-intake/intake.json`. If they are absent, the driver writes templates and blocks; templates are not authorization. The driver records resolved absolute paths in `audit-output/machine/invocation.json`, and `audit-output/05-findings/finding-index.json` is authoritative after validation.
+
 cppcheck defaults to `fast` mode. Use `--cppcheck-mode deep` or `PVAS_CPPCHECK_MODE=deep` only when style/performance/portability checks are explicitly needed. Non-interactive audits and disabled startup prompts do not block for this choice; they use fast and record it under `audit-output/machine/cppcheck-mode.json`.
 
 The default `audit-output/` path is relative to the current Codex or driver process cwd, not automatically relative to `--source`. Start Codex from the audited repository root, or run:

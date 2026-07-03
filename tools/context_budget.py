@@ -140,9 +140,22 @@ def build_budget(profile_dir, packet_dir, check_paths=None, root=None):
     total_packets=sum(p['estimated_tokens'] for p in packets)
     decision, action=decide(max_batch, batches)
     issues = []
+    if packet_index.get('coverage_complete') is False:
+        decision = 'blocked'
+        action = 'Regenerate or split candidate packets; packet-index reports incomplete coverage.'
+        issues.append('packet-index coverage_complete=false')
+    blocked_packets = [
+        str(p.get('id') or p.get('file') or '?') for p in packets
+        if isinstance(p, dict) and p.get('within_budget') is False
+    ]
+    if blocked_packets:
+        decision = 'blocked'
+        action = 'Regenerate oversized packets with smaller source slices before review.'
+        issues.extend(f'packet exceeds budget: {pid}' for pid in blocked_packets[:20])
     if check_paths and root is not None:
-        issues = check_coordinator_paths(check_paths, root)
-        if issues:
+        l4_issues = check_coordinator_paths(check_paths, root)
+        if l4_issues:
+            issues.extend(l4_issues)
             decision = 'blocked'
             action = 'Remove L4 artifacts from the coordinator packet; coordinator must read L1 summaries only.'
     budget = {

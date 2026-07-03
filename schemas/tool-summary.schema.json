@@ -83,6 +83,35 @@
           "terminal_summary_truncated": {
             "type": "boolean"
           },
+          "coverage_profile": {
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable",
+              "not_applicable"
+            ]
+          },
+          "accuracy_risk": {
+            "enum": [
+              "none",
+              "limited_coverage",
+              "stale_database",
+              "malformed_output",
+              "missing_tool",
+              "manual_confirmation_required"
+            ]
+          },
+          "admission_policy": {
+            "enum": [
+              "candidate_evidence_allowed",
+              "positive_only",
+              "manual_review_only",
+              "not_admissible"
+            ]
+          },
+          "negative_conclusion_allowed": {
+            "type": "boolean"
+          },
           "partial_outputs": {
             "type": "array",
             "items": {

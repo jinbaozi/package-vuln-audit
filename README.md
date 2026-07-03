@@ -4,10 +4,12 @@
 >
 > 它把传统安全工具、AI 辅助源码分析、subagent 编排、候选评审、验证证据、CVSS 评分、PoC/回归测试材料、中文报告与渐进式披露流程组织成一套可复用、可审查、可交付的审计工作流。
 
-![Status](https://img.shields.io/badge/status-0.10.0--alpha10-orange)
+![Status](https://img.shields.io/badge/status-0.10.0--alpha11-orange)
 ![Type](https://img.shields.io/badge/type-Agent%20Skill-blue)
 ![Platforms](https://img.shields.io/badge/platform-Claude%20Code%20%7C%20Codex%20%7C%20opencode-purple)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+Current version: `0.10.0-alpha11`.
 
 `package-vuln-audit-skill` 不是“自动宣称漏洞”的扫描器，也不是攻击链或武器化 exploit 生成框架。它的目标是在授权范围内，帮助审计人员把源码审计、传统工具结果、AI 假设、人工评审、验证证据、报告输出和披露材料纳入同一条可追踪证据链。
 
@@ -229,7 +231,7 @@ Codex 小节只说明 `AGENTS.md` / skill 指令和 driver 直接运行入口；
 项目默认完整 workflow 采用 `strict-efficient`：严格工具门禁、默认不允许 degraded 继续、上下文高效、strict packet budget。可选预设：
 
 - `strict-efficient`：默认推荐模式，等价于 strict 工具门禁 + `PVAS_CONTEXT_EFFICIENT=1` + `PVAS_PACKET_STRICT_BUDGET=1`。
-- `strict-degraded`：strict 工具门禁但显式允许 degraded 继续，上下文高效和 strict packet budget 仍开启。
+- `strict-degraded`：strict 工具门禁但显式允许 degraded 继续收集证据；这不是允许生成完整负面结论，上下文高效和 strict packet budget 仍开启。
 - `compat-default`：旧兼容/调试模式，使用 default 工具策略并关闭上下文高效和 strict packet budget。
 
 #### 可复制通用提示词
@@ -248,6 +250,7 @@ cppcheck 模式：fast（默认；deep 需显式选择）
 - 按 skill 指令读取 SKILL.md、AGENTS.md、相关 workflows、agents、schemas、templates 和 references。
 - 完整审计必须通过 `tools/enforced_audit_driver.py` 的完整 workflow gate；低层脚本只能用于调试或单阶段复现，不能替代 gate。
 - `audit-output` 必须相对当前进程 cwd 解析；推荐从被审计项目根目录启动，跨目录审计时显式传入绝对 `--out`。
+- complete audit 默认要求 `audit-output/00-intake/scope.md` 和 `audit-output/00-intake/intake.json` 已存在且包含明确授权；缺失时 driver 只写 `scope.template.md` / `intake.template.json` 并阻断，不伪造授权。
 - 不要只阅读 workflow 描述后就生成报告。
 - 父上下文必须保持 summary-only：只读取阶段 summary、schema 化 JSON、candidate packet、validation result、finding index 和 final report。
 - raw logs、SARIF、fuzz 输出、大规模源码切片和完整候选全集不得直接进入父上下文。
@@ -259,8 +262,9 @@ cppcheck 模式：fast（默认；deep 需显式选择）
 - strict packet budget 默认开启；max_candidates=20；候选 packet 默认最多 3 个函数、每个函数 ±80 行；超预算时必须拆包或阻断，不能静默丢弃关键源码切片或证据。
 - 每个候选必须经过 Candidate → Likely → Validated / Rejected / Needs Manual Review 状态机。
 - Candidate 和 Likely 不能作为最终漏洞结论；只有 Validated 和明确标记的 Needs Manual Review 可以进入人读报告。
+- `audit-output/05-findings/finding-index.json` 是 validation 后唯一权威 finding 输入；Rejected 只进入摘要，Candidate/Likely 不进入最终漏洞列表。
 - 每个 Validated finding 必须包含源码证据（源码路径/函数/行范围）、输入源、sink、source-to-sink 路径、可达性、验证证据、误报排除、修复建议、CVSS 评分理由和公开漏洞关联结论。
-- 最终输出 machine/ 权威机器产物、zh-CN 中文报告、en-US 英文披露材料和剩余风险说明；未命中公开来源时只能说明“配置的公开来源未发现匹配”。
+- 最终输出 machine/ 权威机器产物、zh-CN 中文报告、en-US 英文披露材料和剩余风险说明；每个 Validated finding 都必须执行配置来源的公开漏洞关联，未配置来源时不得写“未发现公开漏洞”，只能阻断或明确人工确认。
 ```
 
 #### 直接运行 driver
@@ -271,6 +275,8 @@ cppcheck 模式：fast（默认；deep 需显式选择）
 cd /path/to/target-project
 python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --source . --out audit-output
 ```
+
+首次运行前应先在 `audit-output/00-intake/` 填写 `scope.md` 和 `intake.json`。如果缺失，driver 会写入 `scope.template.md` 和 `intake.template.json` 后阻断；agent 只有在用户明确授权后才应把模板转换为真实 intake。driver 会将调用目录、skill root、解析后的 source/out/findings/public-records 记录到 `audit-output/machine/invocation.json`。
 
 交互式 TTY 中，如果没有指定 `--workflow-preset` 或 `PVAS_WORKFLOW_PRESET`，driver 会显示三档预设菜单，回车默认 `strict-efficient`。没有指定 `--cppcheck-mode` 或 `PVAS_CPPCHECK_MODE` 时，driver 还会显示 cppcheck 模式菜单，回车默认 `fast`。CI、脚本和 agent 非交互调用不会阻塞，会直接使用默认预设和 cppcheck `fast`。脚本化运行建议显式固定预设并禁用提示：
 

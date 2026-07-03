@@ -143,6 +143,53 @@ def run(cmd: list[str], allow_fail: bool = False) -> tuple[int, str]:
     return p.returncode, p.stdout
 
 
+def _resolve_from_cwd(path_value: str | None, invocation_cwd: pathlib.Path) -> str:
+    if not path_value:
+        return ''
+    path = pathlib.Path(path_value)
+    if not path.is_absolute():
+        path = invocation_cwd / path
+    return str(path.resolve())
+
+
+def resolve_invocation_paths(
+    *,
+    source: str,
+    out: str,
+    findings: str | None = None,
+    public_records: str | None = None,
+    invocation_cwd: pathlib.Path | None = None,
+) -> dict:
+    invocation_cwd = (invocation_cwd or pathlib.Path.cwd()).resolve()
+    return {
+        'invocation_cwd': str(invocation_cwd),
+        'skill_root': str(ROOT.resolve()),
+        'source_abs': _resolve_from_cwd(source, invocation_cwd),
+        'out_abs': _resolve_from_cwd(out, invocation_cwd),
+        'findings_abs': _resolve_from_cwd(findings, invocation_cwd),
+        'public_records_abs': _resolve_from_cwd(public_records, invocation_cwd),
+    }
+
+
+def write_intake_templates(intake_dir: pathlib.Path, source_abs: str) -> None:
+    if not (intake_dir / 'intake.json').exists():
+        write_json(intake_dir / 'intake.template.json', {
+            'authorization': 'REQUIRED: describe the explicit authorization for this audit',
+            'scope_summary': 'REQUIRED: summarize package, commit/version, and in-scope components',
+            'source_path': source_abs,
+            'network_policy': 'restricted',
+        })
+    if not (intake_dir / 'scope.md').exists():
+        (intake_dir / 'scope.template.md').write_text(
+            '# Audit Scope\n\n'
+            '- Authorization: REQUIRED\n'
+            '- Source path: REQUIRED\n'
+            '- In scope: REQUIRED\n'
+            '- Out of scope: REQUIRED\n'
+            '- Network policy: offline | restricted | online-approved\n'
+        )
+
+
 def refresh_exception_index(out: pathlib.Path) -> None:
     run([sys.executable, 'tools/aggregate_exceptions.py', '--audit-output', str(out)], allow_fail=True)
 
@@ -576,6 +623,13 @@ def _findings(path: str | None) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
+def _reportable_findings(path: pathlib.Path) -> list[dict]:
+    return [
+        f for f in _findings(str(path))
+        if isinstance(f, dict) and f.get('status') in {'Validated', 'Needs Manual Review'}
+    ]
+
+
 def _candidate_review_required(path: pathlib.Path, limit: int) -> bool:
     data = load_json(path, default={})
     cands = data.get('candidates', []) if isinstance(data, dict) else []
@@ -583,7 +637,7 @@ def _candidate_review_required(path: pathlib.Path, limit: int) -> bool:
 
 
 def _has_scoreable_findings(findings: list[dict]) -> bool:
-    return any((f.get('status') or f.get('state')) in {'Likely', 'Validated'} for f in findings)
+    return any((f.get('status') or f.get('state')) == 'Validated' for f in findings)
 
 
 def _has_d3_d4_findings(findings: list[dict]) -> bool:
@@ -615,8 +669,21 @@ def main() -> int:
     ap.add_argument('--resume', action='store_true', help='Resume after an approved user confirmation decision')
     args = ap.parse_args()
 
+    invocation = resolve_invocation_paths(
+        source=args.source,
+        out=args.out,
+        findings=args.findings,
+        public_records=args.public_records,
+        invocation_cwd=pathlib.Path.cwd(),
+    )
+    args.source = invocation['source_abs']
+    args.out = invocation['out_abs']
+    args.findings = invocation['findings_abs'] or None
+    args.public_records = invocation['public_records_abs'] or None
+
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    write_json(out / 'machine/invocation.json', invocation)
     max_candidates = int(args.max_candidates)
     try:
         startup = resolve_startup_config(args, out, argv=sys.argv[1:])
@@ -658,9 +725,8 @@ def main() -> int:
     intake_dir = out / '00-intake'
     intake_dir.mkdir(parents=True, exist_ok=True)
     def exec_intake():
-        cmd = [sys.executable, 'tools/validate_intake.py', '--intake-dir', str(intake_dir), '--out', str(out / 'machine/intake-validation.json')]
-        if args.findings:
-            cmd.append('--require-present')
+        write_intake_templates(intake_dir, args.source)
+        cmd = [sys.executable, 'tools/validate_intake.py', '--intake-dir', str(intake_dir), '--out', str(out / 'machine/intake-validation.json'), '--require-present']
         rc, _ = run(cmd, allow_fail=True)
         return StageResult(rc == 0, issues=['intake preflight failed; see intake-validation.json'])
     stage = run_stage('00-intake', None, exec_intake,
@@ -769,7 +835,7 @@ def main() -> int:
         return 2
 
     def exec_ai_hypothesis():
-        run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out / '02-tools/raw'), '--out', str(out / '03-candidates/raw-candidates.json')])
+        run([sys.executable, 'tools/normalize_results.py', '--tools-dir', str(out / '02-tools/raw'), '--tool-summary', str(out / '02-tools/tool-summary.json'), '--out', str(out / '03-candidates/raw-candidates.json')])
         run([sys.executable, 'tools/rank_candidates.py', '--input', str(out / '03-candidates/raw-candidates.json'), '--out', str(out / '03-candidates/ranked-candidates.json')])
         run([sys.executable, 'tools/make_ai_packets.py', '--candidates', str(out / '03-candidates/ranked-candidates.json'), '--source-root', args.source, '--out', str(out / '03-candidates/packets'), '--max-packets', str(max_candidates)])
         post_budget = out / '03-candidates/context-budget-post-packet.json'
@@ -813,24 +879,38 @@ def main() -> int:
     if not stage.ok:
         return 2
 
-    findings = _findings(args.findings)
+    finding_index_path = out / '05-findings' / 'finding-index.json'
     def exec_validation():
-        if not args.findings:
-            write_json(out / '04-validation/validation-summary.json', {'status': 'not-applicable', 'reason': 'no --findings provided'})
-            return StageResult(True, not_applicable=True, outputs=[str(out / '04-validation/validation-summary.json')])
-        schema_rc = validate_finding_schema(args.findings, out, complete_audit=True)
-        if schema_rc != 0:
-            return StageResult(False, issues=['finding JSON failed schema validation'])
+        validation_root = out / '04-validation'
+        targets_path = validation_root / 'validation-targets.json'
+        rc, tool_out = run([
+            sys.executable, 'tools/build_validation_targets.py',
+            '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'),
+            '--candidate-summary', str(out / '03-candidates/candidate-summary.json'),
+            '--review-dir', str(out / '03-candidates/reviews'),
+            '--packet-dir', str(out / '03-candidates/packets'),
+            '--out', str(targets_path),
+        ], allow_fail=True)
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'validation target generation failed'])
+
+        validation_input = args.findings
+        if validation_input:
+            schema_rc = validate_finding_schema(validation_input, out, complete_audit=True)
+            if schema_rc != 0:
+                return StageResult(False, issues=['finding JSON failed schema validation'])
 
         findings_out = out / '04-validation' / 'updated-findings.json'
-        validation_root = out / '04-validation'
         val_cmd = [sys.executable, 'tools/exec_validation_agent.py',
-                   '--findings', args.findings,
                    '--packet-dir', str(out / '03-candidates/packets'),
                    '--source-root', args.source,
                    '--candidate-summary', str(out / '03-candidates/candidate-summary.json'),
                    '--out', str(validation_root),
                    '--findings-out', str(findings_out)]
+        if validation_input:
+            val_cmd.extend(['--findings', validation_input])
+        else:
+            val_cmd.extend(['--targets', str(targets_path)])
         if env_flag('ALLOW_VALIDATION_RUN'):
             val_cmd.append('--allow-run')
         exec_rc, exec_out = run(val_cmd, allow_fail=True)
@@ -850,23 +930,41 @@ def main() -> int:
         poc_v_rc, _ = run([sys.executable, 'tools/validate_poc_artifacts.py', '--poc-root', str(poc_out)], allow_fail=True)
         if poc_v_rc != 0:
             return StageResult(False, issues=['poc validation failed'])
-        write_json(out / '04-validation/validation-summary.json', {'status': 'completed', 'findings': len(findings)})
-        return StageResult(True, outputs=[str(out / 'machine/schema-validation-result.json'), str(validation_result), str(manual_out), str(poc_out), str(out / '04-validation/validation-summary.json')])
+        rc, tool_out = run([
+            sys.executable, 'tools/finalize_finding_index.py',
+            '--validation-findings', str(findings_out),
+            '--validation-targets', str(targets_path),
+            '--candidate-summary-ref', str(out / '03-candidates/candidate-summary.json'),
+            '--validation-summary-ref', str(out / '04-validation/validation-summary.json'),
+            '--out', str(finding_index_path),
+        ], allow_fail=True)
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'finding index finalization failed'])
+        write_json(out / '04-validation/validation-summary.json', {
+            'status': 'completed',
+            'reportable_findings': len(_reportable_findings(finding_index_path)),
+        })
+        return StageResult(True, outputs=[
+            str(targets_path), str(findings_out), str(validation_result),
+            str(manual_out), str(poc_out), str(out / '04-validation/validation-summary.json'),
+            str(finding_index_path),
+        ])
     stage = run_stage('06-validation', lambda: require_paths([out / '03-candidates/candidate-review-validation.json']) if _candidate_review_required(out / '03-candidates/ranked-candidates.json', max_candidates) else None,
                       exec_validation, lambda: require_paths([out / '04-validation/validation-summary.json']),
-                      out_root=out, outputs=[str(out / 'machine/schema-validation-result.json'), str(out / '04-validation/manual-review'), str(out / '04-validation/poc-tests'), str(out / '04-validation/validation-summary.json')],
+                      out_root=out, outputs=[str(out / '04-validation/validation-targets.json'), str(out / '04-validation/updated-findings.json'), str(out / '04-validation/manual-review'), str(out / '04-validation/poc-tests'), str(out / '04-validation/validation-summary.json'), str(finding_index_path)],
                       recovery_actions=['regenerate validation plans or PoC artifacts and rerun validators'])
     if not stage.ok:
         return 2
 
     def exec_cvss():
+        findings = _findings(str(finding_index_path))
         if not _has_scoreable_findings(findings):
-            write_json(out / '05-findings/cvss-summary.json', {'status': 'not-applicable', 'reason': 'no Likely or Validated findings'})
-            return StageResult(True, not_applicable=True, outputs=[str(out / '05-findings/cvss-summary.json')])
-        issues = validate_cvss31_findings(args.findings)
+            write_json(out / '05-findings/cvss-summary.json', {'status': 'completed', 'scored_findings': 0, 'reason': 'no Validated findings'})
+            return StageResult(True, outputs=[str(out / '05-findings/cvss-summary.json')])
+        issues = validate_cvss31_findings(str(finding_index_path))
         if issues:
             return StageResult(False, issues=issues)
-        write_json(out / '05-findings/cvss-summary.json', {'status': 'completed', 'scored_findings': len([f for f in findings if (f.get('status') or f.get('state')) in {'Likely', 'Validated'}])})
+        write_json(out / '05-findings/cvss-summary.json', {'status': 'completed', 'scored_findings': len([f for f in findings if (f.get('status') or f.get('state')) == 'Validated'])})
         return StageResult(True, outputs=[str(out / '05-findings/cvss-summary.json')])
     stage = run_stage('07-cvss-scoring', lambda: require_paths([out / '04-validation/validation-summary.json']), exec_cvss,
                       lambda: require_paths([out / '05-findings/cvss-summary.json']), out_root=out,
@@ -875,15 +973,17 @@ def main() -> int:
         return 2
 
     def exec_report():
-        if not args.findings:
-            write_json(out / '06-report/machine/report-completeness.json', {'status': 'not-applicable', 'reason': 'no --findings provided'})
-            return StageResult(True, not_applicable=True, outputs=[str(out / '06-report/machine/report-completeness.json')])
+        findings = _findings(str(finding_index_path))
+        validated = [f for f in findings if f.get('status') == 'Validated']
         if not args.public_records and args.allow_network and args.fetch_package:
             fetch_out = out / 'machine' / 'correlation' / 'fetched-records'
             fetch_out.mkdir(parents=True, exist_ok=True)
             run([sys.executable, 'tools/fetch_public_vuln_sources.py', '--sources', 'NVD,OSV', '--package', args.fetch_package, '--out', str(fetch_out), '--allow-network'], allow_fail=True)
             args.public_records = str(fetch_out)
         corr = out / 'machine' / 'correlation' / 'public-vuln-correlation.json'
+        if validated and not args.public_records:
+            write_json(corr, {'correlations': [], 'status': 'unknown', 'reason': 'public records not configured'})
+            return StageResult(False, issues=['Validated findings require configured public vulnerability correlation sources'])
         if args.public_records:
             freshness_cmd = [sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(out / 'machine/correlation/offline-db-freshness.json')]
             if OPENEULER_MANIFEST.is_file():
@@ -891,22 +991,25 @@ def main() -> int:
             run(freshness_cmd, allow_fail=True)
             norm_records = out / 'machine' / 'correlation' / 'normalized-public-records.json'
             run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
-            run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', args.findings, '--records', str(norm_records), '--openeuler-index', str(OPENEULER_INDEX), '--out', str(corr)], allow_fail=False)
-            run([sys.executable, 'tools/apply_correlation_to_findings.py', '--findings', args.findings, '--correlation', str(corr), '--out', args.findings], allow_fail=False)
-            run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', args.findings, '--correlation', str(corr), '--poc-root', str(out / '04-validation/poc-tests'), '--out', str(out), '--skip-final-report'], allow_fail=False)
-        run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', args.findings, '--out', str(out / '06-report')] + (['--correlation', str(corr)] if corr.exists() else []), allow_fail=False)
-        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', args.findings, '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
+            run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', str(finding_index_path), '--records', str(norm_records), '--openeuler-index', str(OPENEULER_INDEX), '--out', str(corr)], allow_fail=False)
+            run([sys.executable, 'tools/apply_correlation_to_findings.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--out', str(finding_index_path)], allow_fail=False)
+        elif not corr.exists():
+            write_json(corr, {'correlations': [], 'status': 'not_applicable', 'reason': 'no Validated findings'})
+        run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--poc-root', str(out / '04-validation/poc-tests'), '--out', str(out), '--skip-final-report'], allow_fail=False)
+        run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', str(finding_index_path), '--out', str(out / '06-report'), '--correlation', str(corr)], allow_fail=False)
+        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=['report completeness failed'])
         return StageResult(True, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')])
     stage = run_stage('08-report', lambda: require_paths([out / '05-findings/cvss-summary.json']), exec_report,
-                      lambda: StageResult(True, not_applicable=not bool(args.findings)) if not args.findings else require_paths([out / '06-report/machine', out / '06-report/zh-CN', out / '06-report/en-US', out / 'machine/report-completeness.json']),
+                      lambda: require_paths([out / '06-report/machine', out / '06-report/zh-CN', out / '06-report/en-US', out / 'machine/report-completeness.json']),
                       out_root=out, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')],
                       recovery_actions=['regenerate reports and rerun report completeness gate'])
     if not stage.ok:
         return 2
 
     def exec_disclosure():
+        findings = _findings(str(finding_index_path))
         run([sys.executable, 'tools/summarize_artifacts.py', '--audit-output', str(out), '--out', str(out / 'machine/artifact-summary.json')], allow_fail=True)
         if not _has_d3_d4_findings(findings):
             write_json(out / '07-disclosure/disclosure-summary.json', {'status': 'not-applicable', 'reason': 'no D3/D4 findings'})
@@ -930,7 +1033,7 @@ def validate_cvss31_findings(findings_path: str) -> list[str]:
     findings_list_data = raw.get('findings') if isinstance(raw, dict) and 'findings' in raw else (raw if isinstance(raw, list) else [])
     issues: list[str] = []
     for f in findings_list_data:
-        if f.get('status') not in {'Validated', 'Likely'}:
+        if f.get('status') != 'Validated':
             continue
         cvss = f.get('cvss') or {}
         if not cvss:

@@ -18,11 +18,14 @@ REQUIRED_TOOLS = [
     'check_offline_db_freshness.py',
     'enforced_audit_driver.py',
     'enforce_workflow_contract.py',
+    'validate_stage_policy_sync.py',
     'normalize_results.py',
     'rank_candidates.py',
     'exec_ai_hypothesis_agent.py',
     'exec_candidate_review_agent.py',
+    'build_validation_targets.py',
     'exec_validation_agent.py',
+    'finalize_finding_index.py',
     'validate_validation_results.py',
     'generate_poc_testcase.py',
     'validate_poc_artifacts.py',
@@ -71,6 +74,11 @@ def check_root(root: pathlib.Path) -> dict:
             mv = vm.validate_manifest(root, manifest_path)
             warnings.extend(mv.get('warnings') or [])
             for e in mv.get('errors') or []:
+                fail(e, errors)
+            import validate_stage_policy_sync as sync
+            sv = sync.validate(root)
+            warnings.extend(sv.get('warnings') or [])
+            for e in sv.get('errors') or []:
                 fail(e, errors)
         except Exception as e:
             warnings.append(f'manifest validation skipped: {e}')

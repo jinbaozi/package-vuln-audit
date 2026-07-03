@@ -97,6 +97,10 @@ python3 /path/to/package-vuln-audit-skill/tools/enforced_audit_driver.py --sourc
 
 If auditing external source while running from the skill repository or another directory, pass an explicit `--out /path/to/output` to avoid writing artifacts into the wrong workspace.
 
+Complete audits require explicit `audit-output/00-intake/scope.md` and `audit-output/00-intake/intake.json` before proceeding. If they are absent, the driver writes `scope.template.md` and `intake.template.json` and blocks; agents must only create real intake after explicit user authorization. The driver records absolute path resolution in `audit-output/machine/invocation.json`.
+
+After validation, `audit-output/05-findings/finding-index.json` is the authoritative finding input for CVSS, reports, and disclosure. Candidate and Likely states stay internal; Rejected items appear only in summaries. `strict-degraded` authorizes continued evidence collection under degraded tool coverage, not complete negative conclusions.
+
 ## Context Budget Guard v2.1
 
 This skill uses a per-agent independent context model. Each coordinator or subagent invocation has its own default 200K hard context window. The workflow uses multiple independent 200K agent windows and does not pool raw context into the coordinator.
@@ -115,7 +119,7 @@ Required behavior:
 - Write `audit-output/00-environment/tool-install-plan.md` when tools are missing.
 - Prefer Python/pipx/uv, npm/npx, user-local binaries, and offline bundles.
 - Avoid root/system package manager changes by default.
-- Complete-audit workflow defaults to `strict-efficient`: strict environment profile, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Use `strict-degraded` for explicit degraded continuation, or `compat-default` only for legacy reproduction/debugging.
+- Complete-audit workflow defaults to `strict-efficient`: strict environment profile, no degraded continuation unless explicit, context efficient mode, and strict packet budget. Use `strict-degraded` for explicit degraded evidence collection, or `compat-default` only for legacy reproduction/debugging.
 
 cppcheck defaults to `fast` mode: default/error checks plus `warning`. `deep` mode adds `style,performance,portability` and is opt-in through `--cppcheck-mode deep` or `PVAS_CPPCHECK_MODE=deep`. Interactive complete-audit driver runs prompt for this choice when no explicit mode is set; non-interactive runs and disabled startup prompts use `fast` automatically and record the choice in `audit-output/machine/cppcheck-mode.json`. A completed fast scan is an intentional coverage profile, not degraded execution.
 

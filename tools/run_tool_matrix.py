@@ -67,6 +67,56 @@ def annotate_summary_row(row: dict) -> dict:
     if "result_count" not in row:
         row["result_count"] = 0
     row.setdefault("terminal_summary_truncated", False)
+    return apply_admission_policy(row)
+
+
+def apply_admission_policy(row: dict) -> dict:
+    status = str(row.get("status") or "")
+    reason = str(row.get("reason") or "")
+    result_count = int(row.get("result_count") or 0)
+    shards_total = int(row.get("shards_total") or 0)
+    shards_completed = int(row.get("shards_completed") or 0)
+    has_partial_coverage = (
+        reason == "partial-timeout"
+        or (shards_total > 0 and 0 < shards_completed < shards_total)
+        or bool(row.get("partial_outputs") and status in {"incomplete", "blocked-recovery-required"})
+    )
+
+    if status == "not-applicable":
+        coverage_profile = "not_applicable"
+    elif status in {"completed", "completed-with-findings"}:
+        coverage_profile = "complete"
+    elif has_partial_coverage:
+        coverage_profile = "partial"
+    else:
+        coverage_profile = "unavailable"
+
+    if status in {"completed", "completed-with-findings", "not-applicable"}:
+        accuracy_risk = "none"
+    elif reason in {"not-installed"}:
+        accuracy_risk = "missing_tool"
+    elif reason in {"malformed-output"}:
+        accuracy_risk = "malformed_output"
+    elif reason in {"missing-local-db"}:
+        accuracy_risk = "stale_database"
+    elif has_partial_coverage:
+        accuracy_risk = "limited_coverage"
+    else:
+        accuracy_risk = "manual_confirmation_required"
+
+    if coverage_profile == "complete":
+        admission_policy = "candidate_evidence_allowed"
+    elif has_partial_coverage and result_count > 0:
+        admission_policy = "positive_only"
+    elif row.get("strict_decision") == "continue-needs-manual-review":
+        admission_policy = "manual_review_only"
+    else:
+        admission_policy = "not_admissible"
+
+    row["coverage_profile"] = coverage_profile
+    row["accuracy_risk"] = accuracy_risk
+    row["admission_policy"] = admission_policy
+    row["negative_conclusion_allowed"] = coverage_profile == "complete" and status in {"completed", "completed-with-findings"}
     return row
 
 

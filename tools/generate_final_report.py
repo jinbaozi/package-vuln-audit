@@ -63,12 +63,22 @@ def build_manual_review_table(findings, audit_root):
 
 def build_tool_matrix_content(audit_root):
     matrix = load_json(audit_root / '01-profile' / 'required-tools-matrix.json', {})
+    summary = load_json(audit_root / '02-tools' / 'tool-summary.json', {})
+    by_name = {
+        t.get('name'): t for t in summary.get('tools', [])
+        if isinstance(t, dict) and t.get('name')
+    } if isinstance(summary, dict) else {}
     tools = matrix.get('tools', [])
-    rows = ['| 工具 | 适用性 | 最终状态 | 理由 |', '|---|---|---|---|']
+    rows = ['| 工具 | 适用性 | 最终状态 | 覆盖 | 准入策略 | 可支持未发现结论 | 理由 |', '|---|---|---|---|---|---|---|']
     for t in tools:
-        rows.append(f"| {t.get('name','?')} | {t.get('applicability','?')} | {t.get('final_status') or t.get('status','?')} | {t.get('final_decision_rationale') or t.get('evidence','')} |")
+        row = by_name.get(t.get('name')) or {}
+        rows.append(
+            f"| {t.get('name','?')} | {t.get('applicability','?')} | {row.get('status') or t.get('final_status') or t.get('status','?')} "
+            f"| {row.get('coverage_profile','?')} | {row.get('admission_policy','?')} "
+            f"| {row.get('negative_conclusion_allowed', False)} | {row.get('reason') or t.get('final_decision_rationale') or t.get('evidence','')} |"
+        )
     if len(rows) == 2:
-        rows.append('| 无 | 无 | 无 | 无 |')
+        rows.append('| 无 | 无 | 无 | 无 | 无 | False | 无 |')
     return '\n'.join(rows)
 
 
@@ -757,7 +767,7 @@ def main() -> int:
     # ---- write outputs ----
     machine_dir = out_root / 'machine'
     machine_dir.mkdir(parents=True, exist_ok=True)
-    en_dir = out_root
+    en_dir = out_root / 'en-US'
     zh_dir = out_root / 'zh-CN'
 
     for d in [machine_dir, en_dir, zh_dir]:
@@ -811,6 +821,7 @@ def main() -> int:
     if en_template.exists():
         en_report = render_template(en_template, values)
         (en_dir / 'final-summary-report.md').write_text(en_report)
+        (out_root / 'final-summary-report.md').write_text(en_report)
         print(f'[PVAS-FINAL-REPORT] wrote {en_dir / "final-summary-report.md"}')
     else:
         print(f'[PVAS-FINAL-REPORT] template not found: {en_template}', file=sys.stderr)

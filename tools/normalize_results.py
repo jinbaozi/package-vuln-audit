@@ -96,25 +96,47 @@ def iter_cppcheck_items(raw):
         yield from parse_cppcheck_xml(xml)
 
 
+def tool_policies(raw: pathlib.Path, explicit_summary: str | None = None) -> dict[str, str]:
+    summary_path = pathlib.Path(explicit_summary) if explicit_summary else raw.parent / 'tool-summary.json'
+    data = load_json(summary_path, default={})
+    policies = {}
+    if isinstance(data, dict):
+        for tool in data.get('tools') or []:
+            if isinstance(tool, dict) and tool.get('name'):
+                policies[str(tool['name'])] = str(tool.get('admission_policy') or 'candidate_evidence_allowed')
+    return policies
+
+
+def admissible(policy: dict[str, str], tool: str) -> bool:
+    return policy.get(tool, 'candidate_evidence_allowed') != 'not_admissible'
+
+
+def evidence_with_policy(policy: dict[str, str], tool: str, extra: dict | None = None) -> dict:
+    evidence = {'tool_refs': [tool], 'admission_policy': policy.get(tool, 'candidate_evidence_allowed')}
+    if extra:
+        evidence.update(extra)
+    return evidence
+
+
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
-    raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}
+    ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--tool-summary'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
+    raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}; policies=tool_policies(raw, args.tool_summary)
     sem=raw/'semgrep.json'
-    if sem.exists():
+    if sem.exists() and admissible(policies, 'semgrep'):
         try:
             data=load_json(sem, default={})
             for r in data.get('results',[])[:200]:
-                add_candidate(c, f'T-CAND-{n:04d}', r.get('extra',{}).get('message','Semgrep result'), 'semgrep', r.get('path'), r.get('start',{}).get('line'), {'tool_refs':['semgrep']}, 10); n+=1
+                add_candidate(c, f'T-CAND-{n:04d}', r.get('extra',{}).get('message','Semgrep result'), 'semgrep', r.get('path'), r.get('start',{}).get('line'), evidence_with_policy(policies, 'semgrep'), 10); n+=1
         except Exception as e:
             print(f'[PVAS-TOOL] Warning: failed to parse semgrep.json: {e}', file=sys.stderr)
     rg=raw/'rg.out'
-    if rg.exists():
+    if rg.exists() and admissible(policies, 'rg'):
         for line in rg.read_text(errors='ignore').splitlines()[:300]:
             m=re.match(r'([^:]+):(\d+):(.*)', line)
             if m:
-                add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), {'tool_refs':['rg'], 'sink':m.group(3).strip()[:200]}, 5); n+=1
+                add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), evidence_with_policy(policies, 'rg', {'sink':m.group(3).strip()[:200]}), 5); n+=1
     cpp_items = list(iter_cppcheck_items(raw))
-    if cpp_items:
+    if cpp_items and admissible(policies, 'cppcheck'):
         total=0; promoted=0; suppressed=0; limitation_count=0; by_severity={}; by_id={}; limitations={}
         for item in cpp_items:
             total+=1
@@ -132,7 +154,7 @@ def main():
                 suppressed+=1
                 continue
             title=(item['message'] or 'Cppcheck result')[:120]
-            evidence={'tool_refs':['cppcheck'], 'cppcheck_severity':item['severity'], 'cppcheck_id':item['id'], 'message':item['message']}
+            evidence=evidence_with_policy(policies, 'cppcheck', {'cppcheck_severity':item['severity'], 'cppcheck_id':item['id'], 'message':item['message']})
             add_candidate(c, f'T-CAND-{n:04d}', title, 'cppcheck', item['file'], item['line'], evidence, 8)
             n+=1; promoted+=1
         summaries['cppcheck']={
