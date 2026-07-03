@@ -279,6 +279,13 @@ def test_driver_writes_intake_templates_and_requires_present_by_default():
     assert 'if args.findings:' not in text
 
 
+def test_driver_requires_cppcheck_scope_before_tool_matrix():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    profile_script = (ROOT / 'tools' / 'profile_project.sh').read_text()
+    assert 'profile_registry.py' in profile_script
+    assert "out / '01-profile/cppcheck-scope.json'" in text
+
+
 def test_driver_missing_intake_from_external_cwd_writes_templates_under_invocation_out():
     with temp_audit_dir() as td:
         target = pathlib.Path(td) / 'target'
@@ -482,6 +489,7 @@ if __name__ == '__main__':
     test_driver_blocks_when_poc_generation_fails()
     test_invocation_paths_are_resolved_from_invocation_cwd()
     test_driver_writes_intake_templates_and_requires_present_by_default()
+    test_driver_requires_cppcheck_scope_before_tool_matrix()
     test_driver_missing_intake_from_external_cwd_writes_templates_under_invocation_out()
     test_startup_default_noninteractive_is_strict_efficient()
     test_startup_tty_menu_maps_three_presets()

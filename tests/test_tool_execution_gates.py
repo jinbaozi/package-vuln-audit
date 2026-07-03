@@ -425,6 +425,37 @@ def test_cppcheck_fast_mode_command_executes_and_metadata_is_recorded():
         assert row["mode_limitations"] == "fixture cppcheck mode metadata"
 
 
+def test_cppcheck_runner_creates_configured_build_dir_before_shard_execution():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, """#!/usr/bin/env python3
+import pathlib
+import sys
+for arg in sys.argv[1:]:
+    if arg.startswith("--cppcheck-build-dir="):
+        build_dir = pathlib.Path(arg.split("=", 1)[1])
+        if not build_dir.is_dir():
+            print(f"missing build dir: {build_dir}", file=sys.stderr)
+            sys.exit(13)
+""")
+        file_list = write_source_files(td, ["one.c"])
+        matrix_data = json.loads(cppcheck_matrix(td, shard_size=1).read_text())
+        matrix_data["tools"][0]["command"].insert(2, "--cppcheck-build-dir=<raw>/cppcheck-build-dir")
+        matrix = td / "matrix.json"
+        matrix.write_text(json.dumps(matrix_data))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 0, p.stderr
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "completed"
+        assert (out / "raw" / "cppcheck-build-dir").is_dir()
+
+
 def test_cppcheck_shards_all_complete_before_merging():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -665,6 +696,7 @@ if __name__ == "__main__":
     test_osv_no_package_sources_is_not_applicable()
     test_cppcheck_stderr_diagnostics_are_captured_and_mark_findings()
     test_cppcheck_fast_mode_command_executes_and_metadata_is_recorded()
+    test_cppcheck_runner_creates_configured_build_dir_before_shard_execution()
     test_cppcheck_shards_all_complete_before_merging()
     test_cppcheck_nonzero_shard_blocks_and_preserves_attempt()
     test_cppcheck_stalled_shard_splits_and_then_completes()

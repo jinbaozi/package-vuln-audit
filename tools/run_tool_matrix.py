@@ -574,6 +574,17 @@ def expand_cppcheck_command_for_file_list(command: list[str], source: pathlib.Pa
     return expanded
 
 
+def ensure_cppcheck_build_dirs(command: list[str]) -> None:
+    for idx, part in enumerate(command):
+        build_dir = ""
+        if part == "--cppcheck-build-dir" and idx + 1 < len(command):
+            build_dir = command[idx + 1]
+        elif part.startswith("--cppcheck-build-dir="):
+            build_dir = part.split("=", 1)[1]
+        if build_dir:
+            pathlib.Path(build_dir).mkdir(parents=True, exist_ok=True)
+
+
 def cppcheck_diagnostic_count(path: pathlib.Path) -> int:
     if not path.exists():
         return 0
@@ -749,6 +760,7 @@ def run_cppcheck_project(tool: dict, source: pathlib.Path, raw: pathlib.Path) ->
         }]
 
     env = expand_env(tool.get("env") or {}, source, raw)
+    ensure_cppcheck_build_dirs(command)
     rc, elapsed_ms, events, reason = run_with_watchdog(command, env, final_output, tool)
     abnormal = reason in {"spawn-failed", "abnormal-timeout"}
     if reason == "stalled" and is_blocking_tool(tool):
@@ -813,6 +825,7 @@ def run_cppcheck_shard(command: list[str], env: dict[str, str], output: pathlib.
     merged_env = os.environ.copy()
     merged_env.update(env)
     try:
+        ensure_cppcheck_build_dirs(command)
         with output.open("w") as fh:
             proc = subprocess.Popen(
                 command,

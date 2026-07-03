@@ -754,8 +754,8 @@ def main() -> int:
     stage = run_stage('01-package-profile', lambda: require_paths([intake_dir / 'intake.json']),
                       lambda: StageResult(run(['bash', 'tools/profile_project.sh', args.source, str(out / '01-profile')], allow_fail=True)[0] == 0,
                                           issues=['package profiling failed']),
-                      lambda: require_paths([out / '01-profile/package-profile.json', out / '01-profile/context-budget.json']),
-                      out_root=out, outputs=[str(out / '01-profile/package-profile.json'), str(out / '01-profile/context-budget.json')])
+                      lambda: require_paths([out / '01-profile/package-profile.json', out / '01-profile/cppcheck-scope.json', out / '01-profile/context-budget.json']),
+                      out_root=out, outputs=[str(out / '01-profile/package-profile.json'), str(out / '01-profile/cppcheck-scope.json'), str(out / '01-profile/context-budget.json')])
     if not stage.ok:
         return 2
 
