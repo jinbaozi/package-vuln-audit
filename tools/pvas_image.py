@@ -6,9 +6,11 @@ Image tags follow `pvas-sandbox:v11-2503-{imported,runtime}`.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -17,10 +19,14 @@ from typing import Optional
 
 DEFAULT_IMAGE_IMPORTED = "pvas-sandbox:v11-2503-imported"
 DEFAULT_IMAGE_RUNTIME = "pvas-sandbox:v11-2503-runtime"
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TAR_PATH = ROOT / "sandbox" / "rootfs" / "v11-2503-rootfs.tar"
+DEFAULT_SHA256SUMS = ROOT / "sandbox" / "rootfs" / "SHA256SUMS"
+DEFAULT_DOCKERFILE = ROOT / "sandbox" / "images" / "Dockerfile.runtime"
 
-# The shipped sandbox/rootfs/SHA256SUMS carries an all-zeros placeholder because
-# the real rootfs tarball is delivered out-of-band (git-lfs). Treat that exact
-# value as "integrity unknown, proceed with a warning" rather than a hard fail.
+# The all-zeros value is recognized only as a legacy/test placeholder. Normal
+# CLI and driver paths reject it because the rootfs tar is now expected to be
+# pinned by a real checksum.
 _PLACEHOLDER_SHA256 = "0" * 64
 
 
@@ -44,11 +50,40 @@ def _is_placeholder_sha256(expected_sha256: str) -> bool:
     return expected_sha256.strip().lower() == _PLACEHOLDER_SHA256
 
 
+def _placeholder_allowed(allow_placeholder: bool = False) -> bool:
+    return allow_placeholder or os.environ.get("PVAS_ALLOW_PLACEHOLDER_SHA256", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "compat",
+    }
+
+
+def read_expected_sha256(sums_path: Path, filename: str) -> str:
+    """Read the expected SHA256 for filename from a SHA256SUMS file."""
+    if not sums_path.is_file():
+        raise ImageImportFailed(f"missing checksum file: {sums_path}")
+    for line in sums_path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == filename:
+            return parts[0].strip().lower()
+    raise ImageImportFailed(f"{filename} not found in {sums_path}")
+
+
+def sha256_file(path: Path) -> str:
+    """Hash a file without loading large rootfs tarballs into memory."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def verify_tar(tar_path: Path, expected_sha256: str) -> None:
     """校验 tar 的 SHA256。失败抛 ImageImportFailed。"""
     if not tar_path.is_file():
         raise ImageImportFailed(f"missing tar: {tar_path}")
-    actual = hashlib.sha256(tar_path.read_bytes()).hexdigest()
+    actual = sha256_file(tar_path)
     if actual != expected_sha256:
         raise ImageImportFailed(
             f"SHA256 mismatch for {tar_path}: expected={expected_sha256} actual={actual}"
@@ -81,18 +116,23 @@ def ensure_imported(
     image: str,
     backend: str,
     env_overrides: Optional[dict] = None,
+    allow_placeholder: bool = False,
 ) -> str:
     """verify → is_imported? skip : import。返回 image tag。
 
-    当 expected_sha256 是全零占位符时（真实 rootfs tar 尚未随仓库分发），
-    仅打印 warning 并跳过校验后继续 import，避免阻断审计。
+    Production paths reject the all-zero checksum placeholder. Set
+    allow_placeholder=True or PVAS_ALLOW_PLACEHOLDER_SHA256=1 only for explicit
+    compatibility/testing scenarios.
     """
     if _is_placeholder_sha256(expected_sha256):
-        print(
-            f"[pvas][WARN] SHA256SUMS placeholder detected for {tar_path}; "
-            "skipping integrity check (real rootfs tarball not yet pinned)",
-            file=sys.stderr,
-        )
+        if not _placeholder_allowed(allow_placeholder):
+            raise ImageImportFailed(
+                f"SHA256SUMS placeholder detected for {tar_path}; refusing to import. "
+                "Pin the real checksum or run `python3 tools/pvas_image.py import` after "
+                "placing the tracked rootfs tar."
+            )
+        print(f"[pvas][WARN] SHA256SUMS placeholder detected for {tar_path}; skipping integrity check",
+              file=sys.stderr)
     else:
         verify_tar(tar_path, expected_sha256)
     if is_imported(image, backend, env_overrides=env_overrides):
@@ -220,3 +260,155 @@ def ensure_runtime_image(
     build_runtime(base_image, target_image, dockerfile, backend,
                   env_overrides=env_overrides)
     return target_image
+
+
+def detect_backend(env_overrides: Optional[dict] = None) -> str:
+    """Return docker or podman from PATH, preferring docker."""
+    env = _merged_env(env_overrides)
+    for candidate in ("docker", "podman"):
+        if shutil.which(candidate, path=env.get("PATH")):
+            return candidate
+    raise ImageImportFailed("no docker/podman backend found in PATH")
+
+
+def status_payload(
+    tar_path: Path = DEFAULT_TAR_PATH,
+    sums_path: Path = DEFAULT_SHA256SUMS,
+    imported_image: str = DEFAULT_IMAGE_IMPORTED,
+    runtime_image: str = DEFAULT_IMAGE_RUNTIME,
+    backend: Optional[str] = None,
+    env_overrides: Optional[dict] = None,
+) -> dict:
+    """Return a JSON-serializable readiness payload for the sandbox images."""
+    payload: dict = {
+        "tar_path": str(tar_path),
+        "tar_exists": tar_path.is_file(),
+        "checksum_path": str(sums_path),
+        "checksum_exists": sums_path.is_file(),
+        "expected_sha256": "",
+        "actual_sha256": "",
+        "hash_matches": False,
+        "hash_status": "unknown",
+        "backend": "",
+        "imported_image": imported_image,
+        "imported_exists": False,
+        "runtime_image": runtime_image,
+        "runtime_exists": False,
+        "status": "not-ready",
+    }
+    try:
+        expected = read_expected_sha256(sums_path, tar_path.name)
+        payload["expected_sha256"] = expected
+        if _is_placeholder_sha256(expected):
+            payload["hash_status"] = "placeholder"
+        elif payload["tar_exists"]:
+            actual = sha256_file(tar_path)
+            payload["actual_sha256"] = actual
+            payload["hash_matches"] = actual == expected
+            payload["hash_status"] = "match" if actual == expected else "mismatch"
+        else:
+            payload["hash_status"] = "tar-missing"
+    except ImageImportFailed as exc:
+        payload["hash_status"] = f"error: {exc}"
+
+    try:
+        selected_backend = backend or detect_backend(env_overrides=env_overrides)
+        payload["backend"] = selected_backend
+        payload["imported_exists"] = is_imported(imported_image, selected_backend, env_overrides=env_overrides)
+        payload["runtime_exists"] = is_imported(runtime_image, selected_backend, env_overrides=env_overrides)
+    except ImageImportFailed:
+        payload["backend"] = ""
+
+    ready_hash = payload["tar_exists"] and payload["hash_matches"]
+    ready_images = bool(payload["backend"]) and payload["imported_exists"] and payload["runtime_exists"]
+    if ready_hash and ready_images:
+        payload["status"] = "ready"
+    elif ready_hash:
+        payload["status"] = "import-required"
+    return payload
+
+
+def import_default_images(
+    tar_path: Path = DEFAULT_TAR_PATH,
+    sums_path: Path = DEFAULT_SHA256SUMS,
+    imported_image: str = DEFAULT_IMAGE_IMPORTED,
+    runtime_image: str = DEFAULT_IMAGE_RUNTIME,
+    dockerfile: Path = DEFAULT_DOCKERFILE,
+    backend: Optional[str] = None,
+    env_overrides: Optional[dict] = None,
+) -> dict:
+    """Verify the rootfs tar, import the base image, and build the runtime image."""
+    selected_backend = backend or detect_backend(env_overrides=env_overrides)
+    expected = read_expected_sha256(sums_path, tar_path.name)
+    imported = ensure_imported(
+        tar_path,
+        expected,
+        imported_image,
+        selected_backend,
+        env_overrides=env_overrides,
+    )
+    runtime = ensure_runtime_image(
+        imported,
+        runtime_image,
+        dockerfile,
+        selected_backend,
+        env_overrides=env_overrides,
+    )
+    return status_payload(
+        tar_path=tar_path,
+        sums_path=sums_path,
+        imported_image=imported_image,
+        runtime_image=runtime_image,
+        backend=selected_backend,
+        env_overrides=env_overrides,
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Manage PVAS sandbox rootfs images")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("status", "import"):
+        cmd = sub.add_parser(name)
+        cmd.add_argument("--tar", type=Path, default=DEFAULT_TAR_PATH)
+        cmd.add_argument("--sha256sums", type=Path, default=DEFAULT_SHA256SUMS)
+        cmd.add_argument("--imported-image", default=DEFAULT_IMAGE_IMPORTED)
+        cmd.add_argument("--runtime-image", default=DEFAULT_IMAGE_RUNTIME)
+        cmd.add_argument("--backend", choices=("docker", "podman"))
+        if name == "import":
+            cmd.add_argument("--dockerfile", type=Path, default=DEFAULT_DOCKERFILE)
+    return parser
+
+
+def main(argv: Optional[list[str]] = None, env_overrides: Optional[dict] = None) -> int:
+    args = _build_parser().parse_args(argv)
+    try:
+        if args.command == "status":
+            payload = status_payload(
+                tar_path=args.tar,
+                sums_path=args.sha256sums,
+                imported_image=args.imported_image,
+                runtime_image=args.runtime_image,
+                backend=args.backend,
+                env_overrides=env_overrides,
+            )
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            return 0 if payload["status"] == "ready" else 1
+
+        payload = import_default_images(
+            tar_path=args.tar,
+            sums_path=args.sha256sums,
+            imported_image=args.imported_image,
+            runtime_image=args.runtime_image,
+            dockerfile=args.dockerfile,
+            backend=args.backend,
+            env_overrides=env_overrides,
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 0
+    except ImageImportFailed as exc:
+        print(f"[pvas_image] {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

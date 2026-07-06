@@ -3,6 +3,7 @@
 import contextlib
 import hashlib
 import io
+import json
 import os
 import pathlib
 import sys
@@ -153,10 +154,22 @@ def test_ensure_imported_mismatch_raises():
         assert 'import' not in log.read_text()
 
 
-def test_ensure_imported_placeholder_warns_but_proceeds():
-    """The shipped SHA256SUMS is an all-zeros placeholder (real rootfs tar is
-    git-lfs deferred). ensure_imported must warn on the placeholder but still
-    proceed to import rather than blocking the audit."""
+def test_ensure_imported_placeholder_rejected_by_default():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        tar = td / 'rootfs.tar'
+        tar.write_bytes(b'PVAS_ROOTFS_V11_2503')
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True, 'import_ok': True})
+        with _raises(pvas_image.ImageImportFailed):
+            pvas_image.ensure_imported(
+                tar, '0' * 64, 'pvas-sandbox:v11-2503-imported', 'docker',
+                env_overrides=_path_env(bin_dir),
+            )
+        assert 'import' not in log.read_text()
+
+
+def test_ensure_imported_placeholder_compat_warns_but_proceeds():
+    """Explicit compatibility mode can still test legacy placeholder behavior."""
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         tar = td / 'rootfs.tar'
@@ -166,7 +179,7 @@ def test_ensure_imported_placeholder_warns_but_proceeds():
         with contextlib.redirect_stderr(err):
             result = pvas_image.ensure_imported(
                 tar, '0' * 64, 'pvas-sandbox:v11-2503-imported', 'docker',
-                env_overrides=_path_env(bin_dir),
+                env_overrides=_path_env(bin_dir), allow_placeholder=True,
             )
         assert result == 'pvas-sandbox:v11-2503-imported'
         assert 'placeholder' in err.getvalue().lower(), err.getvalue()
@@ -373,6 +386,117 @@ exit 0
         assert 'build' in text, f'expected build call, log: {text}'
 
 
+def test_cli_status_missing_tar_returns_not_ready_json():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        sums = td / 'SHA256SUMS'
+        sums.write_text(f"{'a' * 64}  missing.tar\n")
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = pvas_image.main([
+                'status',
+                '--tar', str(td / 'missing.tar'),
+                '--sha256sums', str(sums),
+            ], env_overrides={'PATH': str(td)})
+        payload = json.loads(out.getvalue())
+        assert rc == 1
+        assert payload['tar_exists'] is False
+        assert payload['status'] == 'not-ready'
+
+
+def test_cli_import_sha_mismatch_blocks_backend_import():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        tar = td / 'rootfs.tar'
+        tar.write_bytes(b'data')
+        sums = td / 'SHA256SUMS'
+        sums.write_text(f"{'a' * 64}  rootfs.tar\n")
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True, 'import_ok': True})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = pvas_image.main([
+                'import',
+                '--tar', str(tar),
+                '--sha256sums', str(sums),
+                '--dockerfile', str(td / 'Dockerfile.runtime'),
+            ], env_overrides=_path_env(bin_dir))
+        assert rc == 2
+        assert 'SHA256 mismatch' in err.getvalue()
+        assert 'import' not in log.read_text()
+
+
+def test_cli_import_skips_when_images_present():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        tar = td / 'rootfs.tar'
+        tar.write_bytes(b'data')
+        sha = hashlib.sha256(tar.read_bytes()).hexdigest()
+        sums = td / 'SHA256SUMS'
+        sums.write_text(f"{sha}  rootfs.tar\n")
+        images = 'pvas-sandbox:v11-2503-imported\\npvas-sandbox:v11-2503-runtime'
+        bin_dir, log = _make_mock_docker(td, {'images_list': images, 'import_ok': True})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = pvas_image.main([
+                'import',
+                '--tar', str(tar),
+                '--sha256sums', str(sums),
+                '--dockerfile', str(td / 'Dockerfile.runtime'),
+            ], env_overrides=_path_env(bin_dir))
+        payload = json.loads(out.getvalue())
+        log_text = log.read_text()
+        assert rc == 0
+        assert payload['status'] == 'ready'
+        assert 'import' not in log_text
+        assert 'build' not in log_text
+
+
+def test_cli_import_calls_backend_import_and_build_when_missing():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        tar = td / 'rootfs.tar'
+        tar.write_bytes(b'data')
+        sha = hashlib.sha256(tar.read_bytes()).hexdigest()
+        sums = td / 'SHA256SUMS'
+        sums.write_text(f"{sha}  rootfs.tar\n")
+        dockerfile = td / 'Dockerfile.runtime'
+        dockerfile.write_text('FROM scratch\n')
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True, 'import_ok': True})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = pvas_image.main([
+                'import',
+                '--tar', str(tar),
+                '--sha256sums', str(sums),
+                '--dockerfile', str(dockerfile),
+            ], env_overrides=_path_env(bin_dir))
+        log_text = log.read_text()
+        assert rc == 0
+        assert 'import' in log_text
+        assert 'build' in log_text
+
+
+def test_cli_import_rejects_placeholder_sha256():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        tar = td / 'rootfs.tar'
+        tar.write_bytes(b'data')
+        sums = td / 'SHA256SUMS'
+        sums.write_text(f"{'0' * 64}  rootfs.tar\n")
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True, 'import_ok': True})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = pvas_image.main([
+                'import',
+                '--tar', str(tar),
+                '--sha256sums', str(sums),
+            ], env_overrides=_path_env(bin_dir))
+        assert rc == 2
+        assert 'placeholder' in err.getvalue().lower()
+        assert 'import' not in log.read_text()
+
+
 if __name__ == '__main__':
     test_verify_tar_matches()
     test_verify_tar_mismatch_raises()
@@ -382,7 +506,8 @@ if __name__ == '__main__':
     test_ensure_imported_skips_when_present()
     test_ensure_imported_calls_import_when_absent()
     test_ensure_imported_mismatch_raises()
-    test_ensure_imported_placeholder_warns_but_proceeds()
+    test_ensure_imported_placeholder_rejected_by_default()
+    test_ensure_imported_placeholder_compat_warns_but_proceeds()
     test_list_containers_by_audit()
     test_list_images_by_audit()
     test_prompt_cleanup_never_policy_logs_and_leaves()
@@ -392,4 +517,9 @@ if __name__ == '__main__':
     test_build_runtime_invokes_docker_build()
     test_ensure_runtime_image_skips_when_present()
     test_ensure_runtime_image_calls_build_when_absent()
+    test_cli_status_missing_tar_returns_not_ready_json()
+    test_cli_import_sha_mismatch_blocks_backend_import()
+    test_cli_import_skips_when_images_present()
+    test_cli_import_calls_backend_import_and_build_when_missing()
+    test_cli_import_rejects_placeholder_sha256()
     print('pvas_image tests passed')

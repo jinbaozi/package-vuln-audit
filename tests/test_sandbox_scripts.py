@@ -27,6 +27,18 @@ def test_sha256sums_file():
     assert line, 'SHA256SUMS empty'
     parts = line[0].split()
     assert len(parts) == 2, f'expected "<sha>  <file>" in first line, got {line[0]!r}'
+    assert parts[0] != '0' * 64, 'SHA256SUMS must not use the all-zero placeholder'
+
+def test_rootfs_tar_declared_as_lfs_tracked():
+    result = subprocess.run(
+        ['git', 'check-attr', '-a', '--', 'sandbox/rootfs/v11-2503-rootfs.tar'],
+        cwd=str(ROOT), capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    attrs = result.stdout
+    assert 'filter: lfs' in attrs, attrs
+    assert 'diff: lfs' in attrs, attrs
+    assert 'merge: lfs' in attrs, attrs
 
 def test_check_backend_finds_docker_or_podman_or_fails_cleanly():
     """无论主机有没有 docker/podman，脚本都应按文档行为返回 0 或 1。"""
@@ -45,5 +57,6 @@ if __name__ == '__main__':
     test_import_image_script_exists_and_executable()
     test_version_file()
     test_sha256sums_file()
+    test_rootfs_tar_declared_as_lfs_tracked()
     test_check_backend_finds_docker_or_podman_or_fails_cleanly()
     print('sandbox_scripts tests passed')

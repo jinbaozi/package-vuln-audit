@@ -194,7 +194,10 @@ def initialize_sandbox_runtime(out: pathlib.Path) -> dict:
         os.environ['PVAS_RUNTIME_IMAGE'] = runtime
         state.update({'status': 'ready', 'imported_image': imported, 'runtime_image': runtime})
     except Exception as exc:
-        state.update({'status': 'image-unavailable', 'error': str(exc)})
+        state.update({
+            'status': 'image-unavailable',
+            'error': f"{exc}. Run `python3 tools/pvas_image.py import` from the skill repository to import the sandbox image manually.",
+        })
     write_json(out / 'machine/sandbox-runtime.json', state)
     return state
 
