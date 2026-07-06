@@ -67,6 +67,10 @@ def test_binutils_profile_includes_build_tools():
     }, profile_name="binutils")
     names = {t["name"]: t for t in matrix["tools"]}
     assert names["gcc"]["applicability"] in {"profile-required", "mandatory"}
+    assert names["g++"]["applicability"] in {"profile-required", "mandatory"}
+    assert names["clang"]["applicability"] in {"profile-required", "mandatory"}
+    assert names["clang++"]["applicability"] in {"profile-required", "mandatory"}
+    assert names["llvm-symbolizer"]["applicability"] in {"profile-required", "mandatory"}
     assert names["make"]["applicability"] in {"profile-required", "mandatory"}
     assert names["timeout"]["applicability"] in {"profile-required", "mandatory"}
 
@@ -114,6 +118,11 @@ def test_matrix_propagates_catalog_sandbox_metadata():
         assert isinstance(tool.get("network_required"), bool), tool["name"]
         assert isinstance(tool.get("allowed_cidrs"), list), tool["name"]
         assert tool.get("sandbox_runtime") == "pvas-container", tool["name"]
+        assert tool.get("expected_runtime") == "pvas-container", tool["name"]
+        assert tool.get("required_binary") == tool["binary"], tool["name"]
+        assert isinstance(tool.get("version_command"), list), tool["name"]
+        assert tool.get("runtime_scope"), tool["name"]
+        assert tool.get("install_requirement"), tool["name"]
 
 
 def test_cppcheck_matrix_uses_sharded_runner_and_gcc_template():

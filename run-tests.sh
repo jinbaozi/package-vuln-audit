@@ -15,6 +15,8 @@ python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_validation_targets.py
 python3 -u tests/test_workflow_validators.py
 python3 -u tests/test_tool_install_plan.py
+python3 -u tests/test_runtime_install_plan.py
+python3 -u tests/test_runtime_tool_check.py
 python3 -u tests/test_strict_mode.py
 python3 -u tests/test_no_docker_fallback.py
 python3 -u tests/test_cppcheck_scope_profile.py

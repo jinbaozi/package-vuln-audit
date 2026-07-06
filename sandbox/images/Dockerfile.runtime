@@ -1,5 +1,17 @@
 ARG BASE=pvas-sandbox:v11-2503-imported
 FROM ${BASE}
+USER root
+RUN dnf install -y \
+    ripgrep cppcheck gcc gcc-c++ clang llvm compiler-rt \
+    make coreutils autoconf automake libtool bison flex \
+    pkgconf-pkg-config cmake ninja-build git patch diffutils findutils file \
+    python3 python3-pip nodejs npm \
+  && dnf clean all
+COPY offline-bundle/ /opt/pvas/offline-bundle/
+COPY sandbox/scripts/install-runtime-tools.sh /opt/pvas/install-runtime-tools.sh
+RUN sh /opt/pvas/install-runtime-tools.sh /opt/pvas/offline-bundle /opt/pvas/tools
+ENV PATH="/opt/pvas/tools/bin:/usr/lib64/llvm/bin:${PATH}"
+ENV ASAN_SYMBOLIZER_PATH="/usr/bin/llvm-symbolizer"
 RUN mkdir -p /workspace /out && chown 65534:65534 /workspace /out
 USER 65534:65534
 VOLUME ["/workspace", "/out"]

@@ -151,6 +151,84 @@ CATALOG = {
         "version_args": ["--version"],
         "dnf_package": "gcc",
     },
+    "g++": {
+        "binary": "g++",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["asan-ubsan-build", "c-cpp-build"],
+        "impact": "Binutils sanitizer builds may not run with the C++ compiler.",
+        "install_hint_id": "g++",
+        "version_args": ["--version"],
+        "dnf_package": "gcc-c++",
+    },
+    "clang": {
+        "binary": "clang",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["asan-ubsan-build", "c-cpp-validation"],
+        "impact": "Clang sanitizer validation builds cannot run.",
+        "install_hint_id": "clang",
+        "version_args": ["--version"],
+        "dnf_package": "clang",
+    },
+    "clang++": {
+        "binary": "clang++",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["asan-ubsan-build", "c-cpp-validation"],
+        "impact": "C++ sanitizer validation builds cannot run with Clang.",
+        "install_hint_id": "clang++",
+        "version_args": ["--version"],
+        "dnf_package": "clang",
+    },
+    "llvm-symbolizer": {
+        "binary": "llvm-symbolizer",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["asan-symbolization", "validation-diagnostics"],
+        "impact": "Sanitizer traces may be unsymbolized or unusable for validation evidence.",
+        "install_hint_id": "llvm-symbolizer",
+        "version_args": ["--version"],
+        "dnf_package": "llvm",
+    },
+    "llvm-profdata": {
+        "binary": "llvm-profdata",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "optional",
+        "profiles": ["binutils"],
+        "required_for": ["coverage-profile-merge"],
+        "impact": "LLVM coverage profile merging will not run.",
+        "install_hint_id": "llvm-profdata",
+        "version_args": ["--version"],
+        "dnf_package": "llvm",
+    },
+    "llvm-cov": {
+        "binary": "llvm-cov",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "optional",
+        "profiles": ["binutils"],
+        "required_for": ["coverage-reporting"],
+        "impact": "LLVM coverage reporting will not run.",
+        "install_hint_id": "llvm-cov",
+        "version_args": ["--version"],
+        "dnf_package": "llvm",
+    },
     "make": {
         "binary": "make",
         "mem_limit_mb": 2048,
@@ -164,6 +242,110 @@ CATALOG = {
         "version_args": ["--version"],
         "dnf_package": "make",
     },
+    "autoconf": {
+        "binary": "autoconf",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["autotools-build"],
+        "impact": "Autotools projects may not regenerate configure scripts.",
+        "install_hint_id": "autoconf",
+        "version_args": ["--version"],
+        "dnf_package": "autoconf",
+    },
+    "automake": {
+        "binary": "automake",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["autotools-build"],
+        "impact": "Automake based projects may not build from source.",
+        "install_hint_id": "automake",
+        "version_args": ["--version"],
+        "dnf_package": "automake",
+    },
+    "libtool": {
+        "binary": "libtool",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["autotools-build"],
+        "impact": "Libtool based configure/build steps may fail.",
+        "install_hint_id": "libtool",
+        "version_args": ["--version"],
+        "dnf_package": "libtool",
+    },
+    "bison": {
+        "binary": "bison",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["parser-generator-build"],
+        "impact": "Parser generator rebuilds may fail.",
+        "install_hint_id": "bison",
+        "version_args": ["--version"],
+        "dnf_package": "bison",
+    },
+    "flex": {
+        "binary": "flex",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["lexer-generator-build"],
+        "impact": "Lexer generator rebuilds may fail.",
+        "install_hint_id": "flex",
+        "version_args": ["--version"],
+        "dnf_package": "flex",
+    },
+    "cmake": {
+        "binary": "cmake",
+        "mem_limit_mb": 1024,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["cmake-build"],
+        "impact": "CMake based projects cannot be configured.",
+        "install_hint_id": "cmake",
+        "version_args": ["--version"],
+        "dnf_package": "cmake",
+    },
+    "ninja": {
+        "binary": "ninja",
+        "mem_limit_mb": 1024,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["ninja-build"],
+        "impact": "Ninja based builds cannot run.",
+        "install_hint_id": "ninja",
+        "version_args": ["--version"],
+        "dnf_package": "ninja-build",
+    },
+    "pkg-config": {
+        "binary": "pkg-config",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
+        "level": "recommended",
+        "profiles": ["binutils"],
+        "required_for": ["dependency-discovery"],
+        "impact": "Native dependency discovery may fail.",
+        "install_hint_id": "pkg-config",
+        "version_args": ["--version"],
+        "dnf_package": "pkgconf-pkg-config",
+    },
     "timeout": {
         "binary": "timeout",
         "mem_limit_mb": 256,
@@ -175,6 +357,7 @@ CATALOG = {
         "impact": "Validation commands cannot be bounded with timeout.",
         "install_hint_id": "coreutils-timeout",
         "version_args": ["--version"],
+        "dnf_package": "coreutils",
     },
 }
 
@@ -182,7 +365,12 @@ PROFILE_TOOLS = {
     "minimal": ["rg"],
     "standard": ["rg", "semgrep", "cppcheck", "osv-scanner", "npm"],
     "full": ["rg", "semgrep", "cppcheck", "osv-scanner", "npm", "codeql", "joern", "syft", "grype", "trivy", "afl-fuzz"],
-    "binutils": ["rg", "semgrep", "cppcheck", "osv-scanner", "codeql", "gcc", "make", "timeout", "afl-fuzz"],
+    "binutils": [
+        "rg", "semgrep", "cppcheck", "osv-scanner", "codeql",
+        "gcc", "g++", "clang", "clang++", "llvm-symbolizer", "llvm-profdata", "llvm-cov",
+        "make", "timeout", "autoconf", "automake", "libtool", "bison", "flex",
+        "cmake", "ninja", "pkg-config", "afl-fuzz",
+    ],
 }
 
 # Directories to search for traditional tool binaries when PATH lookup fails.
@@ -196,7 +384,7 @@ COMMON_BIN_DIRS: list[str] = [
 STRICT_REQUIRED_TOOLS = {
     "minimal": ["rg"],
     "standard": ["rg", "semgrep", "cppcheck", "osv-scanner"],
-    "binutils": ["rg", "semgrep", "cppcheck", "osv-scanner", "gcc", "make", "timeout"],
+    "binutils": ["rg", "semgrep", "cppcheck", "osv-scanner", "gcc", "g++", "clang", "clang++", "llvm-symbolizer", "make", "timeout"],
     "full": ["rg", "semgrep", "cppcheck", "osv-scanner", "codeql", "syft", "grype"],
 }
 
@@ -269,6 +457,30 @@ INSTALL_HINTS = {
         {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline toolchain bundle or existing build environment"], "notes": "Compiler toolchains are environment dependencies; do not mutate system by default."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install gcc"], "notes": "Requires separate system-install authorization."},
     ],
+    "g++": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline C++ toolchain bundle or existing build environment"], "notes": "Compiler toolchains are environment dependencies; do not mutate system by default."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install gcc-c++"], "notes": "Requires separate system-install authorization."},
+    ],
+    "clang": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline LLVM/Clang bundle or existing runtime image package"], "notes": "Preferred for controlled networks and container image rebuilds."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install clang llvm compiler-rt"], "notes": "Requires separate system-install authorization."},
+    ],
+    "clang++": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline LLVM/Clang bundle or existing runtime image package"], "notes": "Preferred for controlled networks and container image rebuilds."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install clang llvm compiler-rt"], "notes": "Requires separate system-install authorization."},
+    ],
+    "llvm-symbolizer": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline LLVM bundle or existing runtime image package"], "notes": "Required for sanitizer symbolization in validation."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install llvm"], "notes": "Requires separate system-install authorization."},
+    ],
+    "llvm-profdata": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline LLVM bundle or existing runtime image package"], "notes": "Optional coverage tooling."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install llvm"], "notes": "Requires separate system-install authorization."},
+    ],
+    "llvm-cov": [
+        {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline LLVM bundle or existing runtime image package"], "notes": "Optional coverage tooling."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install llvm"], "notes": "Requires separate system-install authorization."},
+    ],
     "make": [
         {"priority": 0, "method": "offline-bundle", "commands": ["# Use approved offline build tools bundle or existing build environment"], "notes": "Build tools are environment dependencies; do not mutate system by default."},
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install make"], "notes": "Requires separate system-install authorization."},
@@ -278,3 +490,23 @@ INSTALL_HINTS = {
         {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": ["# Last-resort administrator plan only", "# sudo dnf install coreutils"], "notes": "Requires separate system-install authorization."},
     ],
 }
+
+for _name in ("autoconf", "automake", "libtool", "bison", "flex", "cmake", "ninja", "pkg-config"):
+    INSTALL_HINTS.setdefault(_name, [
+        {"priority": 0, "method": "offline-bundle", "commands": [f"# Use approved offline {_name} bundle or rebuild the runtime image with dnf"], "notes": "Container runtime dependency; do not mutate the host by default."},
+        {"priority": 9, "method": "admin-rpm-dnf-plan", "commands": [f"# Last-resort administrator plan only", f"# sudo dnf install {CATALOG[_name]['dnf_package']}"], "notes": "Requires separate system-install authorization."},
+    ])
+
+
+def _install_methods_for(name: str, meta: dict) -> list[str]:
+    methods = [item["method"] for item in INSTALL_HINTS.get(meta.get("install_hint_id", name), INSTALL_HINTS.get(name, []))]
+    if meta.get("dnf_package") and "admin-rpm-dnf-plan" not in methods:
+        methods.append("admin-rpm-dnf-plan")
+    return methods or ["offline-bundle"]
+
+
+for _name, _meta in CATALOG.items():
+    _meta.setdefault("runtime_scope", "container-optional" if _meta.get("level") == "optional" else "container-required")
+    if _name in {"clang", "clang++", "llvm-symbolizer", "gcc", "g++", "make", "timeout"}:
+        _meta["runtime_scope"] = "validation-required"
+    _meta.setdefault("install_methods", _install_methods_for(_name, _meta))

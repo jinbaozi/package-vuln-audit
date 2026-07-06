@@ -31,6 +31,16 @@ def test_driver_generates_tool_matrix_before_running_tools():
     assert 'tools/run_tools.sh' in text
 
 
+def test_driver_runs_runtime_preflight_before_tool_scan():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    preflight_pos = text.index('runtime_preflight')
+    tool_scan_pos = text.index("def exec_tools():")
+    assert preflight_pos < tool_scan_pos
+    assert 'tools/generate_runtime_install_plan.py' in text
+    assert 'runtime-tool-check.json' in text
+    assert 'blocked-recovery-required' in text
+
+
 def test_driver_records_cppcheck_mode_before_generating_matrix():
     text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
     assert 'resolve_cppcheck_mode' in text
@@ -576,6 +586,7 @@ def test_cppcheck_mode_prompt_disabled_selects_fast():
 
 if __name__ == '__main__':
     test_driver_generates_tool_matrix_before_running_tools()
+    test_driver_runs_runtime_preflight_before_tool_scan()
     test_driver_records_cppcheck_mode_before_generating_matrix()
     test_run_tools_standalone_generates_matrix_with_cppcheck_mode()
     test_driver_enforces_ai_hypothesis_stage()

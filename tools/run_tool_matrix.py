@@ -322,6 +322,48 @@ def should_run_in_container(tool: dict) -> bool:
     return tool.get("sandbox_runtime") == "pvas-container" and tool.get("applicability") != "not-applicable"
 
 
+def runtime_preflight_block_row(tool: dict) -> tuple[dict | None, list[dict]]:
+    if not should_run_in_container(tool):
+        return None, []
+    check_path = tool.get("runtime_tool_check")
+    if not check_path:
+        return None, []
+    path = pathlib.Path(str(check_path))
+    if not path.exists():
+        return None, []
+    check = load_json(path, default={}) or {}
+    if check.get("status") == "passed":
+        return None, []
+    name = tool.get("name", "?")
+    tools = check.get("tools") if isinstance(check.get("tools"), dict) else {}
+    tool_status = tools.get(name, {}) if isinstance(tools, dict) else {}
+    reason = str(check.get("reason") or "")
+    if not reason and isinstance(tool_status, dict) and tool_status.get("status") != "present":
+        reason = f"container-tool-missing: {name}"
+    if not reason:
+        reason = "runtime-tool-check-failed"
+    recovery_action = str(check.get("recovery_action") or "rebuild-runtime-image")
+    return {
+        "name": name,
+        "status": "blocked-recovery-required",
+        "output": "",
+        "reason": reason,
+        "notes": tool.get("evidence", ""),
+        "strict_decision": "block" if is_blocking_tool(tool) else "needs-install",
+        "coverage_impact": tool.get("evidence", ""),
+        "watchdog_events": [],
+        "network_used": False,
+        "result_count": 0,
+        "output_bytes": 0,
+        "raw_output_ref": "",
+        "terminal_summary_truncated": False,
+        "actual_runtime": "container",
+        "expected_runtime": tool.get("expected_runtime", "pvas-container"),
+        "recovery_action": recovery_action,
+        "runtime_tool_check": str(path),
+    }, []
+
+
 def container_network_policy(tool: dict) -> str:
     if not tool.get("network_required"):
         return "bridge-deny"
@@ -1391,6 +1433,13 @@ def run_matrix_tools(
         attempts.extend(tool_attempts)
 
     def run_container_preflight_or_spec(tool: dict) -> pvas_container.ContainerSpec | None:
+        runtime_row, runtime_attempts = runtime_preflight_block_row(tool)
+        if runtime_row:
+            runtime_row = finalize_tool_row(tool, runtime_row)
+            print_tool_status(runtime_row)
+            rows.append(runtime_row)
+            attempts.extend(runtime_attempts)
+            return None
         row, tool_attempts = preflight_tool(tool, raw, source=source if tool["name"] == "osv-scanner" else None)
         if row:
             row = finalize_tool_row(tool, row)

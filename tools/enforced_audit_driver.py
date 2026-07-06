@@ -34,6 +34,8 @@ import pvas_container
 import pvas_image
 import pvas_netpolicy
 import manifest_io
+import generate_runtime_install_plan
+import verify_runtime_tools
 from validate_validation_results import finding_errors as validation_finding_errors
 
 FINAL_STATUSES = {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}
@@ -48,7 +50,7 @@ TOOL_BLOCKING_STATUSES = {
     'nonzero-exit',
 }
 BUSINESS_WORKFLOWS = manifest_io.business_workflow_ids(ROOT)
-SYSTEM_WORKFLOWS = ['00-workflow-contract', '00-manifest-validation', '00-environment', '10-final-completeness']
+SYSTEM_WORKFLOWS = ['00-workflow-contract', '00-manifest-validation', '00-environment', '00-runtime-preflight', '10-final-completeness']
 WORKFLOW_PRESETS = {
     'strict-efficient': {
         'mode': 'strict',
@@ -207,6 +209,96 @@ def initialize_sandbox_runtime(out: pathlib.Path) -> dict:
         })
     write_json(out / 'machine/sandbox-runtime.json', state)
     return state
+
+
+def runtime_preflight(out: pathlib.Path, profile: str, network_policy: str, *, mode: str, allow_degraded: bool) -> StageResult:
+    env_out = out / '00-environment'
+    # Keep command strings discoverable for workflow-gate tests and operators:
+    # tools/generate_runtime_install_plan.py and tools/verify_runtime_tools.py.
+    plan = generate_runtime_install_plan.build_runtime_install_plan(
+        profile=profile,
+        network_mode=network_policy,
+        target_runtime='pvas-container',
+    )
+    generate_runtime_install_plan.write_runtime_install_plan(plan, env_out)
+    if plan.get('status') == 'blocked-install-source-missing':
+        check = {
+            'schema_version': '1.0',
+            'status': 'blocked-install-source-missing',
+            'profile': profile,
+            'target_runtime': 'pvas-container',
+            'actual_runtime': 'container',
+            'reason': 'runtime install source missing',
+            'recovery_action': 'provide-offline-bundle-or-approved-repo',
+            'tools': {},
+        }
+        verify_runtime_tools.write_runtime_tool_check(check, env_out)
+        return StageResult(False, decision='blocked-recovery-required', issues=['runtime install source missing'], details={'runtime_preflight': check})
+
+    sandbox = load_json(out / 'machine/sandbox-runtime.json', default={}) or {}
+    sandbox_mode = str(sandbox.get('mode') or os.environ.get('PVAS_SANDBOX', 'enabled')).lower()
+    if sandbox_mode in {'0', 'false', 'no', 'disabled'}:
+        if mode == 'strict' and not allow_degraded and profile != 'minimal':
+            check = {
+                'schema_version': '1.0',
+                'status': 'blocked-recovery-required',
+                'profile': profile,
+                'target_runtime': 'pvas-container',
+                'actual_runtime': 'host-degraded-sandbox-disabled',
+                'reason': 'expected-runtime-container-disabled',
+                'recovery_action': 'enable-pvas-sandbox-or-use-explicit-degraded',
+                'tools': {},
+            }
+            verify_runtime_tools.write_runtime_tool_check(check, env_out)
+            return StageResult(False, decision='blocked-recovery-required', issues=['container runtime disabled in strict mode'], details={'runtime_preflight': check})
+        check = {
+            'schema_version': '1.0',
+            'status': 'passed',
+            'profile': profile,
+            'target_runtime': 'pvas-container',
+            'actual_runtime': 'host-degraded-sandbox-disabled',
+            'reason': 'sandbox disabled by configuration',
+            'recovery_action': 'none',
+            'tools': {},
+        }
+        verify_runtime_tools.write_runtime_tool_check(check, env_out)
+        return StageResult(True, outputs=[str(env_out / 'runtime-install-plan.json'), str(env_out / 'runtime-tool-check.json')], limitations=['sandbox disabled; host execution path is explicit'])
+
+    if sandbox.get('status') != 'ready' or not sandbox.get('runtime_image'):
+        check = {
+            'schema_version': '1.0',
+            'status': 'blocked-recovery-required',
+            'profile': profile,
+            'target_runtime': 'pvas-container',
+            'actual_runtime': 'container',
+            'reason': f"runtime-image-unavailable: {sandbox.get('status', 'unknown')}",
+            'recovery_action': 'rebuild-runtime-image',
+            'tools': {},
+        }
+        verify_runtime_tools.write_runtime_tool_check(check, env_out)
+        return StageResult(False, decision='blocked-recovery-required', issues=['runtime image unavailable'], details={'runtime_preflight': check})
+
+    def container_runner(_name: str, command: list[str]) -> tuple[int, str]:
+        result = pvas_container.run(pvas_container.ContainerSpec(
+            image=str(sandbox.get('runtime_image')),
+            command=command,
+            mounts=[],
+            network_policy='bridge-deny',
+            timeout_seconds=15,
+            mem_limit_mb=512,
+            labels={
+                'pvas-audit-id': os.environ.get('PVAS_AUDIT_ID', 'pvas-unknown'),
+                'pvas-purpose': 'runtime-preflight',
+                'pvas-tool': _name,
+            },
+        ))
+        return result.exit_code, (result.stdout or '') + (result.stderr or '')
+
+    check = verify_runtime_tools.build_runtime_tool_check(profile, 'pvas-container', container_runner)
+    verify_runtime_tools.write_runtime_tool_check(check, env_out)
+    if check.get('status') != 'passed':
+        return StageResult(False, decision='blocked-recovery-required', issues=[check.get('reason') or 'runtime tool check failed'], details={'runtime_preflight': check})
+    return StageResult(True, outputs=[str(env_out / 'runtime-install-plan.json'), str(env_out / 'runtime-tool-check.json')], details={'runtime_preflight': {'status': check.get('status')}})
 
 
 def _summary_limit() -> int:
@@ -864,6 +956,18 @@ def main() -> int:
     stage = run_stage('00-environment', lambda: require_paths([intake_dir / 'intake.json']), exec_env,
                       lambda: require_paths([env_out / 'environment-check.json']),
                       out_root=out, outputs=[str(env_out / 'environment-check.json')])
+    if not stage.ok:
+        return 2
+
+    stage = run_stage(
+        '00-runtime-preflight',
+        lambda: require_paths([env_out / 'environment-check.json']),
+        lambda: runtime_preflight(out, args.profile, network_policy, mode=args.mode, allow_degraded=args.allow_degraded),
+        lambda: require_paths([env_out / 'runtime-install-plan.json', env_out / 'runtime-tool-check.json']),
+        out_root=out,
+        outputs=[str(env_out / 'runtime-install-plan.json'), str(env_out / 'runtime-install-plan.md'), str(env_out / 'runtime-tool-check.json'), str(env_out / 'runtime-tool-check.md')],
+        recovery_actions=['rebuild runtime image or provide approved offline bundle, then rerun complete audit'],
+    )
     if not stage.ok:
         return 2
 

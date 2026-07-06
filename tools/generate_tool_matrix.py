@@ -44,7 +44,7 @@ def tool_applicability(name: str, profile: dict, env_profile: str) -> tuple[str,
         return "mandatory", SEMGRP_EVIDENCE, False
     if name == "npm" and (not is_node_project(profile) or not has_node_lockfile(profile)):
         return "not-applicable", "no Node.js lockfile requiring npm audit in package profile", True
-    if name in {"gcc", "make", "timeout"} and env_profile == "binutils":
+    if name in {"gcc", "g++", "clang", "clang++", "llvm-symbolizer", "make", "timeout"} and env_profile == "binutils":
         return "profile-required", f"{env_profile} profile requires {name}", False
     level = CATALOG[name]["level"]
     if level == "recommended":
@@ -169,9 +169,11 @@ def build_matrix(
         tool_row = {
             "name": name,
             "binary": meta["binary"],
+            "required_binary": meta["binary"],
             "applicability": applicability,
             "evidence": evidence,
             "command": command,
+            "version_command": [meta["binary"], *list(meta.get("version_args", ["--version"]))],
             "env": env,
             "timeout": timeout,
             "network_policy": network_policy,
@@ -179,6 +181,14 @@ def build_matrix(
             "allowed_cidrs": list(meta.get("allowed_cidrs") or []),
             "mem_limit_mb": int(meta.get("mem_limit_mb") or 1024),
             "sandbox_runtime": "pvas-container",
+            "expected_runtime": "pvas-container",
+            "runtime_scope": meta.get("runtime_scope", "container-required"),
+            "install_requirement": {
+                "dnf_package": meta.get("dnf_package", ""),
+                "install_methods": list(meta.get("install_methods") or []),
+                "install_hint_id": meta.get("install_hint_id", name),
+            },
+            "runtime_tool_check": str((out_root / "00-environment" / "runtime-tool-check.json") if out_root else pathlib.Path("<out>") / "00-environment" / "runtime-tool-check.json"),
             "offline_fallback": "local-rules-or-incomplete" if name == "semgrep" else "local-db-or-incomplete" if name in {"codeql", "grype", "trivy", "syft"} else "",
             "watchdog": {"strategy": "adaptive", "idle_timeout": "15s"},
             "output_validator": "semgrep-json" if name == "semgrep" else "",

@@ -116,7 +116,32 @@ def test_semgrep_runs_before_parallel_batch_and_summary_preserves_blocked():
         assert "npm" in summary["blocked_tools"]
 
 
+def test_container_runtime_preflight_blocks_before_host_fallback():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        source = td / "src"
+        source.mkdir()
+        raw = td / "raw"
+        raw.mkdir()
+        preflight = td / "runtime-tool-check.json"
+        preflight.write_text(json.dumps({
+            "status": "blocked-recovery-required",
+            "reason": "container-tool-missing: clang",
+            "recovery_action": "rebuild-runtime-image",
+            "tools": {"clang": {"status": "missing"}},
+        }))
+        tool = _tool("clang", command=["clang", "--version"], applicability="profile-required")
+        tool["runtime_tool_check"] = str(preflight)
+        rows, attempts = run_tool_matrix.run_matrix_tools([tool], source, raw)
+        assert attempts == []
+        assert rows[0]["status"] == "blocked-recovery-required"
+        assert rows[0]["reason"] == "container-tool-missing: clang"
+        assert rows[0]["recovery_action"] == "rebuild-runtime-image"
+        assert rows[0]["actual_runtime"] == "container"
+
+
 if __name__ == "__main__":
     test_build_container_spec_uses_catalog_runtime_fields()
     test_semgrep_runs_before_parallel_batch_and_summary_preserves_blocked()
+    test_container_runtime_preflight_blocks_before_host_fallback()
     print("tool scan parallel tests passed")
