@@ -36,12 +36,14 @@ python3 -u tests/test_import_openeuler_vuln_registry.py
 python3 -u tests/test_public_vuln_correlation.py
 python3 -u tests/test_apply_correlation_to_findings.py
 python3 -u tests/test_sandbox_layout.py
+python3 -u tests/test_sandbox_scripts.py
 if [[ "${PVAS_RUN_INTEGRATION:-0}" == "1" ]]; then
   timeout 60s python3 -u tests/test_binutils_helpers.py
   timeout 60s python3 -u tests/test_e2e_toy_project.py
   timeout 60s python3 -u tests/test_install_scripts.py
 fi
 for shf in tools/*.sh; do bash -n "$shf"; done
+for shf in sandbox/scripts/*.sh; do bash -n "$shf"; done
 python3 -m py_compile tools/*.py
 python3 - <<'PYJSON'
 import json, pathlib
