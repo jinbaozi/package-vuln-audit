@@ -104,6 +104,28 @@ artifacts:
     load_tier: L1
     schema: intake.schema.json
     step_id: "00-intake"
+  - id: package-profile
+    path_pattern: audit-output/01-profile/package-profile.json
+    load_tier: L1
+    schema: package-profile.schema.json
+    step_id: "01-package-profile"
+  - id: package-context-budget
+    path_pattern: audit-output/01-profile/context-budget.json
+    load_tier: L1
+    schema: context-budget.schema.json
+    step_id: "01-package-profile"
+  - id: selected-scope
+    path_pattern: audit-output/01-profile/selected-scope.json
+    load_tier: L1
+    step_id: "02-scope-selection"
+  - id: selected-recipes
+    path_pattern: audit-output/01-profile/selected-recipes.md
+    load_tier: L1
+    step_id: "02-scope-selection"
+  - id: required-tools-matrix
+    path_pattern: audit-output/01-profile/required-tools-matrix.json
+    load_tier: L1
+    step_id: "02-scope-selection"
   - id: tool-summary
     path_pattern: audit-output/02-tools/tool-summary.json
     load_tier: L1
@@ -112,6 +134,27 @@ artifacts:
     exception_policy:
       on_failed_after_retries: fail_pipeline
       on_recoverable: record_and_continue
+  - id: raw-candidates
+    path_pattern: audit-output/03-candidates/raw-candidates.json
+    load_tier: L1
+    step_id: "04-ai-hypothesis"
+  - id: ranked-candidates
+    path_pattern: audit-output/03-candidates/ranked-candidates.json
+    load_tier: L1
+    step_id: "04-ai-hypothesis"
+  - id: ai-hypotheses
+    path_pattern: audit-output/03-candidates/ai-hypotheses.json
+    load_tier: L1
+    schema: hypothesis.schema.json
+    step_id: "04-ai-hypothesis"
+  - id: candidate-summary
+    path_pattern: audit-output/03-candidates/candidate-summary.json
+    load_tier: L1
+    step_id: "05-candidate-review"
+  - id: candidate-review-validation
+    path_pattern: audit-output/03-candidates/candidate-review-validation.json
+    load_tier: L1
+    step_id: "05-candidate-review"
   - id: validation-targets
     path_pattern: audit-output/04-validation/validation-targets.json
     load_tier: L1
@@ -121,6 +164,23 @@ artifacts:
     path_pattern: audit-output/05-findings/finding-index.json
     load_tier: L1
     step_id: "06-validation"
+  - id: cvss-summary
+    path_pattern: audit-output/05-findings/cvss-summary.json
+    load_tier: L1
+    step_id: "07-cvss-scoring"
+  - id: report-json
+    path_pattern: audit-output/06-report/machine/report.json
+    load_tier: L1
+    schema: report.schema.json
+    step_id: "08-report"
+  - id: bilingual-map
+    path_pattern: audit-output/06-report/machine/bilingual-map.json
+    load_tier: L1
+    step_id: "08-report"
+  - id: report-completeness-pre-disclosure
+    path_pattern: audit-output/machine/report-completeness-pre-disclosure.json
+    load_tier: L1
+    step_id: "08-report"
   - id: exception-index
     path_pattern: audit-output/machine/exception-index.json
     load_tier: L1

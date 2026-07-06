@@ -320,24 +320,27 @@ def main() -> int:
         print("[PVAS-VALIDATION] one of --findings or --targets is required", file=sys.stderr)
         return 2
 
+    out_dir = pathlib.Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     if args.targets:
         target_data = load_json(pathlib.Path(args.targets), default={}, required=True)
         findings = [t for t in target_data.get("targets", []) if isinstance(t, dict)] if isinstance(target_data, dict) else []
     else:
         findings = load_findings(pathlib.Path(args.findings))
     if not findings:
-        write_json(pathlib.Path(args.out) / "validation-result-summary.json", {
+        write_json(out_dir / "validation-result-summary.json", {
             "status": "not-applicable",
             "reason": "no findings to validate",
             "finding_count": 0,
         })
+        if args.findings_out:
+            write_json(args.findings_out, {"findings": []})
         print("[PVAS-VALIDATION] no findings to validate")
         return 0
 
     source_root = pathlib.Path(args.source_root).resolve()
     packet_dir = pathlib.Path(args.packet_dir).resolve() if args.packet_dir else None
-    out_dir = pathlib.Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     validation_results: list[dict] = []
     poc_manifests: list[dict] = []

@@ -10,8 +10,10 @@ python3 -u tests/test_intake_gate.py
 python3 -u tests/test_exception_index.py
 python3 -u tests/test_schema_fail_closed.py
 python3 -u tests/test_context_budget_per_agent.py
+python3 -u tests/test_normalize_results.py
 python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_validation_targets.py
+python3 -u tests/test_workflow_validators.py
 python3 -u tests/test_tool_install_plan.py
 python3 -u tests/test_strict_mode.py
 python3 -u tests/test_no_docker_fallback.py
@@ -22,6 +24,7 @@ python3 -u tests/test_tool_execution_gates.py
 python3 -u tests/test_tool_scan_parallel.py
 python3 -u tests/test_driver_workflow_gates.py
 python3 -u tests/test_driver_sandbox_lifecycle.py
+python3 -u tests/test_enforced_driver_smoke.py
 python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
 python3 -u tests/test_final_summary_gates.py
@@ -45,6 +48,7 @@ python3 -u tests/test_sandbox_scripts.py
 python3 -u tests/test_pvas_image.py
 python3 -u tests/test_pvas_netpolicy.py
 python3 -u tests/test_pvas_container.py
+python3 -u tests/test_test_inventory.py
 if [[ "${PVAS_RUN_INTEGRATION:-0}" == "1" ]]; then
   timeout 60s python3 -u tests/test_binutils_helpers.py
   timeout 60s python3 -u tests/test_e2e_toy_project.py

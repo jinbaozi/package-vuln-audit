@@ -80,6 +80,7 @@ def main() -> int:
 
     findings = load_findings(pathlib.Path(args.findings))
     out = pathlib.Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
     count = 0
     for finding in findings:
         if finding.get("status") != "Needs Manual Review":
