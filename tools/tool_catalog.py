@@ -5,6 +5,9 @@ from __future__ import annotations
 CATALOG = {
     "rg": {
         "binary": "rg",
+        "mem_limit_mb": 512,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["minimal", "standard", "full", "binutils"],
         "required_for": ["basic-search", "dangerous-api-search"],
@@ -15,6 +18,9 @@ CATALOG = {
     },
     "semgrep": {
         "binary": "semgrep",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["standard", "full", "binutils"],
         "required_for": ["rule-scanning", "sast-candidates"],
@@ -25,6 +31,9 @@ CATALOG = {
     },
     "cppcheck": {
         "binary": "cppcheck",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["standard", "full", "binutils"],
         "required_for": ["c-cpp-baseline", "static-analysis"],
@@ -35,6 +44,9 @@ CATALOG = {
     },
     "osv-scanner": {
         "binary": "osv-scanner",
+        "mem_limit_mb": 1024,
+        "network_required": True,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["standard", "full", "binutils"],
         "required_for": ["known-vulnerability-scan", "dependency-cve-scan"],
@@ -44,6 +56,9 @@ CATALOG = {
     },
     "npm": {
         "binary": "npm",
+        "mem_limit_mb": 1024,
+        "network_required": True,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["standard", "full"],
         "required_for": ["node-dependency-audit", "npm-audit"],
@@ -53,6 +68,9 @@ CATALOG = {
     },
     "codeql": {
         "binary": "codeql",
+        "mem_limit_mb": 4096,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full", "binutils"],
         "required_for": ["semantic-analysis", "dataflow-analysis"],
@@ -62,6 +80,9 @@ CATALOG = {
     },
     "joern": {
         "binary": "joern",
+        "mem_limit_mb": 4096,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full"],
         "required_for": ["cpg-analysis", "deep-c-cpp-analysis"],
@@ -71,6 +92,9 @@ CATALOG = {
     },
     "syft": {
         "binary": "syft",
+        "mem_limit_mb": 1024,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full"],
         "required_for": ["sbom-generation"],
@@ -80,6 +104,9 @@ CATALOG = {
     },
     "grype": {
         "binary": "grype",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full"],
         "required_for": ["sbom-vulnerability-scan"],
@@ -89,6 +116,9 @@ CATALOG = {
     },
     "trivy": {
         "binary": "trivy",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full"],
         "required_for": ["vulnerability-scan", "sbom-scan", "config-scan"],
@@ -98,6 +128,9 @@ CATALOG = {
     },
     "afl-fuzz": {
         "binary": "afl-fuzz",
+        "mem_limit_mb": 4096,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "optional",
         "profiles": ["full", "binutils"],
         "required_for": ["fuzzing"],
@@ -107,6 +140,9 @@ CATALOG = {
     },
     "gcc": {
         "binary": "gcc",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["binutils"],
         "required_for": ["asan-ubsan-build", "c-cpp-build"],
@@ -117,6 +153,9 @@ CATALOG = {
     },
     "make": {
         "binary": "make",
+        "mem_limit_mb": 2048,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["binutils"],
         "required_for": ["project-build"],
@@ -127,6 +166,9 @@ CATALOG = {
     },
     "timeout": {
         "binary": "timeout",
+        "mem_limit_mb": 256,
+        "network_required": False,
+        "allowed_cidrs": [],
         "level": "recommended",
         "profiles": ["binutils"],
         "required_for": ["bounded-validation"],

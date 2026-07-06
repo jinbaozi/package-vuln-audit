@@ -14,10 +14,14 @@ python3 -u tests/test_rank_candidates.py
 python3 -u tests/test_validation_targets.py
 python3 -u tests/test_tool_install_plan.py
 python3 -u tests/test_strict_mode.py
+python3 -u tests/test_no_docker_fallback.py
 python3 -u tests/test_cppcheck_scope_profile.py
+python3 -u tests/test_tool_catalog_enrichment.py
 python3 -u tests/test_tool_matrix.py
 python3 -u tests/test_tool_execution_gates.py
+python3 -u tests/test_tool_scan_parallel.py
 python3 -u tests/test_driver_workflow_gates.py
+python3 -u tests/test_driver_sandbox_lifecycle.py
 python3 -u tests/test_install_assistant.py
 python3 -u tests/test_report_completeness_enforced.py
 python3 -u tests/test_final_summary_gates.py
@@ -28,6 +32,7 @@ python3 -u tests/test_report_admission.py
 python3 -u tests/test_make_ai_packets.py
 python3 -u tests/test_bilingual_output.py
 python3 -u tests/test_poc_safety_policy.py
+python3 -u tests/test_poc_sandbox.py
 python3 -u tests/test_poc_testcase_generation.py
 python3 -u tests/test_poc_execution_result.py
 python3 -u tests/test_manual_validation_plan.py

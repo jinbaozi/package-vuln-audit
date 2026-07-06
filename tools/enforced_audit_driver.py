@@ -7,6 +7,7 @@ postflight failure ends as failed-after-retries, triggers exception aggregation,
 and returns non-zero instead of continuing to a pseudo-complete report.
 """
 import argparse
+import atexit
 import json
 import os
 import pathlib
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
@@ -28,6 +30,9 @@ if str(TOOLS_DIR) not in sys.path:
 
 from pvas_env import env_flag
 from pvas_io import load_json, write_json
+import pvas_container
+import pvas_image
+import pvas_netpolicy
 from validate_validation_results import finding_errors as validation_finding_errors
 
 FINAL_STATUSES = {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}
@@ -60,6 +65,7 @@ WORKFLOW_PRESETS = {
 STARTUP_PATH = pathlib.Path('machine/workflow-startup.json')
 CPPCHECK_MODE_PATH = pathlib.Path('machine/cppcheck-mode.json')
 CPPCHECK_MODES = {'fast', 'deep'}
+_SANDBOX_CLEANUP_REGISTERED = False
 
 
 @dataclass
@@ -115,6 +121,82 @@ class CppcheckModeConfig:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _read_rootfs_sha256(rootfs_dir: pathlib.Path) -> str:
+    sums = rootfs_dir / 'SHA256SUMS'
+    if not sums.exists():
+        return '0' * 64
+    for line in sums.read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == 'v11-2503-rootfs.tar':
+            return parts[0]
+    return '0' * 64
+
+
+def _sandbox_cleanup(audit_id: str, backend: str, out: pathlib.Path) -> None:
+    try:
+        pvas_netpolicy.flush_all()
+    except Exception:
+        pass
+    if backend:
+        try:
+            pvas_image.prompt_cleanup(audit_id, backend, log_path=out / 'machine/sandbox-cleanup.jsonl')
+        except Exception:
+            pass
+
+
+def initialize_sandbox_runtime(out: pathlib.Path) -> dict:
+    global _SANDBOX_CLEANUP_REGISTERED
+    audit_id = os.environ.get('PVAS_AUDIT_ID') or f"pvas-{uuid.uuid4()}"
+    os.environ['PVAS_AUDIT_ID'] = audit_id
+    mode = os.environ.get('PVAS_SANDBOX', 'enabled').lower()
+    state = {
+        'audit_id': audit_id,
+        'mode': mode,
+        'status': 'disabled' if mode in {'0', 'false', 'no', 'disabled'} else 'unknown',
+        'backend': '',
+        'imported_image': '',
+        'runtime_image': '',
+        'generated_at': _iso_now(),
+    }
+    if state['status'] == 'disabled':
+        write_json(out / 'machine/sandbox-runtime.json', state)
+        return state
+    try:
+        backend = pvas_container.detect_backend()
+        state['backend'] = backend
+    except pvas_container.SandboxUnavailable as exc:
+        state.update({'status': 'unavailable', 'error': str(exc)})
+        write_json(out / 'machine/sandbox-runtime.json', state)
+        return state
+
+    if not _SANDBOX_CLEANUP_REGISTERED:
+        atexit.register(_sandbox_cleanup, audit_id, backend, out)
+        _SANDBOX_CLEANUP_REGISTERED = True
+
+    rootfs_dir = ROOT / 'sandbox' / 'rootfs'
+    tar_path = rootfs_dir / 'v11-2503-rootfs.tar'
+    dockerfile = ROOT / 'sandbox' / 'images' / 'Dockerfile.runtime'
+    try:
+        imported = pvas_image.ensure_imported(
+            tar_path,
+            _read_rootfs_sha256(rootfs_dir),
+            pvas_image.DEFAULT_IMAGE_IMPORTED,
+            backend,
+        )
+        runtime = pvas_image.ensure_runtime_image(
+            imported,
+            pvas_image.DEFAULT_IMAGE_RUNTIME,
+            dockerfile,
+            backend,
+        )
+        os.environ['PVAS_RUNTIME_IMAGE'] = runtime
+        state.update({'status': 'ready', 'imported_image': imported, 'runtime_image': runtime})
+    except Exception as exc:
+        state.update({'status': 'image-unavailable', 'error': str(exc)})
+    write_json(out / 'machine/sandbox-runtime.json', state)
+    return state
 
 
 def _summary_limit() -> int:
@@ -684,6 +766,7 @@ def main() -> int:
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     write_json(out / 'machine/invocation.json', invocation)
+    initialize_sandbox_runtime(out)
     max_candidates = int(args.max_candidates)
     try:
         startup = resolve_startup_config(args, out, argv=sys.argv[1:])

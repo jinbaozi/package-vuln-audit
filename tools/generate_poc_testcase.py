@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time, shlex
 
 from pvas_io import load_findings, sha256_file
+import pvas_container
 
 # ---------------------------------------------------------------------------
 # Language extension mapping
@@ -1063,27 +1064,88 @@ This will attempt to run each language variant. At least one must pass for the P
 # Run reproducer for a multi-language POC
 # ---------------------------------------------------------------------------
 
+def _sandbox_mode() -> str:
+    return os.environ.get("PVAS_SANDBOX", "enabled").lower()
+
+
+def _container_result_payload(result: pvas_container.ContainerResult, network_policy: str) -> dict:
+    executed_via = result.executed_via
+    if _sandbox_mode() == "warn-only" and executed_via == "container":
+        executed_via = "container-warn-only"
+    return {
+        "executed_via": executed_via,
+        "container": {
+            "container_id": result.container_id,
+            "netpolicy_id": result.netpolicy_id,
+            "network_policy": network_policy,
+            "oom_killed": result.oom_killed,
+            "timed_out": result.timed_out,
+        },
+    }
+
+
+def _run_reproducer_command(outdir: pathlib.Path, command: list[str], timeout_seconds: int, labels: dict) -> tuple[int, str, float, dict]:
+    start = time.time()
+    if _sandbox_mode() == "disabled":
+        p = subprocess.run(
+            command,
+            cwd=outdir,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout_seconds + 5,
+        )
+        return p.returncode, p.stdout or "", time.time() - start, {
+            "executed_via": "host-degraded-sandbox-disabled",
+            "container": {
+                "container_id": "",
+                "netpolicy_id": "",
+                "network_policy": "host",
+                "oom_killed": False,
+                "timed_out": False,
+            },
+        }
+
+    network_policy = "bridge-deny"
+    spec = pvas_container.ContainerSpec(
+        image=os.environ.get("PVAS_RUNTIME_IMAGE", "pvas-sandbox:v11-2503-runtime"),
+        command=command,
+        mounts=[(str(outdir.resolve()), str(outdir.resolve()), "rw")],
+        network_policy=network_policy,
+        allowed_cidrs=[],
+        workdir=str(outdir.resolve()),
+        timeout_seconds=timeout_seconds + 5,
+        mem_limit_mb=1024,
+        labels={
+            "pvas-audit-id": os.environ.get("PVAS_AUDIT_ID", "pvas-unknown"),
+            "pvas-purpose": "poc",
+            **labels,
+        },
+    )
+    result = pvas_container.run(spec)
+    return result.exit_code, (result.stdout or "") + (result.stderr or ""), result.duration_seconds, _container_result_payload(result, network_policy)
+
+
 def run_multilang_reproducer(outdir: pathlib.Path, timeout_seconds: int = 30) -> dict:
     """Run the main reproduce.sh for a multi-language POC.
 
     Returns a combined result dict.
     """
     script = outdir / 'reproduce.sh'
-    start = time.time()
-    p = subprocess.run(
+    rc, output, duration, exec_payload = _run_reproducer_command(
+        outdir,
         ['timeout', f'{timeout_seconds}s', './reproduce.sh'],
-        cwd=outdir,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        timeout_seconds,
+        {"pvas-finding-id": outdir.name, "pvas-poc-scope": "main"},
     )
-    elapsed_ms = int((time.time() - start) * 1000)
+    elapsed_ms = int(duration * 1000)
     result = {
-        'status': 'passed' if p.returncode == 0 else 'failed',
-        'exit_code': p.returncode,
+        'status': 'passed' if rc == 0 else 'failed',
+        'exit_code': rc,
         'elapsed_ms': elapsed_ms,
         'command': 'timeout %ss ./reproduce.sh' % timeout_seconds,
-        'stdout_tail': (p.stdout or '')[-4000:],
+        'stdout_tail': (output or '')[-4000:],
+        **exec_payload,
     }
     (outdir / 'poc-run-result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -1095,22 +1157,21 @@ def run_multilang_reproducer(outdir: pathlib.Path, timeout_seconds: int = 30) ->
             _, _, run_cmd = _get_script_info(lang_dir.name)
             var_start = time.time()
             try:
-                var_p = subprocess.run(
+                var_rc, var_output, var_duration, var_exec_payload = _run_reproducer_command(
+                    lang_dir,
                     run_cmd.split(),
-                    cwd=lang_dir,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    timeout=15,
+                    15,
+                    {"pvas-finding-id": outdir.name, "pvas-poc-scope": f"variant-{lang_dir.name}"},
                 )
-                var_elapsed = int((time.time() - var_start) * 1000)
+                var_elapsed = int(var_duration * 1000)
                 var_result = {
                     'language': lang_dir.name,
-                    'status': 'passed' if var_p.returncode == 0 else 'failed',
-                    'exit_code': var_p.returncode,
+                    'status': 'passed' if var_rc == 0 else 'failed',
+                    'exit_code': var_rc,
                     'elapsed_ms': var_elapsed,
                     'command': run_cmd,
-                    'stdout_tail': (var_p.stdout or '')[-2000:],
+                    'stdout_tail': (var_output or '')[-2000:],
+                    **var_exec_payload,
                 }
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
                 var_result = {

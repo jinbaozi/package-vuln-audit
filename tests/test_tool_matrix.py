@@ -82,6 +82,9 @@ def test_restricted_network_does_not_use_semgrep_auto_config():
     semgrep = next(t for t in matrix["tools"] if t["name"] == "semgrep")
     assert "auto" not in semgrep["command"]
     assert semgrep["network_required"] is False
+    assert semgrep["mem_limit_mb"] <= 4096
+    assert semgrep["allowed_cidrs"] == []
+    assert semgrep["sandbox_runtime"] == "pvas-container"
 
 
 def test_online_approved_can_use_semgrep_auto_config():
@@ -95,6 +98,22 @@ def test_online_approved_can_use_semgrep_auto_config():
     semgrep = next(t for t in matrix["tools"] if t["name"] == "semgrep")
     assert semgrep["command"][semgrep["command"].index("--config") + 1] == "auto"
     assert semgrep["network_required"] is True
+
+
+def test_matrix_propagates_catalog_sandbox_metadata():
+    matrix = run_matrix({
+        "package_name": "demo",
+        "primary_language": ["C/C++"],
+        "profiles": ["binary-parser"],
+        "build_system": ["make"],
+        "input_surfaces": ["files"],
+    }, profile_name="binutils")
+    for tool in matrix["tools"]:
+        assert isinstance(tool.get("mem_limit_mb"), int), tool["name"]
+        assert 1 <= tool["mem_limit_mb"] <= 4096, tool["name"]
+        assert isinstance(tool.get("network_required"), bool), tool["name"]
+        assert isinstance(tool.get("allowed_cidrs"), list), tool["name"]
+        assert tool.get("sandbox_runtime") == "pvas-container", tool["name"]
 
 
 def test_cppcheck_matrix_uses_sharded_runner_and_gcc_template():
@@ -183,6 +202,7 @@ if __name__ == "__main__":
     test_binutils_profile_includes_build_tools()
     test_restricted_network_does_not_use_semgrep_auto_config()
     test_online_approved_can_use_semgrep_auto_config()
+    test_matrix_propagates_catalog_sandbox_metadata()
     test_cppcheck_matrix_uses_sharded_runner_and_gcc_template()
     test_cppcheck_deep_matrix_preserves_existing_enable_set()
     test_tool_summary_schema_has_admission_policy_fields()

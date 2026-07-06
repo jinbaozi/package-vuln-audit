@@ -28,6 +28,18 @@
         "additionalProperties": false
       }
     },
+    "sandbox_backend": {
+      "type": "object",
+      "required": ["status", "backend", "required_for", "impact"],
+      "properties": {
+        "status": {"enum": ["installed", "missing", "disabled", "unknown"]},
+        "backend": {"type": "string"},
+        "required_for": {"type": "array", "items": {"type": "string"}},
+        "impact": {"type": "string"},
+        "error": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
     "capability_summary": {
       "type": "object",
       "additionalProperties": {"enum": ["available", "degraded", "missing", "unknown"]}

@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def poc_env():
+    env = os.environ.copy()
+    env["PVAS_SANDBOX"] = "disabled"
+    return env
 
 
 def test_generate_poc_writes_run_result_for_validated_status():
@@ -37,16 +44,18 @@ def test_generate_poc_writes_run_result_for_validated_status():
             "python",
             "--out",
             str(out),
-        ])
+        ], env=poc_env())
         run_result = json.loads((out / "FINDING-100" / "poc-run-result.json").read_text())
         assert run_result["status"] == "passed"
         assert run_result["exit_code"] == 0
+        assert run_result["executed_via"] == "host-degraded-sandbox-disabled"
+        assert run_result["container"]["network_policy"] == "host"
         subprocess.check_call([
             sys.executable,
             str(ROOT / "tools" / "validate_poc_artifacts.py"),
             "--poc-root",
             str(out),
-        ])
+        ], env=poc_env())
 
 
 def test_validate_poc_artifacts_rejects_missing_run_result():
@@ -106,7 +115,7 @@ def test_validate_poc_artifacts_accepts_passed_draft():
             "python",
             "--out",
             str(out),
-        ])
+        ], env=poc_env())
         manifest = json.loads((out / "FINDING-200" / "poc-manifest.json").read_text())
         assert manifest["status"] == "draft"
         assert manifest["verification"] == "unverified"

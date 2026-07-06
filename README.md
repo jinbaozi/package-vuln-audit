@@ -38,7 +38,8 @@ Current version: `0.10.0-alpha11`.
   - [5.1 Profile](#51-profile)
   - [5.2 传统工具策略](#52-传统工具策略)
   - [5.3 Agents 与上下文隔离](#53-agents-与上下文隔离)
-  - [5.4 Schemas 与模板](#54-schemas-与模板)
+  - [5.4 Sandbox Runtime](#54-sandbox-runtime)
+  - [5.5 Schemas 与模板](#55-schemas-与模板)
 - [6. 维护与安全边界](#6-维护与安全边界)
   - [6.1 项目结构](#61-项目结构)
   - [6.2 开发验证](#62-开发验证)
@@ -586,7 +587,25 @@ cppcheck 默认使用 `fast` 模式：执行默认/error 检查和 warning，省
 - strict packet budget 默认开启；`PVAS_PACKET_STRICT_BUDGET=0` 仅用于旧兼容/调试。默认情况下单个 packet 超预算且无法安全拆分时必须阻断，不能静默丢弃关键源码切片或证据。
 - `PVAS_TERMINAL_SUMMARY_CHARS` 只限制终端摘要和 stage issue 摘要长度；完整 raw 日志仍落盘，并通过 `tool-summary.json` 的 `raw_output_ref`、`output_bytes`、`result_count` 索引。
 
-### 5.4 Schemas 与模板
+### 5.4 Sandbox Runtime
+
+PVAS 默认通过容器沙盒执行生成的 PoC reproducer 和由 `required-tools-matrix.json` 生成的传统工具扫描行。`tools/generate_tool_matrix.py` 会为每个工具写入 `mem_limit_mb`、`network_required`、`allowed_cidrs` 与 `sandbox_runtime`；`tools/run_tool_matrix.py` 先执行 `semgrep`，再将其余适用工具交给 `pvas_container.run_parallel()`。
+
+关键产物：
+
+- `audit-output/machine/sandbox-runtime.json`：backend、audit id、image 初始化状态。
+- `audit-output/02-tools/tool-summary.json`：每个沙盒工具行的 `container` 执行元数据。
+- `audit-output/04-validation/poc-tests/*/poc-run-result.json`：PoC `executed_via` 与 `container` 元数据。
+
+环境开关：
+
+- `PVAS_SANDBOX=enabled`：默认，容器沙盒执行。
+- `PVAS_SANDBOX=disabled`：兼容降级，PoC 结果写 `host-degraded-sandbox-disabled`。
+- `PVAS_SANDBOX=warn-only`：容器执行但将 PoC 结果标记为 `container-warn-only`。
+
+调试参见 `docs/runbooks/sandbox-debugging.md` 与 `docs/runbooks/sandbox-netpolicy.md`。
+
+### 5.5 Schemas 与模板
 
 本项目通过 JSON Schema 固化关键产物结构，避免报告完全依赖自然语言自由发挥。
 

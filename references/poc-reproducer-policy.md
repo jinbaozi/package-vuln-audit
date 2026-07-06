@@ -51,4 +51,16 @@ All PoC variants must:
 - Clean up temporary directories
 - Be local-validation-only
 
+## Sandbox Execution
+
+Generated PoC runners execute through `tools/pvas_container.py` by default:
+
+- Main `reproduce.sh` and per-variant commands run with `network_policy: bridge-deny`.
+- `poc-run-result.json` must include `executed_via` and `container`.
+- Normal sandbox execution records `executed_via: "container"`.
+- `PVAS_SANDBOX=disabled` is a compatibility path and records `executed_via: "host-degraded-sandbox-disabled"`.
+- `PVAS_SANDBOX=warn-only` records `executed_via: "container-warn-only"` for PoC result interpretation.
+
+Host-degraded results are acceptable only when explicitly authorized for degraded local execution. They must not be described as equivalent to a normal deny-network container run.
+
 `Needs Manual Review` items also receive manual validation plans in addition to draft PoC packages. Final reports must cite both the manual validation plan and the passed draft execution result. They can be promoted only after the full validation workflow confirms stable local reproduction and updates the finding state.

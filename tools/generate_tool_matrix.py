@@ -165,7 +165,7 @@ def build_matrix(
                 "SEMGREP_SETTINGS_FILE": str(env_base / "semgrep-settings.yml"),
                 "SEMGREP_LOG_FILE": str(env_base / "semgrep.log"),
             }
-        network_required = name in {"codeql", "grype", "trivy", "syft"} or (name == "semgrep" and "--config" in command and "auto" in command)
+        network_required = bool(meta.get("network_required")) or (name == "semgrep" and "--config" in command and "auto" in command)
         tool_row = {
             "name": name,
             "binary": meta["binary"],
@@ -176,6 +176,9 @@ def build_matrix(
             "timeout": timeout,
             "network_policy": network_policy,
             "network_required": network_required,
+            "allowed_cidrs": list(meta.get("allowed_cidrs") or []),
+            "mem_limit_mb": int(meta.get("mem_limit_mb") or 1024),
+            "sandbox_runtime": "pvas-container",
             "offline_fallback": "local-rules-or-incomplete" if name == "semgrep" else "local-db-or-incomplete" if name in {"codeql", "grype", "trivy", "syft"} else "",
             "watchdog": {"strategy": "adaptive", "idle_timeout": "15s"},
             "output_validator": "semgrep-json" if name == "semgrep" else "",

@@ -5,6 +5,7 @@ import argparse, json, os, pathlib, shutil, subprocess, sys
 from pvas_env import env_flag
 from pvas_io import write_json
 from tool_catalog import CATALOG, COMMON_BIN_DIRS, PROFILE_TOOLS, STRICT_REQUIRED_TOOLS
+import pvas_container
 
 STRICT_MODES = {"default", "strict"}
 
@@ -73,6 +74,32 @@ def decision_for(mode: str, missing: list[str], blocking_missing: list[str], all
     return ('missing-required' if blocking_missing else 'degraded'), 'continue-degraded'
 
 
+def sandbox_backend_status() -> dict:
+    if os.environ.get("PVAS_SANDBOX", "enabled").lower() in {"0", "false", "no", "disabled"}:
+        return {
+            "status": "disabled",
+            "backend": "",
+            "required_for": ["sandboxed-poc-execution", "sandboxed-tool-scan"],
+            "impact": "PVAS_SANDBOX=disabled; PoC and tool scans may run on the host compatibility path.",
+        }
+    try:
+        backend = pvas_container.detect_backend()
+    except pvas_container.SandboxUnavailable as exc:
+        return {
+            "status": "missing",
+            "backend": "",
+            "required_for": ["sandboxed-poc-execution", "sandboxed-tool-scan"],
+            "impact": "Docker or Podman is required for default PVAS sandbox execution.",
+            "error": str(exc),
+        }
+    return {
+        "status": "installed",
+        "backend": backend,
+        "required_for": ["sandboxed-poc-execution", "sandboxed-tool-scan"],
+        "impact": "",
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--profile', default=os.environ.get('PVAS_ENV_PROFILE', 'standard'), choices=sorted(PROFILE_TOOLS))
@@ -94,8 +121,13 @@ def main() -> int:
         if extra not in names:
             names = [*names, extra]
     rows = [check_tool(n, strict_required) for n in names]
+    sandbox_backend = sandbox_backend_status()
     missing = [r['name'] for r in rows if r['status'] == 'missing']
     blocking_missing = [r['name'] for r in rows if r['status'] == 'missing' and r['requirement_level'] == 'required']
+    if sandbox_backend['status'] == 'missing':
+        missing.append('sandbox-backend')
+        if args.mode == 'strict':
+            blocking_missing.append('sandbox-backend')
     status, decision = decision_for(args.mode, missing, blocking_missing, args.allow_degraded)
     recommended = []
     for r in rows:
@@ -104,6 +136,8 @@ def main() -> int:
             recommended.append(f"{action}: {r['name']} enables {', '.join(r['required_for'])}. Impact: {r['impact']}")
 
     caps = capability_summary(rows)
+    for cap in sandbox_backend.get('required_for', []):
+        caps[cap] = 'available' if sandbox_backend['status'] == 'installed' else 'missing'
     result = {
         'environment_profile': args.profile,
         'mode': args.mode,
@@ -111,6 +145,7 @@ def main() -> int:
         'status': status,
         'decision': decision,
         'tools': rows,
+        'sandbox_backend': sandbox_backend,
         'capability_summary': caps,
         'missing_tools': missing,
         'strict_required_tools': sorted(strict_required),
@@ -133,6 +168,8 @@ def main() -> int:
         else:
             print(f"[PVAS-ENV] environment profile '{args.profile}' ok; decision=continue; wrote {check_path}", file=sys.stderr)
         if missing:
+            if sandbox_backend['status'] == 'missing':
+                print(f"[PVAS-TOOL-MISSING] sandbox-backend not installed. Impact: {sandbox_backend['impact']}", file=sys.stderr)
             for r in rows:
                 if r['status'] == 'missing':
                     print(f"[PVAS-TOOL-MISSING] {r['name']} not installed. Impact: {r['impact']}", file=sys.stderr)

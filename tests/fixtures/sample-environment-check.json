@@ -17,10 +17,17 @@
       "install_hint_id": "semgrep"
     }
   ],
-  "capability_summary": {"rule-scanning": "missing"},
-  "missing_tools": ["semgrep"],
+  "sandbox_backend": {
+    "status": "missing",
+    "backend": "",
+    "required_for": ["sandboxed-poc-execution", "sandboxed-tool-scan"],
+    "impact": "Docker or Podman is required for default PVAS sandbox execution.",
+    "error": "fixture"
+  },
+  "capability_summary": {"rule-scanning": "missing", "sandboxed-poc-execution": "missing", "sandboxed-tool-scan": "missing"},
+  "missing_tools": ["semgrep", "sandbox-backend"],
   "strict_required_tools": ["semgrep"],
-  "blocking_missing_tools": ["semgrep"],
+  "blocking_missing_tools": ["semgrep", "sandbox-backend"],
   "recommended_action": ["Install or explicitly degrade: semgrep enables rule-scanning."],
   "install_assistant_recommended": true,
   "degraded_capabilities": ["rule-scanning"],

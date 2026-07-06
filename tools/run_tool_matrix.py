@@ -14,6 +14,7 @@ import sys
 import time
 from typing import Any
 
+import pvas_container
 from pvas_io import load_json, write_json
 
 BLOCKING_APPLICABILITY = {"mandatory", "profile-required", "recommended"}
@@ -30,6 +31,7 @@ CPPCHECK_GCC_RE = re.compile(
     re.I,
 )
 DEFAULT_CPPCHECK_SHARD_SIZE = 100
+DEFAULT_RUNTIME_IMAGE = "pvas-sandbox:v11-2503-runtime"
 
 
 def terminal_summary_chars() -> int:
@@ -308,6 +310,185 @@ def preflight_tool(tool: dict, raw: pathlib.Path, source: pathlib.Path | None = 
         }, attempts
     raw.mkdir(parents=True, exist_ok=True)
     return None, attempts
+
+
+def sandbox_enabled() -> bool:
+    return os.environ.get("PVAS_SANDBOX", "enabled").lower() not in {"0", "false", "no", "disabled"}
+
+
+def should_run_in_container(tool: dict) -> bool:
+    if not sandbox_enabled():
+        return False
+    return tool.get("sandbox_runtime") == "pvas-container" and tool.get("applicability") != "not-applicable"
+
+
+def container_network_policy(tool: dict) -> str:
+    if not tool.get("network_required"):
+        return "bridge-deny"
+    return "bridge-allow" if tool.get("network_policy") == "online-approved" else "bridge-deny"
+
+
+def build_container_spec(
+    tool: dict,
+    source: pathlib.Path,
+    raw: pathlib.Path,
+    file_list: list[pathlib.Path] | None = None,
+) -> pvas_container.ContainerSpec:
+    command = expand_command(tool["command"], source, raw, file_list=file_list)
+    env = expand_env(tool.get("env") or {}, source, raw, file_list=file_list)
+    timeout_seconds = int(parse_duration(tool.get("timeout"), 600.0))
+    audit_id = os.environ.get("PVAS_AUDIT_ID", "pvas-unknown")
+    labels = {
+        "pvas-audit-id": audit_id,
+        "pvas-purpose": "tool-scan",
+        "pvas-tool": str(tool.get("name", "unknown")),
+    }
+    mounts = [
+        (str(source.resolve()), str(source.resolve()), "ro"),
+        (str(raw.resolve()), str(raw.resolve()), "rw"),
+    ]
+    return pvas_container.ContainerSpec(
+        image=os.environ.get("PVAS_RUNTIME_IMAGE", DEFAULT_RUNTIME_IMAGE),
+        command=command,
+        mounts=mounts,
+        network_policy=container_network_policy(tool),
+        allowed_cidrs=list(tool.get("allowed_cidrs") or []),
+        env=env,
+        workdir=str(source.resolve()) if source.is_dir() else str(source.resolve().parent),
+        timeout_seconds=timeout_seconds,
+        mem_limit_mb=int(tool.get("mem_limit_mb") or 1024),
+        labels=labels,
+    )
+
+
+def _container_result_to_row(
+    tool: dict,
+    result: pvas_container.ContainerResult,
+    raw: pathlib.Path,
+    elapsed_ms: int | None = None,
+) -> tuple[dict, list[dict]]:
+    name = tool["name"]
+    final_output = raw / f"{name}.out"
+    if result.stdout or result.stderr or not final_output.exists():
+        final_output.write_text((result.stdout or "") + (result.stderr or ""))
+    final_reason = "abnormal-timeout" if result.timed_out else "exited"
+    elapsed = elapsed_ms if elapsed_ms is not None else int(result.duration_seconds * 1000)
+    network_used = bool(tool.get("network_required"))
+    command = expand_command(tool["command"], pathlib.Path(tool.get("_source_for_attempt", ".")), raw)
+
+    if result.timed_out:
+        status, reason = "abnormal", "abnormal-timeout"
+    elif result.exit_code == 0:
+        status, reason = "completed", ""
+    elif result.exit_code < 0:
+        status, reason = "abnormal", "container-error"
+    else:
+        status, reason = "incomplete", "nonzero-exit"
+
+    output_path = str(final_output)
+    if name == "osv-scanner" and status == "incomplete":
+        special_status, special_reason = classify_osv_output(final_output)
+        if special_status:
+            status, reason = special_status, special_reason or reason
+    if name == "semgrep" and status == "completed":
+        semgrep_status, semgrep_reason, output_path = semgrep_json_status(raw, final_output)
+        if semgrep_status:
+            status = semgrep_status
+            reason = semgrep_reason or reason
+    output_ref_path = pathlib.Path(output_path) if output_path else final_output
+    result_count = semgrep_result_count(output_ref_path) if name == "semgrep" else 0
+
+    status, reason, strict_decision = block_required_status(tool, status, reason)
+    coverage = "" if status in {"completed", "completed-with-findings", "not-applicable"} else tool.get("evidence", "")
+    attempt = {
+        "tool": name,
+        "attempt": 1,
+        "status": "abnormal" if final_reason == "abnormal-timeout" else "completed" if result.exit_code == 0 else "incomplete",
+        "command": command,
+        "elapsed_ms": elapsed,
+        "exit_code": result.exit_code,
+        "recovery_action": "none" if result.exit_code == 0 else "manual-review",
+        "watchdog_events": [{"event": "container-timeout"}] if result.timed_out else [],
+        "network_used": network_used,
+        "output": output_path,
+        "output_bytes": output_size(output_ref_path),
+        "container": {
+            "container_id": result.container_id,
+            "netpolicy_id": result.netpolicy_id,
+            "executed_via": result.executed_via,
+            "oom_killed": result.oom_killed,
+        },
+    }
+    row = {
+        "name": name,
+        "status": status,
+        "output": output_path,
+        "reason": reason,
+        "notes": tool.get("evidence", ""),
+        "strict_decision": strict_decision,
+        "coverage_impact": coverage,
+        "watchdog_events": attempt["watchdog_events"],
+        "network_used": network_used,
+        "result_count": result_count,
+        "output_bytes": output_size(output_ref_path),
+        "raw_output_ref": output_path,
+        "terminal_summary_truncated": False,
+        "container": attempt["container"],
+        "executed_via": result.executed_via,
+    }
+    return row, [attempt]
+
+
+def run_one_container(
+    tool: dict,
+    source: pathlib.Path,
+    raw: pathlib.Path,
+    result: pvas_container.ContainerResult | None = None,
+    file_list: list[pathlib.Path] | None = None,
+) -> tuple[dict, list[dict]]:
+    name = tool["name"]
+    row, attempts = preflight_tool(tool, raw, source=source if name == "osv-scanner" else None)
+    if row:
+        return row, attempts
+    if name == "semgrep" and no_semgrep_config(tool.get("command", [])):
+        status, reason, strict_decision = block_required_status(tool, "incomplete", "no-local-rules")
+        return {
+            "name": name,
+            "status": status,
+            "output": "",
+            "reason": reason,
+            "notes": "No local Semgrep rules were available and network-backed --config auto is not approved.",
+            "strict_decision": strict_decision,
+            "coverage_impact": "semgrep rule-based SAST coverage missing",
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+        }, attempts
+    if name in LOCAL_DB_TOOLS and tool.get("network_policy") in {"offline", "restricted"} and tool.get("offline_fallback"):
+        status, reason, strict_decision = block_required_status(tool, "incomplete", "missing-local-db")
+        return {
+            "name": name,
+            "status": status,
+            "output": "",
+            "reason": reason,
+            "notes": f"{name} requires a local database/bundle in {tool.get('network_policy')} mode.",
+            "strict_decision": strict_decision,
+            "coverage_impact": f"{name} offline database coverage missing",
+            "watchdog_events": [],
+            "network_used": False,
+            "result_count": 0,
+            "output_bytes": 0,
+            "raw_output_ref": "",
+            "terminal_summary_truncated": False,
+        }, attempts
+    if result is None:
+        result = pvas_container.run(build_container_spec(tool, source, raw, file_list=file_list))
+    tool_for_attempt = dict(tool)
+    tool_for_attempt["_source_for_attempt"] = str(source)
+    return _container_result_to_row(tool_for_attempt, result, raw)
 
 
 def run_with_watchdog(command: list[str], env: dict[str, str], output: pathlib.Path, tool: dict) -> tuple[int | None, int, list[dict], str]:
@@ -1162,6 +1343,115 @@ def _load_file_list(path: str) -> list[pathlib.Path]:
     return files
 
 
+def finalize_tool_row(tool: dict, row: dict) -> dict:
+    row.update(cppcheck_summary_metadata(tool))
+    return annotate_summary_row(row)
+
+
+def collect_summary(rows: list[dict], attempts: list[dict]) -> dict:
+    abnormal = []
+    blocked = []
+    incomplete = []
+    for row in rows:
+        if row["status"] in BLOCKING_STATUSES or row.get("strict_decision") == "block":
+            blocked.append(row["name"])
+        if row["status"] in ABNORMAL_STATUSES:
+            abnormal.append(row["name"])
+        elif row["status"] in {"incomplete", "not-installed"}:
+            incomplete.append(row["name"])
+    strict_decision = "block" if (abnormal or blocked) else "continue"
+    errors = [f"{name}: abnormal" for name in abnormal] + [f"{name}: blocked" for name in blocked if name not in abnormal]
+    return {
+        "tools": rows,
+        "raw_outputs": [r["output"] for r in rows if r.get("output")],
+        "summary": "Tool execution completed." if not errors else "Tool execution blocked: " + ", ".join(errors),
+        "normalized_candidate_count": 0,
+        "errors": errors,
+        "strict_decision": strict_decision,
+        "blocked_tools": blocked,
+        "coverage_impact": [r for r in rows if r.get("coverage_impact")],
+        "incomplete_tools": incomplete,
+    }
+
+
+def run_matrix_tools(
+    tools: list[dict],
+    source: pathlib.Path,
+    raw: pathlib.Path,
+    file_list: list[pathlib.Path] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    rows: list[dict] = []
+    attempts: list[dict] = []
+
+    def run_host_tool(tool: dict) -> None:
+        row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
+        row = finalize_tool_row(tool, row)
+        print_tool_status(row)
+        rows.append(row)
+        attempts.extend(tool_attempts)
+
+    def run_container_preflight_or_spec(tool: dict) -> pvas_container.ContainerSpec | None:
+        row, tool_attempts = preflight_tool(tool, raw, source=source if tool["name"] == "osv-scanner" else None)
+        if row:
+            row = finalize_tool_row(tool, row)
+            print_tool_status(row)
+            rows.append(row)
+            attempts.extend(tool_attempts)
+            return None
+        if tool["name"] == "semgrep" and no_semgrep_config(tool.get("command", [])):
+            row, tool_attempts = run_one_container(tool, source, raw, file_list=file_list)
+            row = finalize_tool_row(tool, row)
+            print_tool_status(row)
+            rows.append(row)
+            attempts.extend(tool_attempts)
+            return None
+        if tool["name"] in LOCAL_DB_TOOLS and tool.get("network_policy") in {"offline", "restricted"} and tool.get("offline_fallback"):
+            row, tool_attempts = run_one_container(tool, source, raw, file_list=file_list)
+            row = finalize_tool_row(tool, row)
+            print_tool_status(row)
+            rows.append(row)
+            attempts.extend(tool_attempts)
+            return None
+        return build_container_spec(tool, source, raw, file_list=file_list)
+
+    semgrep_tools = [t for t in tools if t.get("name") == "semgrep"]
+    remaining_tools = [t for t in tools if t.get("name") != "semgrep"]
+
+    for tool in semgrep_tools:
+        if should_run_in_container(tool):
+            spec = run_container_preflight_or_spec(tool)
+            if spec is not None:
+                result = pvas_container.run(spec)
+                row, tool_attempts = run_one_container(tool, source, raw, result=result, file_list=file_list)
+                row = finalize_tool_row(tool, row)
+                print_tool_status(row)
+                rows.append(row)
+                attempts.extend(tool_attempts)
+        else:
+            run_host_tool(tool)
+
+    parallel_tools: list[dict] = []
+    parallel_specs: list[pvas_container.ContainerSpec] = []
+    for tool in remaining_tools:
+        if should_run_in_container(tool):
+            spec = run_container_preflight_or_spec(tool)
+            if spec is not None:
+                parallel_tools.append(tool)
+                parallel_specs.append(spec)
+        else:
+            run_host_tool(tool)
+
+    if parallel_specs:
+        for tool, result in zip(parallel_tools, pvas_container.run_parallel(parallel_specs)):
+            row, tool_attempts = run_one_container(tool, source, raw, result=result, file_list=file_list)
+            row = finalize_tool_row(tool, row)
+            print_tool_status(row)
+            rows.append(row)
+            attempts.extend(tool_attempts)
+
+    return rows, attempts
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--matrix", required=True)
@@ -1197,45 +1487,15 @@ def main() -> int:
         return 2
 
     matrix = load_json(matrix_path)
-    rows = []
-    attempts = []
-    abnormal = []
-    blocked = []
-    incomplete = []
-    for tool in matrix.get("tools", []):
-        row, tool_attempts = run_one(tool, source, raw, file_list=file_list)
-        row.update(cppcheck_summary_metadata(tool))
-        row = annotate_summary_row(row)
-        print_tool_status(row)
-        rows.append(row)
-        attempts.extend(tool_attempts)
-        if row["status"] in BLOCKING_STATUSES or row.get("strict_decision") == "block":
-            blocked.append(row["name"])
-        if row["status"] in ABNORMAL_STATUSES:
-            abnormal.append(row["name"])
-        elif row["status"] in {"incomplete", "not-installed"}:
-            incomplete.append(row["name"])
-
-    strict_decision = "block" if (abnormal or blocked) else "continue"
-    errors = [f"{name}: abnormal" for name in abnormal] + [f"{name}: blocked" for name in blocked if name not in abnormal]
-    summary = {
-        "tools": rows,
-        "raw_outputs": [r["output"] for r in rows if r.get("output")],
-        "summary": "Tool execution completed." if not errors else "Tool execution blocked: " + ", ".join(errors),
-        "normalized_candidate_count": 0,
-        "errors": errors,
-        "strict_decision": strict_decision,
-        "blocked_tools": blocked,
-        "coverage_impact": [r for r in rows if r.get("coverage_impact")],
-        "incomplete_tools": incomplete,
-    }
+    rows, attempts = run_matrix_tools(matrix.get("tools", []), source, raw, file_list=file_list)
+    summary = collect_summary(rows, attempts)
     write_json(out / "tool-summary.json", summary)
     write_json(out / "tool-execution-attempts.json", {"attempts": attempts})
     missing_blocking = [r["name"] for r in rows if r.get("reason") == "not-installed" and r.get("strict_decision") == "block"]
     if missing_blocking:
         print(f"[PVAS-TOOL-MISSING] blocking due to missing required tools: {', '.join(missing_blocking)}", file=sys.stderr)
         print("[PVAS-TOOL-MISSING] run controlled install-assistant or ensure tools are installed before retry", file=sys.stderr)
-    return 2 if (abnormal or blocked) else 0
+    return 2 if summary["strict_decision"] == "block" else 0
 
 
 if __name__ == "__main__":

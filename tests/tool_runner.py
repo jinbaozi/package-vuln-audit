@@ -18,6 +18,9 @@ FIXTURES = ROOT / 'tests' / 'fixtures'
 def run_tool(rel, args):
     old = sys.argv[:]
     old_path = sys.path[:]
+    old_sandbox = os.environ.get('PVAS_SANDBOX')
+    if rel == 'tools/generate_poc_testcase.py' and old_sandbox is None:
+        os.environ['PVAS_SANDBOX'] = 'disabled'
     if TOOLS not in sys.path:
         sys.path.insert(0, TOOLS)
     sys.argv = [str(ROOT / rel)] + list(map(str, args))
@@ -31,6 +34,10 @@ def run_tool(rel, args):
     finally:
         sys.argv = old
         sys.path[:] = old_path
+        if old_sandbox is None:
+            os.environ.pop('PVAS_SANDBOX', None)
+        else:
+            os.environ['PVAS_SANDBOX'] = old_sandbox
 
 
 def run_subprocess(rel, args=None, *, check=True, cwd=None):
