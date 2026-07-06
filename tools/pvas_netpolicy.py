@@ -37,13 +37,22 @@ def _chain_name(netpolicy_id: str) -> str:
 
 
 def _run_iptables(args: list[str]) -> subprocess.CompletedProcess:
-    """Run iptables; raise NetworkPolicyApplyFailed on non-zero exit.
+    """Run iptables; raise NetworkPolicyApplyFailed on non-zero exit or when
+    the binary is missing from PATH.
 
     We capture stderr so the caller (and the audit log) can see why the rule
-    was rejected. The caller must propagate the exception so pvas_container
-    can degrade to host networking rather than running with partial iptables.
+    was rejected. A missing iptables binary must also surface as
+    NetworkPolicyApplyFailed (not bare FileNotFoundError) so that
+    `pvas_container.run()` can degrade to `--network=host`. The caller must
+    propagate the exception so pvas_container can degrade to host networking
+    rather than running with partial iptables.
     """
-    proc = subprocess.run(["iptables", *args], capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["iptables", *args], capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise NetworkPolicyApplyFailed(
+            f"iptables binary not found: {exc}"
+        ) from exc
     if proc.returncode != 0:
         raise NetworkPolicyApplyFailed(
             f"iptables {' '.join(args)} failed (rc={proc.returncode}): "

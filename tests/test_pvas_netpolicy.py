@@ -130,6 +130,26 @@ def test_apply_raises_networkpolicyapplyfailed_when_iptables_fails():
             os.environ.update(old_environ)
 
 
+def test_apply_raises_networkpolicyapplyfailed_when_iptables_missing():
+    """When iptables is not on PATH, apply() must raise
+    NetworkPolicyApplyFailed (not raw FileNotFoundError) so the caller
+    (Task 5) can degrade to `--network=host`."""
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        # Empty bin/ — deliberately no iptables shim so subprocess.run
+        # cannot find the binary on PATH.
+        bin_dir = td / 'bin'
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        old_environ = os.environ.copy()
+        os.environ.update(_path_env(bin_dir))
+        try:
+            with _raises(pvas_netpolicy.NetworkPolicyApplyFailed):
+                pvas_netpolicy.apply('dummy-cid', allowed_cidrs=[])
+        finally:
+            os.environ.clear()
+            os.environ.update(old_environ)
+
+
 def test_apply_purpose_tool_uses_tool_prefix():
     """purpose='tool' must produce a netpolicy_id starting with pvas-tool-."""
     with tempfile.TemporaryDirectory() as td:
@@ -199,6 +219,7 @@ if __name__ == '__main__':
     test_apply_with_cidrs_writes_return_rules()
     test_flush_all_calls_iptables()
     test_apply_raises_networkpolicyapplyfailed_when_iptables_fails()
+    test_apply_raises_networkpolicyapplyfailed_when_iptables_missing()
     test_apply_purpose_tool_uses_tool_prefix()
     test_apply_purpose_poc_uses_poc_prefix()
     test_apply_emits_cgroup_match_in_output_chain()
