@@ -57,7 +57,7 @@ def test_apply_creates_chain_and_returns_netpolicy_id():
         assert npid.startswith('pvas-poc-') or npid.startswith('pvas-tool-'), \
             f"unexpected prefix: {npid}"
         text = log.read_text()
-        assert '-N PVAS_OUTPUT_' in text, f"expected chain create, log: {text}"
+        assert '-N PV_' in text, f"expected chain create, log: {text}"
         assert '-j DROP' in text, f"expected DROP rule, log: {text}"
 
 
@@ -105,7 +105,7 @@ def test_flush_all_calls_iptables():
         # flush_all must at minimum invoke iptables to enumerate existing rules
         # (-S is the script-friendly listing flag). Accept any evidence of
         # listing or per-chain cleanup work.
-        assert ('-S' in text) or ('PVAS_OUTPUT' in text) or ('-L' in text) \
+        assert ('-S' in text) or ('PV_' in text) or ('-L' in text) \
             or ('-F' in text), \
             f"expected iptables list/flush, log: {text}"
 
@@ -202,6 +202,32 @@ def test_apply_emits_cgroup_match_in_output_chain():
         assert 'docker-1234567890ab' in text, f"expected container id, log: {text}"
 
 
+def test_chain_name_within_iptables_29_char_limit():
+    """iptables rejects chain names longer than 29 chars. The chain name
+    derived from netpolicy_id must stay within this limit so real iptables
+    accepts it (mock iptables accepts anything)."""
+    with tempfile.TemporaryDirectory() as td:
+        bin_dir, log = _make_mock_iptables(pathlib.Path(td))
+        old_environ = os.environ.copy()
+        os.environ.update(_path_env(bin_dir))
+        try:
+            npid = pvas_netpolicy.apply('cgroup-len', allowed_cidrs=[])
+        finally:
+            os.environ.clear()
+            os.environ.update(old_environ)
+        chain = pvas_netpolicy._chain_name(npid)
+        assert len(chain) <= 29, \
+            f"chain name {chain!r} is {len(chain)} chars, exceeds iptables 29-char limit"
+        # The mock iptables recorded the -N invocation; verify that the chain
+        # argument (token after '-N') is parseable and within the limit.
+        for line in log.read_text().splitlines():
+            parts = line.split()
+            if parts and parts[0] == '-N':
+                recorded_chain = parts[1]
+                assert len(recorded_chain) <= 29, \
+                    f"recorded chain {recorded_chain!r} is {len(recorded_chain)} chars"
+
+
 def test_remove_purges_chain_and_jump():
     """remove() must invoke -F (flush) and -X (delete chain) on the PVAS chain."""
     with tempfile.TemporaryDirectory() as td:
@@ -231,4 +257,5 @@ if __name__ == '__main__':
     test_apply_purpose_poc_uses_poc_prefix()
     test_apply_emits_cgroup_match_in_output_chain()
     test_remove_purges_chain_and_jump()
+    test_chain_name_within_iptables_29_char_limit()
     print('pvas_netpolicy tests passed')

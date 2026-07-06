@@ -2,7 +2,7 @@
 """PVAS iptables 规则生命周期：apply / remove / flush_all。
 
 每个 PVAS-managed 容器在启动前调用 `apply(container_id, allowed_cidrs, purpose)`
-建一条 PVAS_OUTPUT_<netpolicy_id> 自定义链，仅匹配该容器的 cgroup（`--cgroup`），
+建一条 PV_<netpolicy_id> 自定义链，仅匹配该容器的 cgroup（`--cgroup`），
 不动主机的 OUTPUT 链本体（除插入跳转）。`remove(netpolicy_id)` 幂等清理。
 `flush_all()` 用于进程退出时扫尾，清除所有 PVAS 命名链。
 
@@ -19,7 +19,13 @@ from typing import Optional
 
 _POLICY_PREFIX_POC = "pvas-poc"
 _POLICY_PREFIX_TOOL = "pvas-tool"
-_CHAIN_PREFIX = "PVAS_OUTPUT_"  # iptables chain prefix for PVAS-managed rules
+# iptables chain-name hard limit is 29 chars (NF_CHAIN_NAMES_MAX-1 = 29-1=28
+# but the loader rejects chain names longer than 29 octets). The full
+# netpolicy_id is `<prefix>-<8hex>-<4hex>` (~22 chars) so we keep only a
+# short "PV_" prefix to stay well under the limit while preserving
+# uniqueness (8+4 hex = 12 hex chars = 48 bits of entropy per chain).
+# flush_all() filters on the same prefix.
+_CHAIN_PREFIX = "PV_"
 
 
 class NetworkPolicyApplyFailed(RuntimeError):
@@ -143,12 +149,12 @@ def flush_all() -> None:
     """进程退出前：清理所有 PVAS 链 + OUTPUT 链上指向它们的跳转。
 
     用于 `enforced_audit_driver` 在 atexit / 异常退出时扫尾：
-    `iptables -S` 枚举规则，挑出链名以 `PVAS_OUTPUT_pvas_` 开头的所有
+    `iptables -S` 枚举规则，挑出链名以 `PV_` 开头的所有
     自定义链并删除，同时把 OUTPUT 链上指向这些链的跳转也删掉。
     """
     listing = subprocess.run(["iptables", "-S"], capture_output=True, text=True)
 
-    # 1. 找出所有 PVAS_OUTPUT_pvas_* 自定义链（line: '-N PVAS_OUTPUT_pvas_xxx'）
+    # 1. 找出所有 PV_* 自定义链（line: '-N PV_pvas_poc_<hex>_<hex>'）
     pvas_chains: set[str] = set()
     for line in listing.stdout.splitlines():
         parts = line.split()
