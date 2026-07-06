@@ -284,6 +284,95 @@ def test_default_image_constant():
     assert pvas_image.DEFAULT_IMAGE_IMPORTED == 'pvas-sandbox:v11-2503-imported'
 
 
+# --- tests for build_runtime + ensure_runtime_image (Task 6) ----------
+# These tests need a mock docker that *also* understands `docker build`,
+# so we always extend the default mock by overwriting bin/docker with a
+# build-aware variant. The default mock's unknown-command path falls
+# through to `exit 0`, which is fine for the "skip" case where we assert
+# that `build` was NOT invoked.
+
+
+def test_build_runtime_invokes_docker_build():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True})
+        # extend mock to handle 'build' command
+        (bin_dir / 'docker').write_text(
+            f"""#!/usr/bin/env bash
+echo "$@" >> {log}
+cmd="$1"; shift
+if [[ "$cmd" == "images" ]]; then exit 0; fi
+if [[ "$cmd" == "build" ]]; then echo "build ok"; exit 0; fi
+exit 0
+"""
+        )
+        (bin_dir / 'docker').chmod(0o755)
+        # We need a Dockerfile
+        df_dir = td / 'df'
+        df_dir.mkdir()
+        (df_dir / 'Dockerfile.runtime').write_text('FROM scratch\n')
+        pvas_image.build_runtime(
+            base_image='pvas-sandbox:v11-2503-imported',
+            target_image='pvas-sandbox:v11-2503-runtime',
+            dockerfile=df_dir / 'Dockerfile.runtime',
+            backend='docker',
+            env_overrides={'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']},
+        )
+        text = log.read_text()
+        assert 'build' in text
+        assert 'pvas-sandbox:v11-2503-runtime' in text
+
+
+def test_ensure_runtime_image_skips_when_present():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log = _make_mock_docker(td, {
+            'images_list': 'pvas-sandbox:v11-2503-runtime\n'
+        })
+        df_dir = td / 'df'
+        df_dir.mkdir()
+        (df_dir / 'Dockerfile.runtime').write_text('FROM scratch\n')
+        result = pvas_image.ensure_runtime_image(
+            base_image='pvas-sandbox:v11-2503-imported',
+            target_image='pvas-sandbox:v11-2503-runtime',
+            dockerfile=df_dir / 'Dockerfile.runtime',
+            backend='docker',
+            env_overrides={'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']},
+        )
+        assert result == 'pvas-sandbox:v11-2503-runtime'
+        text = log.read_text()
+        assert 'build' not in text, f'should not call build when present, log: {text}'
+
+
+def test_ensure_runtime_image_calls_build_when_absent():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log = _make_mock_docker(td, {'images_empty': True})
+        (bin_dir / 'docker').write_text(
+            f"""#!/usr/bin/env bash
+echo "$@" >> {log}
+cmd="$1"; shift
+if [[ "$cmd" == "images" ]]; then exit 0; fi
+if [[ "$cmd" == "build" ]]; then echo "build ok"; exit 0; fi
+exit 0
+"""
+        )
+        (bin_dir / 'docker').chmod(0o755)
+        df_dir = td / 'df'
+        df_dir.mkdir()
+        (df_dir / 'Dockerfile.runtime').write_text('FROM scratch\n')
+        result = pvas_image.ensure_runtime_image(
+            base_image='pvas-sandbox:v11-2503-imported',
+            target_image='pvas-sandbox:v11-2503-runtime',
+            dockerfile=df_dir / 'Dockerfile.runtime',
+            backend='docker',
+            env_overrides={'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']},
+        )
+        assert result == 'pvas-sandbox:v11-2503-runtime'
+        text = log.read_text()
+        assert 'build' in text, f'expected build call, log: {text}'
+
+
 if __name__ == '__main__':
     test_verify_tar_matches()
     test_verify_tar_mismatch_raises()
@@ -300,4 +389,7 @@ if __name__ == '__main__':
     test_prompt_cleanup_always_policy_removes_containers_and_images()
     test_prompt_cleanup_always_keeps_image()
     test_default_image_constant()
+    test_build_runtime_invokes_docker_build()
+    test_ensure_runtime_image_skips_when_present()
+    test_ensure_runtime_image_calls_build_when_absent()
     print('pvas_image tests passed')

@@ -189,3 +189,34 @@ def _log_cleanup(log_path: Optional[Path], audit_id: str, mode: str,
     record = {"ts": time.time(), "audit_id": audit_id, "mode": mode, "actions": actions}
     with log_path.open("a") as f:
         f.write(json.dumps(record) + "\n")
+
+
+def build_runtime(base_image: str, target_image: str, dockerfile: Path,
+                  backend: str, env_overrides: Optional[dict] = None) -> None:
+    """从 imported image 构建 runtime image。"""
+    env = dict(os.environ)
+    if env_overrides:
+        env.update(env_overrides)
+    p = subprocess.run(
+        [backend, "build", "-f", str(dockerfile),
+         "--build-arg", f"BASE={base_image}",
+         "-t", target_image, str(dockerfile.parent)],
+        capture_output=True, text=True, env=env, timeout=300,
+    )
+    if p.returncode != 0:
+        raise ImageImportFailed(f"{backend} build runtime failed: {p.stderr.strip()}")
+
+
+def ensure_runtime_image(
+    base_image: str,
+    target_image: str,
+    dockerfile: Path,
+    backend: str,
+    env_overrides: Optional[dict] = None,
+) -> str:
+    """如果 target_image 不存在则构建。返回 target tag。"""
+    if is_imported(target_image, backend, env_overrides=env_overrides):
+        return target_image
+    build_runtime(base_image, target_image, dockerfile, backend,
+                  env_overrides=env_overrides)
+    return target_image

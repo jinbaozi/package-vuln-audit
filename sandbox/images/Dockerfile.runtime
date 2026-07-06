@@ -1,0 +1,7 @@
+ARG BASE=pvas-sandbox:v11-2503-imported
+FROM ${BASE}
+RUN mkdir -p /workspace /out && chown 65534:65534 /workspace /out
+USER 65534:65534
+VOLUME ["/workspace", "/out"]
+WORKDIR /workspace
+ENTRYPOINT ["/bin/sh", "-c"]
