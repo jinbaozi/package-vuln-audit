@@ -133,21 +133,28 @@ def test_apply_raises_networkpolicyapplyfailed_when_iptables_fails():
 def test_apply_raises_networkpolicyapplyfailed_when_iptables_missing():
     """When iptables is not on PATH, apply() must raise
     NetworkPolicyApplyFailed (not raw FileNotFoundError) so the caller
-    (Task 5) can degrade to `--network=host`."""
+    (Task 5) can degrade to `--network=host`.
+
+    NOTE: PATH must be isolated to the empty bin_dir — if we inherit the
+    caller PATH, subprocess.run finds the real /usr/sbin/iptables and the
+    test passes for the wrong reason (real iptables rejects the chain name
+    as too long and we get a non-zero rc, not FileNotFoundError). This test
+    is the ONLY guard for the FileNotFoundError → NetworkPolicyApplyFailed
+    translation in _run_iptables, so PATH must not leak through.
+    """
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         # Empty bin/ — deliberately no iptables shim so subprocess.run
         # cannot find the binary on PATH.
         bin_dir = td / 'bin'
         bin_dir.mkdir(parents=True, exist_ok=True)
-        old_environ = os.environ.copy()
-        os.environ.update(_path_env(bin_dir))
+        old_path = os.environ['PATH']
+        os.environ['PATH'] = str(bin_dir)
         try:
             with _raises(pvas_netpolicy.NetworkPolicyApplyFailed):
                 pvas_netpolicy.apply('dummy-cid', allowed_cidrs=[])
         finally:
-            os.environ.clear()
-            os.environ.update(old_environ)
+            os.environ['PATH'] = old_path
 
 
 def test_apply_purpose_tool_uses_tool_prefix():
