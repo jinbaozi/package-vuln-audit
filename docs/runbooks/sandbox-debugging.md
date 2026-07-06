@@ -2,6 +2,12 @@
 
 PVAS runs generated PoC reproducers and generated tool-matrix rows through the stdlib-only `pvas_container` wrapper when `PVAS_SANDBOX` is enabled.
 
+`pvas_container.wrap_command()` exists only as a compatibility API for callers
+that need an argv suitable for `subprocess.run()`. It returns a local Python
+runner command that decodes a `ContainerSpec` and calls `pvas_container.run()`;
+it does not expose raw `docker run` arguments. New code should prefer building
+`ContainerSpec` directly and calling `pvas_container.run()` or `run_parallel()`.
+
 ## Runtime State
 
 Complete audits write:

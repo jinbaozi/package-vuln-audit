@@ -17,12 +17,16 @@
 from __future__ import annotations
 
 import concurrent.futures
+import base64
 import dataclasses
+import json
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 MAX_TOOL_MEM_MB = 4096
@@ -71,6 +75,95 @@ class ContainerResult:
     timed_out: bool
     netpolicy_id: Optional[str] = None
     executed_via: str = "container"
+
+
+DEFAULT_RUNTIME_IMAGE = "pvas-sandbox:v11-2503-runtime"
+
+
+def _spec_to_dict(spec: ContainerSpec) -> dict:
+    return dataclasses.asdict(spec)
+
+
+def _spec_from_dict(data: Mapping[str, object]) -> ContainerSpec:
+    return ContainerSpec(
+        image=str(data["image"]),
+        command=list(data["command"]),
+        mounts=list(data.get("mounts") or []),
+        network_policy=str(data.get("network_policy", "bridge-deny")),
+        allowed_cidrs=list(data.get("allowed_cidrs") or []),
+        env=dict(data.get("env") or {}),
+        workdir=str(data.get("workdir", "/workspace")),
+        timeout_seconds=int(data.get("timeout_seconds", 600)),
+        cpu_limit=data.get("cpu_limit"),
+        mem_limit_mb=data.get("mem_limit_mb"),
+        read_only_rootfs=bool(data.get("read_only_rootfs", True)),
+        user=str(data.get("user", "65534:65534")),
+        cap_drop=list(["ALL"] if data.get("cap_drop") is None else data.get("cap_drop")),
+        cap_add=list(data.get("cap_add") or []),
+        labels=dict(data.get("labels") or {}),
+    )
+
+
+def _result_to_dict(result: ContainerResult) -> dict:
+    return dataclasses.asdict(result)
+
+
+def _encode_payload(payload: Mapping[str, object]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_payload(encoded: str) -> dict:
+    raw = base64.urlsafe_b64decode(encoded.encode("ascii"))
+    return json.loads(raw.decode("utf-8"))
+
+
+def wrap_command(
+    command: Sequence[str],
+    *,
+    image: str | None = None,
+    mounts: list | None = None,
+    network_policy: str = "bridge-deny",
+    allowed_cidrs: Sequence[str] | None = None,
+    env: Mapping[str, str] | None = None,
+    workdir: str = "/workspace",
+    timeout_seconds: int = 600,
+    cpu_limit: float | None = None,
+    mem_limit_mb: int | None = None,
+    read_only_rootfs: bool = True,
+    user: str = "65534:65534",
+    cap_drop: Sequence[str] | None = None,
+    cap_add: Sequence[str] | None = None,
+    labels: Mapping[str, str] | None = None,
+    backend: str | None = None,
+) -> list[str]:
+    """Return argv for a subprocess-compatible runner around pvas_container.run().
+
+    This compatibility API intentionally does not expose raw docker arguments.
+    The returned command launches ``pvas_container_exec.py``, which decodes the
+    spec and reuses ``run()`` so network policy, cleanup, and result capture stay
+    centralized.
+    """
+    spec = ContainerSpec(
+        image=image or os.environ.get("PVAS_RUNTIME_IMAGE", DEFAULT_RUNTIME_IMAGE),
+        command=list(command),
+        mounts=mounts or [],
+        network_policy=network_policy,
+        allowed_cidrs=list(allowed_cidrs or []),
+        env=dict(env or {}),
+        workdir=workdir,
+        timeout_seconds=timeout_seconds,
+        cpu_limit=cpu_limit,
+        mem_limit_mb=mem_limit_mb,
+        read_only_rootfs=read_only_rootfs,
+        user=user,
+        cap_drop=list(["ALL"] if cap_drop is None else cap_drop),
+        cap_add=list(cap_add or []),
+        labels=dict(labels or {}),
+    )
+    payload = {"spec": _spec_to_dict(spec), "backend": backend}
+    runner = Path(__file__).with_name("pvas_container_exec.py")
+    return [sys.executable, str(runner), "--spec-json-b64", _encode_payload(payload)]
 
 
 def detect_backend() -> str:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/pvas_container.py using mock docker."""
-import os, pathlib, sys, tempfile
+import json, os, pathlib, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -137,6 +137,57 @@ def test_run_invokes_docker_with_expected_args():
             f"expected user 65534:65534, got: {text!r}"
         assert result.exit_code == 0
         assert 'hello' in result.stdout
+
+
+def test_wrap_command_exists_and_returns_subprocess_argv():
+    argv = pc.wrap_command(
+        ['echo', 'hello'],
+        mounts=[('/tmp/src', '/workspace', 'ro')],
+        network_policy='host',
+        backend='docker',
+    )
+    assert isinstance(argv, list)
+    assert argv[0] == sys.executable
+    assert pathlib.Path(argv[1]).name == 'pvas_container_exec.py'
+    assert argv[2] == '--spec-json-b64'
+    payload = pc._decode_payload(argv[3])
+    assert payload['backend'] == 'docker'
+    assert payload['spec']['command'] == ['echo', 'hello']
+    assert payload['spec']['mounts'] == [['/tmp/src', '/workspace', 'ro']]
+    assert payload['spec']['network_policy'] == 'host'
+
+
+def test_wrap_command_runner_executes_with_mock_docker():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log, ipt_bin = _mock_docker(td, run_stdout='wrapped-ok', run_exit=0)
+        result_json = td / 'result.json'
+        env = os.environ.copy()
+        env.update(_path_env(bin_dir, ipt_bin))
+        env['PVAS_CONTAINER_RESULT_JSON'] = str(result_json)
+        argv = pc.wrap_command(
+            ['echo', 'wrapped-ok'],
+            mounts=[(str(td), '/workspace', 'ro')],
+            network_policy='host',
+            backend='docker',
+        )
+        proc = subprocess.run(argv, capture_output=True, text=True, env=env, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        assert 'wrapped-ok' in proc.stdout
+        assert 'docker run' in log.read_text()
+        payload = json.loads(result_json.read_text())
+        assert payload['exit_code'] == 0
+        assert payload['executed_via'] == 'container'
+
+
+def test_wrap_command_preserves_bridge_deny_default_in_encoded_spec():
+    argv = pc.wrap_command(['true'])
+    payload = pc._decode_payload(argv[3])
+    assert payload['spec']['network_policy'] == 'bridge-deny'
+    assert payload['spec']['image'] == os.environ.get(
+        'PVAS_RUNTIME_IMAGE', 'pvas-sandbox:v11-2503-runtime'
+    )
+    assert payload['spec']['cap_drop'] == ['ALL']
 
 def test_run_timeout_sets_timed_out_flag():
     with tempfile.TemporaryDirectory() as td:
@@ -311,6 +362,9 @@ if __name__ == '__main__':
     test_compute_max_workers_floor_is_1_even_if_no_memory()
     test_compute_max_workers_respects_max_workers_cap()
     test_run_invokes_docker_with_expected_args()
+    test_wrap_command_exists_and_returns_subprocess_argv()
+    test_wrap_command_runner_executes_with_mock_docker()
+    test_wrap_command_preserves_bridge_deny_default_in_encoded_spec()
     test_run_timeout_sets_timed_out_flag()
     test_run_netpolicy_failure_degrades_to_host()
     test_run_parallel_returns_results_for_all_specs()
