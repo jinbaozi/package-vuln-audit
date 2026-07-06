@@ -37,6 +37,7 @@ python3 -u tests/test_public_vuln_correlation.py
 python3 -u tests/test_apply_correlation_to_findings.py
 python3 -u tests/test_sandbox_layout.py
 python3 -u tests/test_sandbox_scripts.py
+python3 -u tests/test_pvas_image.py
 if [[ "${PVAS_RUN_INTEGRATION:-0}" == "1" ]]; then
   timeout 60s python3 -u tests/test_binutils_helpers.py
   timeout 60s python3 -u tests/test_e2e_toy_project.py
