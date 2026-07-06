@@ -212,6 +212,74 @@ def test_prompt_cleanup_never_policy_logs_and_leaves():
         assert 'skipped-never' in cleanup_log.read_text()
 
 
+def test_prompt_cleanup_always_policy_removes_containers_and_images():
+    """PVAS_CLEANUP_IMAGES=always-prune-image must actually invoke `docker rm -f`
+    for every discovered container and `docker rmi` for every discovered image,
+    and the env_overrides PATH must reach those subprocess calls (mock log
+    proves it). The `always` policy keeps the image; `always-prune-image`
+    also removes it."""
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log = _make_mock_docker(
+            td,
+            {'ps_list': 'cid1\\ncid2', 'images_list': 'pvas-sandbox:v11-2503-runtime'},
+        )
+        cleanup_log = td / 'cleanup.jsonl'
+        old = os.environ.get('PVAS_CLEANUP_IMAGES')
+        os.environ['PVAS_CLEANUP_IMAGES'] = 'always-prune-image'
+        try:
+            pvas_image.prompt_cleanup('audit-xyz', 'docker',
+                                      env_overrides=_path_env(bin_dir),
+                                      log_path=cleanup_log)
+        finally:
+            if old is None:
+                os.environ.pop('PVAS_CLEANUP_IMAGES', None)
+            else:
+                os.environ['PVAS_CLEANUP_IMAGES'] = old
+        log_text = log.read_text()
+        # Real CLI invocations for the discovered containers
+        assert 'rm -f cid1' in log_text, f'must rm -f cid1, log: {log_text}'
+        assert 'rm -f cid2' in log_text, f'must rm -f cid2, log: {log_text}'
+        # Real CLI invocation for the discovered image
+        assert 'rmi pvas-sandbox:v11-2503-runtime' in log_text, \
+            f'must rmi image, log: {log_text}'
+        # Cleanup log records the auto mode + the actions performed
+        assert cleanup_log.is_file()
+        cleanup_text = cleanup_log.read_text()
+        assert '"mode": "auto"' in cleanup_text, cleanup_text
+        assert 'rm-containers' in cleanup_text, cleanup_text
+        assert 'rmi-images' in cleanup_text, cleanup_text
+
+
+def test_prompt_cleanup_always_keeps_image():
+    """PVAS_CLEANUP_IMAGES=always must rm containers but KEEP images."""
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log = _make_mock_docker(
+            td,
+            {'ps_list': 'cid1', 'images_list': 'pvas-sandbox:v11-2503-runtime'},
+        )
+        cleanup_log = td / 'cleanup.jsonl'
+        old = os.environ.get('PVAS_CLEANUP_IMAGES')
+        os.environ['PVAS_CLEANUP_IMAGES'] = 'always'
+        try:
+            pvas_image.prompt_cleanup('audit-xyz', 'docker',
+                                      env_overrides=_path_env(bin_dir),
+                                      log_path=cleanup_log)
+        finally:
+            if old is None:
+                os.environ.pop('PVAS_CLEANUP_IMAGES', None)
+            else:
+                os.environ['PVAS_CLEANUP_IMAGES'] = old
+        log_text = log.read_text()
+        assert 'rm -f cid1' in log_text, f'must rm -f cid1, log: {log_text}'
+        assert 'rmi' not in log_text, f'always policy must skip rmi, log: {log_text}'
+        # Cleanup log only records the container removal, not image removal
+        cleanup_text = cleanup_log.read_text()
+        assert 'rm-containers' in cleanup_text, cleanup_text
+        assert 'rmi-images' not in cleanup_text, cleanup_text
+
+
 def test_default_image_constant():
     assert pvas_image.DEFAULT_IMAGE_IMPORTED == 'pvas-sandbox:v11-2503-imported'
 
@@ -229,5 +297,7 @@ if __name__ == '__main__':
     test_list_containers_by_audit()
     test_list_images_by_audit()
     test_prompt_cleanup_never_policy_logs_and_leaves()
+    test_prompt_cleanup_always_policy_removes_containers_and_images()
+    test_prompt_cleanup_always_keeps_image()
     test_default_image_constant()
     print('pvas_image tests passed')
