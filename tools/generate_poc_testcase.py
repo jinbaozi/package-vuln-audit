@@ -1377,6 +1377,8 @@ def main():
     print(f'[PVAS-POC] generated {len(generated)} PoC testcase package(s)')
     if any(s.get('reason') == 'poc-execution-failed' for s in skipped):
         return 2
+    if not generated and not skipped and not findings:
+        return 0  # no findings at all, not an error
     return 0 if generated or skipped else 1
 
 

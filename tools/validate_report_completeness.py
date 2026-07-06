@@ -7,6 +7,8 @@ Also validates final summary report contains required data sections
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import manifest_io
 from pvas_io import corr_map, findings_list, load_json, write_json
 from validate_poc_artifacts import validate_dir
 
@@ -30,12 +32,6 @@ REQUIRED_FINAL_REPORT_SECTIONS_ZH = [
     '严重程度分布',
     '风险概览',
 ]
-BUSINESS_WORKFLOWS = [
-    '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
-    '04-ai-hypothesis', '05-candidate-review', '06-validation',
-    '07-cvss-scoring', '08-report', '09-progressive-disclosure',
-]
-
 CJK = re.compile(r'[\u4e00-\u9fff]')
 CODE_BLOCK = re.compile(r'```.*?```', re.S)
 INLINE_CODE = re.compile(r'`[^`]+`')
@@ -81,8 +77,9 @@ def contains_skeleton(text: str) -> bool:
 
 def validate_final_report_sections(root: pathlib.Path, errors, warnings):
     """Validate that the final summary report contains required data sections."""
-    en_final = root / 'final-summary-report.md'
-    zh_final = root / 'zh-CN' / 'final-summary-report.md'
+    report_root = root / '06-report' if (root / '06-report').is_dir() else root
+    en_final = report_root / 'en-US' / 'final-summary-report.md'
+    zh_final = report_root / 'zh-CN' / 'final-summary-report.md'
 
     for report_path, required_sections, label in [
         (en_final, REQUIRED_FINAL_REPORT_SECTIONS_EN, 'EN final report'),
@@ -109,8 +106,37 @@ def validate_final_report_sections(root: pathlib.Path, errors, warnings):
             errors.append(f'{label}: unfilled template placeholders: {", ".join(unfilled[:5])}')
 
 
+def validate_tool_execution_gate(root: pathlib.Path, errors: list[str]) -> None:
+    tool_summary_path = root / '02-tools' / 'tool-summary.json'
+    tool_summary = load_json(tool_summary_path, default={})
+    if not isinstance(tool_summary, dict):
+        errors.append(f'missing or malformed tool execution summary: {tool_summary_path}')
+        return
+    blocked: list[str] = []
+    for tool in tool_summary.get('tools') or []:
+        if not isinstance(tool, dict):
+            continue
+        status = tool.get('status')
+        if tool.get('strict_decision') == 'block' or status in {
+            'blocked-pending-confirmation',
+            'blocked-recovery-required',
+            'abnormal',
+            'incomplete',
+            'not-installed',
+            'malformed-output',
+            'nonzero-exit',
+        }:
+            blocked.append(f"{tool.get('name', '?')}:{status}:{tool.get('reason') or tool.get('strict_decision')}")
+    if tool_summary.get('strict_decision') == 'block' or blocked:
+        errors.append(
+            'tool execution gate blocked; final complete audit report cannot support negative conclusions: '
+            + '; '.join(blocked or ['summary strict_decision=block'])
+        )
+
+
 def validate_workflow_steps(root: pathlib.Path, errors: list[str]) -> None:
-    for step_id in BUSINESS_WORKFLOWS:
+    skill_root = pathlib.Path(__file__).resolve().parents[1]
+    for step_id in manifest_io.business_workflow_ids(skill_root):
         required_paths = [
             root / 'machine' / 'workflow-steps' / f'{step_id}.json',
             root / 'zh-CN' / 'workflow-steps' / f'{step_id}.md',
@@ -126,6 +152,33 @@ def validate_workflow_steps(root: pathlib.Path, errors: list[str]) -> None:
                 errors.append(f'{machine}: invalid or missing workflow step status')
 
 
+def validate_freshness(path: pathlib.Path, errors: list[str], warnings: list[str]) -> None:
+    if not path.is_file():
+        errors.append(f'missing offline DB freshness artifact: {path}')
+        return
+    try:
+        data = load_json(path, required=True)
+    except Exception as exc:
+        errors.append(f'{path}: failed to read freshness JSON: {exc}')
+        return
+    if not isinstance(data, dict):
+        errors.append(f'{path}: freshness JSON root must be an object')
+        return
+    if data.get('status') == 'blocked':
+        errors.append(f'{path}: offline DB freshness status is blocked')
+    limitations: list[str] = []
+    for src in data.get('sources') or []:
+        if not isinstance(src, dict):
+            continue
+        freshness = src.get('freshness')
+        src_limitations = [str(x) for x in (src.get('limitations') or [])]
+        if freshness in {'stale', 'missing', 'unknown'} and not src_limitations:
+            errors.append(f"{path}: {src.get('source', '?')} freshness={freshness} missing limitations")
+        limitations.extend(src_limitations)
+    if limitations:
+        warnings.append(f'offline DB freshness limitations recorded: {"; ".join(limitations[:5])}')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--findings')
@@ -135,6 +188,7 @@ def main() -> int:
     ap.add_argument('--manual-root')
     ap.add_argument('--check-language-isolation', action='store_true')
     ap.add_argument('--require-workflow-steps', action='store_true')
+    ap.add_argument('--freshness', help='offline DB freshness JSON to enforce for public-record correlation')
     ap.add_argument('--language-isolation-only', action='store_true',
                     help='Only run CJK isolation check (skip report completeness gates)')
     ap.add_argument('--out', default='audit-output/machine/report-completeness.json')
@@ -211,8 +265,11 @@ def main() -> int:
 
     # Validate final summary report sections
     validate_final_report_sections(root, errors, warnings)
+    validate_tool_execution_gate(root, errors)
     if args.require_workflow_steps:
         validate_workflow_steps(root, errors)
+    if args.freshness:
+        validate_freshness(pathlib.Path(args.freshness), errors, warnings)
 
     if args.check_language_isolation:
         errors.extend(check_language_isolation(root))

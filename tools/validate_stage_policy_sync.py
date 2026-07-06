@@ -13,13 +13,6 @@ if str(TOOLS_DIR) not in sys.path:
 import manifest_io
 from pvas_io import write_json
 
-BUSINESS_WORKFLOWS = [
-    '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
-    '04-ai-hypothesis', '05-candidate-review', '06-validation',
-    '07-cvss-scoring', '08-report', '09-progressive-disclosure',
-]
-
-
 def _step_ids(entries: object) -> list[str]:
     if not isinstance(entries, list):
         return []
@@ -38,13 +31,14 @@ def validate(root: pathlib.Path) -> dict:
     driver_path = root / 'tools' / 'enforced_audit_driver.py'
 
     manifest = manifest_io.load_manifest(manifest_path)
+    business_workflows = manifest_io.business_workflow_ids(manifest)
     policies_text = policies_path.read_text(errors='ignore')
     manifest_steps = _step_ids(manifest.get('stages'))
     policy_steps = _policy_step_ids(policies_text)
     workflow_steps = [p.stem for p in sorted((root / 'workflows').glob('*.md'))]
     driver_text = driver_path.read_text(errors='ignore')
 
-    for step in BUSINESS_WORKFLOWS:
+    for step in business_workflows:
         if step not in manifest_steps:
             errors.append(f'{step}: missing from core/manifest.yaml stages')
         if step not in policy_steps:
@@ -54,11 +48,11 @@ def validate(root: pathlib.Path) -> dict:
         if repr(step) not in driver_text and f'"{step}"' not in driver_text:
             errors.append(f'{step}: missing from enforced_audit_driver.py')
 
-    manifest_business = [s for s in manifest_steps if s in BUSINESS_WORKFLOWS]
-    policy_business = [s for s in policy_steps if s in BUSINESS_WORKFLOWS]
-    if manifest_business != BUSINESS_WORKFLOWS:
+    manifest_business = [s for s in manifest_steps if s in business_workflows]
+    policy_business = [s for s in policy_steps if s in business_workflows]
+    if manifest_business != business_workflows:
         errors.append(f'manifest business step order mismatch: {manifest_business}')
-    if policy_business != BUSINESS_WORKFLOWS:
+    if policy_business != business_workflows:
         errors.append(f'policy business step order mismatch: {policy_business}')
 
     artifacts = manifest.get('artifacts') or []
@@ -66,7 +60,7 @@ def validate(root: pathlib.Path) -> dict:
         str(a.get('step_id')) for a in artifacts
         if isinstance(a, dict) and a.get('step_id')
     }
-    for step in BUSINESS_WORKFLOWS:
+    for step in business_workflows:
         if step not in artifact_step_ids:
             warnings.append(f'{step}: no registered artifact with this step_id')
 
@@ -75,7 +69,7 @@ def validate(root: pathlib.Path) -> dict:
         'status': 'passed' if not errors else 'failed',
         'errors': errors,
         'warnings': warnings,
-        'workflow_steps': BUSINESS_WORKFLOWS,
+        'workflow_steps': business_workflows,
         'manifest_business_steps': manifest_business,
         'policy_business_steps': policy_business,
         'workflow_doc_steps': workflow_steps,

@@ -19,6 +19,27 @@ def manifest_path(root: pathlib.Path | str) -> pathlib.Path:
     return pathlib.Path(root) / 'core' / 'manifest.yaml'
 
 
+def business_workflow_ids(root_or_manifest: pathlib.Path | str | dict) -> list[str]:
+    """Return business workflow ids registered in core/manifest.yaml order."""
+    if isinstance(root_or_manifest, dict):
+        manifest = root_or_manifest
+    else:
+        path = pathlib.Path(root_or_manifest)
+        manifest = load_manifest(path if path.name.endswith(('.yaml', '.yml')) else manifest_path(path))
+    ids: list[str] = []
+    for stage in manifest.get('stages') or []:
+        if not isinstance(stage, dict):
+            continue
+        step_id = stage.get('step_id')
+        workflow_doc = stage.get('workflow_doc')
+        if not step_id or not workflow_doc:
+            continue
+        expected_doc = pathlib.PurePosixPath('workflows') / f'{step_id}.md'
+        if pathlib.PurePosixPath(str(workflow_doc)) == expected_doc:
+            ids.append(str(step_id))
+    return ids
+
+
 def schema_path(manifest: dict, name: str) -> pathlib.Path:
     root = manifest.get('schema_root', 'schemas')
     return pathlib.Path(root) / name

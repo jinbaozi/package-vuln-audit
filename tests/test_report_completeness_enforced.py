@@ -31,6 +31,14 @@ def sample_corr():
     return {'checked_sources':['NVD','OSV'], 'correlations':[{'finding_id':'FINDING-001','status':'not_found_in_configured_sources','match_level':'M0','matched_records':[],'checked_sources':['NVD','OSV'],'limitations':['offline fixture']}]}
 
 
+def write_successful_tool_summary(out: pathlib.Path):
+    (out / '02-tools').mkdir(parents=True, exist_ok=True)
+    (out / '02-tools/tool-summary.json').write_text(json.dumps({
+        'strict_decision': 'continue',
+        'tools': [{'name': 'semgrep', 'status': 'completed', 'strict_decision': 'continue'}],
+    }))
+
+
 def test_publish_and_validate_report_completeness():
     with temp_audit_dir() as td:
         td = pathlib.Path(td)
@@ -40,6 +48,7 @@ def test_publish_and_validate_report_completeness():
         f.write_text(json.dumps(sample_findings()))
         c.write_text(json.dumps(sample_corr()))
         run_subprocess('tools/publish_bilingual_reports.py', ['--findings', str(f), '--correlation', str(c), '--out', str(out)])
+        write_successful_tool_summary(out)
         run_subprocess('tools/validate_report_completeness.py', [
             '--findings', str(f), '--correlation', str(c),
             '--report-root', str(out),
@@ -103,6 +112,7 @@ def test_needs_manual_review_requires_manual_plan_and_passed_draft_poc():
             '--poc-root', str(poc_root),
             '--out', str(out),
         ])
+        write_successful_tool_summary(out)
         en_finding = (out / 'en-US/04-findings/MANUAL-001.md').read_text()
         assert 'Draft PoC / unverified, execution passed' in en_finding
         run_subprocess('tools/validate_report_completeness.py', [
@@ -130,7 +140,67 @@ def test_needs_manual_review_requires_manual_plan_and_passed_draft_poc():
         assert any('draft PoC validation failed' in e for e in result['errors'])
 
 
+def test_report_completeness_freshness_missing_or_blocked_fails():
+    with temp_audit_dir() as td:
+        td = pathlib.Path(td)
+        f = td / 'findings.json'
+        c = td / 'corr.json'
+        out = td / 'audit-output'
+        freshness = out / 'machine/correlation/offline-db-freshness.json'
+        f.write_text(json.dumps({'findings': []}))
+        c.write_text(json.dumps({'correlations': []}))
+        run_subprocess('tools/publish_bilingual_reports.py', ['--findings', str(f), '--correlation', str(c), '--out', str(out)])
+        write_successful_tool_summary(out)
+        missing = run_subprocess('tools/validate_report_completeness.py', [
+            '--findings', str(f), '--correlation', str(c),
+            '--report-root', str(out),
+            '--freshness', str(freshness),
+            '--out', str(out / 'machine/report-completeness.json'),
+        ], check=False)
+        assert missing.returncode == 1
+        freshness.parent.mkdir(parents=True, exist_ok=True)
+        freshness.write_text(json.dumps({'status': 'blocked', 'sources': []}))
+        blocked = run_subprocess('tools/validate_report_completeness.py', [
+            '--findings', str(f), '--correlation', str(c),
+            '--report-root', str(out),
+            '--freshness', str(freshness),
+            '--out', str(out / 'machine/report-completeness.json'),
+        ], check=False)
+        assert blocked.returncode == 1
+        result = json.loads((out / 'machine/report-completeness.json').read_text())
+        assert any('freshness status is blocked' in e for e in result['errors'])
+
+
+def test_report_completeness_freshness_stale_with_limitation_passes():
+    with temp_audit_dir() as td:
+        td = pathlib.Path(td)
+        f = td / 'findings.json'
+        c = td / 'corr.json'
+        out = td / 'audit-output'
+        freshness = out / 'machine/correlation/offline-db-freshness.json'
+        f.write_text(json.dumps({'findings': []}))
+        c.write_text(json.dumps({'correlations': []}))
+        run_subprocess('tools/publish_bilingual_reports.py', ['--findings', str(f), '--correlation', str(c), '--out', str(out)])
+        write_successful_tool_summary(out)
+        freshness.parent.mkdir(parents=True, exist_ok=True)
+        freshness.write_text(json.dumps({
+            'status': 'ok',
+            'sources': [{'source': 'NVD', 'freshness': 'stale', 'limitations': ['offline DB is stale']}],
+        }))
+        run_subprocess('tools/validate_report_completeness.py', [
+            '--findings', str(f), '--correlation', str(c),
+            '--report-root', str(out),
+            '--freshness', str(freshness),
+            '--out', str(out / 'machine/report-completeness.json'),
+        ])
+        result = json.loads((out / 'machine/report-completeness.json').read_text())
+        assert result['status'] == 'passed'
+        assert any('offline DB freshness limitations recorded' in w for w in result['warnings'])
+
+
 if __name__ == '__main__':
     test_publish_and_validate_report_completeness()
     test_needs_manual_review_requires_manual_plan_and_passed_draft_poc()
+    test_report_completeness_freshness_missing_or_blocked_fails()
+    test_report_completeness_freshness_stale_with_limitation_passes()
     print('report completeness enforcement tests passed')

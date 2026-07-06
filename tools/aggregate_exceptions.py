@@ -166,23 +166,47 @@ def _tool_summary_events(audit_output: pathlib.Path) -> list[dict]:
         return []
     events: list[dict] = []
     for tool in summary.get('tools') or []:
-        if not isinstance(tool, dict) or tool.get('status') != 'not-applicable':
+        if not isinstance(tool, dict):
             continue
         name = tool.get('name') or 'unknown'
-        reason = tool.get('reason') or tool.get('notes') or 'not applicable to this project'
-        events.append({
-            'id': f'EX-03-tool-scan-{name}-na',
-            'step_id': '03-tool-scan',
-            'audit_output_dir': '02-tools',
-            'class': 'not-applicable',
-            'code': f'tool.{name}.not-applicable',
-            'message': str(reason),
-            'final_decision': 'continue',
-            'attempt_count': 1,
-            'last_error_summary': '',
-            'recovery_actions': [],
-            'artifact_refs': ['audit-output/02-tools/tool-summary.json'],
-        })
+        reason = tool.get('reason') or tool.get('notes') or tool.get('status') or 'unknown'
+        if tool.get('status') == 'not-applicable':
+            events.append({
+                'id': f'EX-03-tool-scan-{name}-na',
+                'step_id': '03-tool-scan',
+                'audit_output_dir': '02-tools',
+                'class': 'not-applicable',
+                'code': f'tool.{name}.not-applicable',
+                'message': str(reason),
+                'final_decision': 'continue',
+                'attempt_count': 1,
+                'last_error_summary': '',
+                'recovery_actions': [],
+                'artifact_refs': ['audit-output/02-tools/tool-summary.json'],
+            })
+            continue
+        if tool.get('strict_decision') == 'block' or tool.get('status') in {
+            'blocked-pending-confirmation',
+            'blocked-recovery-required',
+            'abnormal',
+            'incomplete',
+            'not-installed',
+            'malformed-output',
+            'nonzero-exit',
+        }:
+            events.append({
+                'id': f'EX-03-tool-scan-{name}-blocked',
+                'step_id': '03-tool-scan',
+                'audit_output_dir': '02-tools',
+                'class': 'failed-after-retries',
+                'code': f'tool.{name}.blocked',
+                'message': f'{name}: {reason}',
+                'final_decision': 'failed',
+                'attempt_count': 1,
+                'last_error_summary': str(reason),
+                'recovery_actions': ['recover or install required tools, then rerun tool scan'],
+                'artifact_refs': ['audit-output/02-tools/tool-summary.json'],
+            })
     return events
 
 
@@ -201,7 +225,7 @@ def _pipeline_decision(events: list[dict]) -> str:
     return 'continue'
 
 
-def aggregate_exceptions(audit_output: pathlib.Path, *, merge: bool = True) -> dict:
+def aggregate_exceptions(audit_output: pathlib.Path, *, merge: bool = False) -> dict:
     base = _empty_index()
     if merge:
         existing = load_json(audit_output / 'machine' / 'exception-index.json', default=None)
@@ -231,7 +255,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--audit-output', required=True)
     ap.add_argument('--out', help='Output path (default: <audit-output>/machine/exception-index.json)')
-    ap.add_argument('--merge', action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument('--merge', action=argparse.BooleanOptionalAction, default=False)
     args = ap.parse_args()
     audit_output = pathlib.Path(args.audit_output)
     out_path = pathlib.Path(args.out) if args.out else audit_output / 'machine' / 'exception-index.json'

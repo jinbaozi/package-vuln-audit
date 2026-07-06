@@ -25,6 +25,9 @@ def validate_manifest(root: pathlib.Path, manifest_path: pathlib.Path) -> dict:
         return {'status': 'failed', 'errors': errors, 'warnings': warnings}
 
     schema_root = pathlib.Path(manifest.get('schema_root', 'schemas'))
+    workflow_files = sorted((root / 'workflows').glob('*.md'))
+    workflow_file_ids = [p.stem for p in workflow_files]
+    business_ids: list[str] = []
 
     seen_step_ids: dict[str, int] = {}
     for stage in manifest.get('stages') or []:
@@ -40,10 +43,31 @@ def validate_manifest(root: pathlib.Path, manifest_path: pathlib.Path) -> dict:
         wf_path = root / workflow_doc
         if not wf_path.is_file():
             errors.append(f'missing workflow_doc for step {step_id!r}: {workflow_doc}')
+        expected_workflow_doc = pathlib.PurePosixPath('workflows') / f'{step_id}.md'
+        if pathlib.PurePosixPath(str(workflow_doc)) == expected_workflow_doc:
+            business_ids.append(str(step_id))
+        elif str(workflow_doc).startswith('workflows/'):
+            errors.append(
+                f'business workflow stage {step_id!r}: step_id must match workflow file stem '
+                f'({workflow_doc})'
+            )
 
     for step_id, count in sorted(seen_step_ids.items()):
         if count > 1:
             errors.append(f'duplicate step_id in stages: {step_id!r} ({count} occurrences)')
+
+    business_set = set(business_ids)
+    for wf_id in workflow_file_ids:
+        if wf_id not in business_set:
+            errors.append(f'workflow file missing manifest business stage: workflows/{wf_id}.md')
+    for step_id in business_ids:
+        if step_id not in workflow_file_ids:
+            errors.append(f'manifest business stage missing workflow file: {step_id}')
+    if business_ids != workflow_file_ids:
+        errors.append(
+            'manifest business workflow order must match workflow file numbering: '
+            f'manifest={business_ids}, files={workflow_file_ids}'
+        )
 
     for art in manifest.get('artifacts') or []:
         if not isinstance(art, dict):

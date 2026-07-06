@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse, json, pathlib, sys
 from datetime import datetime
 
+import manifest_io
 from pvas_io import load_json
 from report_render import (
     compute_all_stats,
@@ -82,13 +83,47 @@ def build_tool_matrix_content(audit_root):
     return '\n'.join(rows)
 
 
-def build_executive_summary(findings, all_tools, environment, intake, profile, stats=None):
+def summarize_tool_execution(tool_summary):
+    if not isinstance(tool_summary, dict) or not tool_summary:
+        return {
+            'decision': 'missing',
+            'blocked': [],
+            'completed': 0,
+            'total': 0,
+            'negative_conclusion_allowed': False,
+        }
+    tools = [t for t in tool_summary.get('tools') or [] if isinstance(t, dict)]
+    blocked = [
+        t for t in tools
+        if t.get('strict_decision') == 'block'
+        or t.get('status') in {
+            'blocked-pending-confirmation',
+            'blocked-recovery-required',
+            'abnormal',
+            'incomplete',
+            'not-installed',
+            'malformed-output',
+            'nonzero-exit',
+        }
+    ]
+    return {
+        'decision': tool_summary.get('strict_decision', 'unknown'),
+        'blocked': blocked,
+        'completed': sum(1 for t in tools if t.get('status') in {'completed', 'completed-with-findings', 'not-applicable'}),
+        'total': len(tools),
+        'negative_conclusion_allowed': not blocked and tool_summary.get('strict_decision') != 'block',
+    }
+
+
+def build_executive_summary(findings, all_tools, environment, intake, profile, stats=None, tool_summary=None):
     validated = [f for f in findings if finding_status(f) == 'Validated']
     needs_review = [f for f in findings if finding_status(f) == 'Needs Manual Review']
     candidates = [f for f in findings if finding_status(f) not in ('Validated', 'Needs Manual Review')]
 
     tool_available = sum(1 for t in all_tools if t.get('status') == 'installed')
     tool_total = len(all_tools)
+    tool_exec = summarize_tool_execution(tool_summary)
+    blocked_names = ', '.join(t.get('name', '?') for t in tool_exec['blocked']) or 'none'
     profile_name = profile.get('package_name', '?') if profile else '?'
     primary_lang = fmt_list(profile.get('primary_language', [])) if profile else '?'
 
@@ -101,6 +136,8 @@ def build_executive_summary(findings, all_tools, environment, intake, profile, s
         f'- **Package**: `{profile_name}`',
         f'- **Primary Language(s)**: {primary_lang}',
         f'- **Tools Available**: {tool_available}/{tool_total}',
+        f'- **Tool Execution Status**: decision={tool_exec["decision"]}; completed={tool_exec["completed"]}/{tool_exec["total"]}; blocked={blocked_names}',
+        f'- **Complete Negative Conclusion Allowed**: {tool_exec["negative_conclusion_allowed"]}',
         f'- **Validated Findings**: {len(validated)}',
         f'- **Needs Manual Review**: {len(needs_review)}',
         f'- **Other Candidates**: {len(candidates)}',
@@ -127,6 +164,9 @@ def build_executive_summary(findings, all_tools, environment, intake, profile, s
         lines.append(f'- **Environment Mode**: {environment.get("mode", "?")}')
         lines.append(f'- **Environment Profile**: {environment.get("environment_profile", "?")}')
         lines.append(f'- **Decision**: {environment.get("decision", "?")}')
+    if tool_exec['blocked']:
+        lines.append('')
+        lines.append('**Audit completion status:** traditional tool execution is blocked; this report is a failure summary and cannot support a no-vulnerability conclusion.')
     lines.extend(['', '### Funnel Summary', ''])
     source_count = len(candidates) + len(validated) + len(needs_review)
     lines.append(f'Total Candidates → **{source_count}** → Validated: **{len(validated)}** → Needs Review: **{len(needs_review)}** → Rejected/Other: **{len(candidates)}**')
@@ -651,13 +691,35 @@ def gather_disclosure_stats(findings, correlations):
     return matched, not_found, sources
 
 
+def load_offline_db_freshness(audit_root: pathlib.Path) -> dict:
+    data = load_json(audit_root / 'machine' / 'correlation' / 'offline-db-freshness.json', {})
+    return data if isinstance(data, dict) else {}
+
+
+def summarize_offline_db_freshness(freshness: dict) -> str:
+    if not freshness:
+        return 'not recorded'
+    parts = [f"overall={freshness.get('status', 'unknown')}"]
+    source_parts = []
+    limitation_parts = []
+    for src in freshness.get('sources') or []:
+        if not isinstance(src, dict):
+            continue
+        label = src.get('source', '?')
+        status = src.get('freshness', 'unknown')
+        source_parts.append(f'{label}:{status}')
+        for limitation in src.get('limitations') or []:
+            limitation_parts.append(f'{label}: {limitation}')
+    if source_parts:
+        parts.append('sources=' + ', '.join(source_parts))
+    if limitation_parts:
+        parts.append('limitations=' + '; '.join(limitation_parts))
+    return '; '.join(parts)
+
+
 
 def build_workflow_summary(audit_root):
-    expected = [
-        '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
-        '04-ai-hypothesis', '05-candidate-review', '06-validation',
-        '07-cvss-scoring', '08-report', '09-progressive-disclosure',
-    ]
+    expected = manifest_io.business_workflow_ids(ROOT)
     rows = ['| Workflow | Status | Attempts | Decision | Issues |', '|---|---|---:|---|---|']
     steps_dir = audit_root / 'machine' / 'workflow-steps'
     for step_id in expected:
@@ -729,6 +791,8 @@ def main() -> int:
 
     # ---- build all sections ----
     matched_count, not_found_count, sources_set = gather_disclosure_stats(findings, correlations)
+    freshness = load_offline_db_freshness(audit_root)
+    freshness_summary = summarize_offline_db_freshness(freshness)
 
     environment = environment or {}
     tool_list = environment.get('tools', []) or (tool_summary or {}).get('tools', [])
@@ -736,12 +800,12 @@ def main() -> int:
     stats = compute_all_stats(findings, candidate_summary, tool_summary)
 
     values = {
-        'executive_summary': build_executive_summary(findings, tool_list, environment, intake, profile, stats),
+        'executive_summary': build_executive_summary(findings, tool_list, environment, intake, profile, stats, tool_summary),
         'workflow_execution_summary': build_workflow_summary(audit_root),
         'public_matched_count': str(matched_count),
         'public_not_found_count': str(not_found_count),
         'sources_checked': fmt_list(sorted(sources_set)) if sources_set else 'configured sources checked',
-        'offline_db_freshness': safe_str(environment.get('offline_db_freshness', '—')),
+        'offline_db_freshness': safe_str(freshness_summary),
         'validated_findings_table': build_validated_table(findings, correlations),
         'funnel_table': build_funnel_table(findings, candidate_summary, tool_summary),
         'severity_table': build_severity_table(findings),
@@ -785,11 +849,13 @@ def main() -> int:
             'tool_output': stats['tool_output'],
             'risk_overview': stats['risk_overview'],
         },
+        'tool_execution_status': summarize_tool_execution(tool_summary),
         'public_disclosure': {
             'matched_count': matched_count,
             'not_found_count': not_found_count,
             'sources_checked': sorted(sources_set) if sources_set else [],
-            'offline_db_freshness': safe_str(environment.get('offline_db_freshness', '')),
+            'offline_db_freshness': freshness,
+            'offline_db_freshness_summary': freshness_summary,
         },
         'steps': {
             '01_intake': {'intake': intake, 'scope_length': len(scope_md)},

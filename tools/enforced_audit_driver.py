@@ -33,15 +33,22 @@ from pvas_io import load_json, write_json
 import pvas_container
 import pvas_image
 import pvas_netpolicy
+import manifest_io
 from validate_validation_results import finding_errors as validation_finding_errors
 
 FINAL_STATUSES = {'completed', 'completed-with-recovery', 'not-applicable', 'failed-after-retries'}
-TOOL_BLOCKING_STATUSES = {'blocked-pending-confirmation', 'blocked-recovery-required', 'abnormal'}
-BUSINESS_WORKFLOWS = [
-    '00-intake', '01-package-profile', '02-scope-selection', '03-tool-scan',
-    '04-ai-hypothesis', '05-candidate-review', '06-validation',
-    '07-cvss-scoring', '08-report', '09-progressive-disclosure',
-]
+TOOL_SUCCESS_STATUSES = {'completed', 'completed-with-findings', 'not-applicable'}
+TOOL_BLOCKING_STATUSES = {
+    'blocked-pending-confirmation',
+    'blocked-recovery-required',
+    'abnormal',
+    'incomplete',
+    'not-installed',
+    'malformed-output',
+    'nonzero-exit',
+}
+BUSINESS_WORKFLOWS = manifest_io.business_workflow_ids(ROOT)
+SYSTEM_WORKFLOWS = ['00-workflow-contract', '00-manifest-validation', '00-environment', '10-final-completeness']
 WORKFLOW_PRESETS = {
     'strict-efficient': {
         'mode': 'strict',
@@ -276,7 +283,7 @@ def write_intake_templates(intake_dir: pathlib.Path, source_abs: str) -> None:
 
 
 def refresh_exception_index(out: pathlib.Path) -> None:
-    run([sys.executable, 'tools/aggregate_exceptions.py', '--audit-output', str(out)], allow_fail=True)
+    run([sys.executable, 'tools/aggregate_exceptions.py', '--audit-output', str(out), '--no-merge'], allow_fail=True)
 
 
 def _write_localized_step(out_root: pathlib.Path, payload: dict) -> None:
@@ -441,6 +448,17 @@ def require_paths(paths: list[pathlib.Path], label: str = 'artifact') -> StageRe
     return StageResult(True, outputs=[str(p) for p in paths])
 
 
+def reset_workflow_run_state(out_root: pathlib.Path) -> None:
+    for step_id in [*SYSTEM_WORKFLOWS, *BUSINESS_WORKFLOWS]:
+        for path in [
+            out_root / 'machine' / 'workflow-steps' / f'{step_id}.json',
+            out_root / 'machine' / 'workflow-attempts' / f'{step_id}.json',
+            out_root / 'zh-CN' / 'workflow-steps' / f'{step_id}.md',
+            out_root / 'en-US' / 'workflow-steps' / f'{step_id}.md',
+        ]:
+            path.unlink(missing_ok=True)
+
+
 def _truthy_env_value(value: str | None) -> bool | None:
     if value is None:
         return None
@@ -603,19 +621,29 @@ def intake_network_policy(intake_dir: pathlib.Path) -> str:
 
 def tool_scan_decision(summary_path: pathlib.Path) -> tuple[bool, list[str]]:
     summary = load_json(summary_path, default={})
+    if not isinstance(summary, dict):
+        return True, ['tool-summary.json missing or malformed']
+    if summary.get('strict_decision') == 'block':
+        summary_blocked = True
+    else:
+        summary_blocked = False
     tools = summary.get('tools') if isinstance(summary, dict) else []
     abnormal = [
         t.get('name', '?') for t in tools
         if isinstance(t, dict)
-        and (t.get('status') in TOOL_BLOCKING_STATUSES or t.get('strict_decision') == 'block')
+        and (
+            t.get('status') in TOOL_BLOCKING_STATUSES
+            or t.get('strict_decision') == 'block'
+            or t.get('status') not in TOOL_SUCCESS_STATUSES
+        )
     ]
     limitations = []
     for t in tools:
         if not isinstance(t, dict):
             continue
-        if t.get('status') in {'incomplete', 'not-installed', 'blocked-pending-confirmation', 'blocked-recovery-required'}:
+        if t.get('status') not in TOOL_SUCCESS_STATUSES or t.get('strict_decision') == 'block':
             limitations.append(f"{t.get('name', '?')}: {t.get('reason') or t.get('status')}")
-    return bool(abnormal), limitations
+    return summary_blocked or bool(abnormal), limitations
 
 
 def _confirmation_dir(out_root: pathlib.Path) -> pathlib.Path:
@@ -768,6 +796,8 @@ def main() -> int:
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if not args.resume:
+        reset_workflow_run_state(out)
     write_json(out / 'machine/invocation.json', invocation)
     initialize_sandbox_runtime(out)
     max_candidates = int(args.max_candidates)
@@ -877,9 +907,13 @@ def main() -> int:
 
     def exec_tools():
         os.environ['PVAS_SKIP_ENV_GATE'] = '1'
+        if args.resume:
+            resume = validate_resume_confirmation(out, action='rerun-required-tools')
+            if not resume.ok:
+                return resume
         rc, tool_out = run(['bash', 'tools/run_tools.sh', args.source, str(out / '02-tools')], allow_fail=True)
         abnormal, tool_limitations = tool_scan_decision(out / '02-tools/tool-summary.json')
-        should_fail = abnormal or (rc != 0 and not (out / '02-tools/tool-summary.json').is_file())
+        should_fail = abnormal or rc != 0 or not (out / '02-tools/tool-summary.json').is_file()
         if should_fail and (out / '02-tools/tool-summary.json').is_file():
             summary = load_json(out / '02-tools/tool-summary.json', default={}) or {}
             blocked_tools = [
@@ -890,33 +924,31 @@ def main() -> int:
                     'coverage_impact': t.get('coverage_impact'),
                 }
                 for t in summary.get('tools', [])
-                if isinstance(t, dict) and (t.get('status') in TOOL_BLOCKING_STATUSES or t.get('strict_decision') == 'block')
+                if isinstance(t, dict)
+                and (
+                    t.get('status') in TOOL_BLOCKING_STATUSES
+                    or t.get('strict_decision') == 'block'
+                    or t.get('status') not in TOOL_SUCCESS_STATUSES
+                )
             ]
-            action = 'recover-required-tools'
-            if args.resume:
-                resume = validate_resume_confirmation(out, action=action)
-                if resume.ok:
-                    return StageResult(
-                        True,
-                        limitations=tool_limitations + [f"user-approved continuation after blocked tool scan: {', '.join(t.get('name') or '?' for t in blocked_tools)}"],
-                        details=resume.details,
-                    )
-                return resume
+            action = 'rerun-required-tools'
             confirmation = request_confirmation(out, action, '03-tool-scan', {'tools': blocked_tools, 'runner_exit_code': rc}, interactive=None)
             if not confirmation.ok:
                 return confirmation
+            return confirmation
+        if should_fail:
             return StageResult(
-                True,
-                limitations=tool_limitations + [f"user-approved continuation after blocked tool scan: {', '.join(t.get('name') or '?' for t in blocked_tools)}"],
-                details=confirmation.details,
+                False,
+                issues=['traditional tool scan abnormal; see tool-summary.json and tool-execution-attempts.json'],
+                limitations=tool_limitations + ([] if rc == 0 else [tool_out[-1000:]]),
             )
         return StageResult(not should_fail,
                            issues=['traditional tool scan abnormal; see tool-summary.json and tool-execution-attempts.json'] if should_fail else [],
                            limitations=tool_limitations + ([] if rc == 0 else [tool_out[-1000:]]))
     stage = run_stage('03-tool-scan', lambda: require_paths([out / '01-profile/required-tools-matrix.json']), exec_tools,
-                      lambda: require_paths([out / '02-tools/tool-summary.json']),
+                      lambda: require_paths([out / '02-tools/tool-summary.json']) if not tool_scan_decision(out / '02-tools/tool-summary.json')[0] else StageResult(False, issues=['tool execution gate blocked; see 02-tools/tool-summary.json']),
                       out_root=out, outputs=[str(out / '02-tools/tool-summary.json'), str(out / '02-tools/tool-execution-attempts.json')],
-                      recovery_actions=['retry traditional tool scan; preserve tool-execution-attempts.json'])
+                      recovery_actions=['recover or install required tools, then rerun traditional tool scan'])
     if not stage.ok:
         return 2
 
@@ -932,7 +964,9 @@ def main() -> int:
         decision = budget.get('decision')
         if decision not in {'safe', 'warning', 'split-required'}:
             return StageResult(False, issues=[f'post-packet budget decision={decision}'])
-        rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)])
+        rc, tool_out = run([sys.executable, 'tools/prepare_ai_hypothesis_task.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out-dir', str(out / '03-candidates'), '--max-candidates', str(max_candidates)], allow_fail=True)
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'AI hypothesis task preparation failed'])
         rc, tool_out = run([sys.executable, 'tools/exec_ai_hypothesis_agent.py', '--ranked-candidates', str(out / '03-candidates/ranked-candidates.json'), '--packet-dir', str(out / '03-candidates/packets'), '--selected-scope', str(out / '01-profile/selected-scope.json'), '--out', str(out / '03-candidates/ai-hypotheses.json'), '--max-candidates', str(max_candidates)])
         return StageResult(rc == 0, issues=[tool_out[-1000:] or 'AI hypothesis generation failed'])
     def post_ai_hypothesis():
@@ -1071,10 +1105,18 @@ def main() -> int:
             write_json(corr, {'correlations': [], 'status': 'unknown', 'reason': 'public records not configured'})
             return StageResult(False, issues=['Validated findings require configured public vulnerability correlation sources'])
         if args.public_records:
-            freshness_cmd = [sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(out / 'machine/correlation/offline-db-freshness.json')]
+            freshness_path = out / 'machine/correlation/offline-db-freshness.json'
+            freshness_cmd = [sys.executable, 'tools/check_offline_db_freshness.py', '--out', str(freshness_path)]
             if OPENEULER_MANIFEST.is_file():
                 freshness_cmd.extend(['--extra-manifest', str(OPENEULER_MANIFEST)])
-            run(freshness_cmd, allow_fail=True)
+            rc, tool_out = run(freshness_cmd, allow_fail=True)
+            if rc != 0:
+                return StageResult(False, issues=[tool_out[-1000:] or 'offline DB freshness check failed'])
+            freshness = load_json(freshness_path, default={}) or {}
+            if not freshness_path.is_file():
+                return StageResult(False, issues=['offline DB freshness artifact missing'])
+            if freshness.get('status') == 'blocked':
+                return StageResult(False, issues=['offline DB freshness status is blocked'])
             norm_records = out / 'machine' / 'correlation' / 'normalized-public-records.json'
             run([sys.executable, 'tools/normalize_public_vuln_records.py', '--input', args.public_records, '--out', str(norm_records)], allow_fail=True)
             run([sys.executable, 'tools/correlate_public_vulns.py', '--findings', str(finding_index_path), '--records', str(norm_records), '--openeuler-index', str(OPENEULER_INDEX), '--out', str(corr)], allow_fail=False)
@@ -1083,13 +1125,16 @@ def main() -> int:
             write_json(corr, {'correlations': [], 'status': 'not_applicable', 'reason': 'no Validated findings'})
         run([sys.executable, 'tools/publish_bilingual_reports.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--poc-root', str(out / '04-validation/poc-tests'), '--out', str(out), '--skip-final-report'], allow_fail=False)
         run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', str(finding_index_path), '--out', str(out / '06-report'), '--correlation', str(corr)], allow_fail=False)
-        rc, _ = run([sys.executable, 'tools/validate_report_completeness.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')], allow_fail=True)
+        completeness_cmd = [sys.executable, 'tools/validate_report_completeness.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--out', str(out / 'machine/report-completeness-pre-disclosure.json')]
+        if args.public_records:
+            completeness_cmd.extend(['--freshness', str(out / 'machine/correlation/offline-db-freshness.json')])
+        rc, _ = run(completeness_cmd, allow_fail=True)
         if rc != 0:
             return StageResult(False, issues=['report completeness failed'])
-        return StageResult(True, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')])
+        return StageResult(True, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness-pre-disclosure.json')])
     stage = run_stage('08-report', lambda: require_paths([out / '05-findings/cvss-summary.json']), exec_report,
-                      lambda: require_paths([out / '06-report/machine', out / '06-report/zh-CN', out / '06-report/en-US', out / 'machine/report-completeness.json']),
-                      out_root=out, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness.json')],
+                      lambda: require_paths([out / '06-report/machine', out / '06-report/zh-CN', out / '06-report/en-US', out / 'machine/report-completeness-pre-disclosure.json']),
+                      out_root=out, outputs=[str(out / '06-report/machine'), str(out / '06-report/zh-CN'), str(out / '06-report/en-US'), str(out / 'machine/report-completeness-pre-disclosure.json')],
                       recovery_actions=['regenerate reports and rerun report completeness gate'])
     if not stage.ok:
         return 2
@@ -1107,6 +1152,26 @@ def main() -> int:
     stage = run_stage('09-progressive-disclosure', lambda: require_paths([out / 'machine/workflow-steps/08-report.json']), exec_disclosure,
                       lambda: require_paths([out / 'machine/artifact-summary.json', out / '07-disclosure/disclosure-summary.json']),
                       out_root=out, outputs=[str(out / 'machine/artifact-summary.json'), str(out / '07-disclosure/disclosure-summary.json')])
+    if not stage.ok:
+        return 2
+
+    def exec_final_completeness():
+        corr = out / 'machine' / 'correlation' / 'public-vuln-correlation.json'
+        run([sys.executable, 'tools/generate_final_report.py', '--audit-root', str(out), '--findings', str(finding_index_path), '--out', str(out / '06-report'), '--correlation', str(corr)], allow_fail=False)
+        cmd = [sys.executable, 'tools/validate_report_completeness.py', '--findings', str(finding_index_path), '--correlation', str(corr), '--report-root', str(out), '--manual-root', str(out / '04-validation/manual-review'), '--poc-root', str(out / '04-validation/poc-tests'), '--require-workflow-steps', '--out', str(out / 'machine/report-completeness.json')]
+        freshness_path = out / 'machine/correlation/offline-db-freshness.json'
+        if args.public_records or freshness_path.is_file():
+            cmd.extend(['--freshness', str(freshness_path)])
+        rc, tool_out = run(cmd, allow_fail=True)
+        if rc != 0:
+            return StageResult(False, issues=[tool_out[-1000:] or 'final report completeness failed'])
+        return StageResult(True, outputs=[str(out / '06-report/machine/final-report.json'), str(out / '06-report/en-US/final-summary-report.md'), str(out / '06-report/zh-CN/final-summary-report.md'), str(out / 'machine/report-completeness.json')])
+    stage = run_stage('10-final-completeness', lambda: require_paths([out / 'machine/workflow-steps/09-progressive-disclosure.json']),
+                      exec_final_completeness,
+                      lambda: require_paths([out / 'machine/report-completeness.json']),
+                      out_root=out,
+                      outputs=[str(out / '06-report/machine/final-report.json'), str(out / '06-report/en-US/final-summary-report.md'), str(out / '06-report/zh-CN/final-summary-report.md'), str(out / 'machine/report-completeness.json')],
+                      recovery_actions=['regenerate final report after disclosure step and rerun final completeness gate'])
     if not stage.ok:
         return 2
 

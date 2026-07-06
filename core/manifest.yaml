@@ -61,7 +61,7 @@ stages:
     workflow_doc: null
     audit_output_dir: audit-output/machine
   - step_id: "00-environment"
-    workflow_doc: workflows/00-intake.md
+    workflow_doc: null
     audit_output_dir: audit-output/00-environment
   - step_id: "01-package-profile"
     workflow_doc: workflows/01-package-profile.md
@@ -90,6 +90,9 @@ stages:
   - step_id: "09-progressive-disclosure"
     workflow_doc: workflows/09-progressive-disclosure.md
     audit_output_dir: audit-output/07-disclosure
+  - step_id: "10-final-completeness"
+    workflow_doc: null
+    audit_output_dir: audit-output/machine
 
 artifacts:
   - id: scope-md

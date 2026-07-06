@@ -12,9 +12,11 @@ from enforced_audit_driver import (
     StageResult,
     resolve_invocation_paths,
     request_confirmation,
+    reset_workflow_run_state,
     resolve_cppcheck_mode,
     resolve_startup_config,
     run_stage,
+    tool_scan_decision,
     validate_finding_schema,
     validate_resume_confirmation,
     write_step,
@@ -50,6 +52,48 @@ def test_driver_enforces_ai_hypothesis_stage():
     assert 'tools/validate_hypotheses.py' in text
     assert 'ai-hypotheses.json' in text
     assert 'no --findings provided; final report gates not executed' not in text
+
+
+def test_driver_report_phase_and_final_completeness_gate_are_separate():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    report_start = text.index("def exec_report():")
+    disclosure_start = text.index("def exec_disclosure():")
+    final_start = text.index("def exec_final_completeness():")
+    report_block = text[report_start:disclosure_start]
+    final_block = text[final_start:]
+    assert "'--require-workflow-steps'" not in report_block
+    assert 'report-completeness-pre-disclosure.json' in report_block
+    assert "'10-final-completeness'" in final_block
+    assert "'--require-workflow-steps'" in final_block
+    assert "workflow-steps/09-progressive-disclosure.json" in final_block
+
+
+def test_driver_checks_prepare_ai_hypothesis_task_return_code():
+    text = (ROOT / 'tools' / 'enforced_audit_driver.py').read_text()
+    marker = "tools/prepare_ai_hypothesis_task.py"
+    start = text.index(marker)
+    block = text[start:start + 600]
+    assert 'allow_fail=True' in block
+    assert 'if rc != 0:' in block
+    assert 'AI hypothesis task preparation failed' in block
+
+
+def test_reset_workflow_run_state_removes_only_driver_step_records():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        managed = [
+            audit / 'machine/workflow-steps/08-report.json',
+            audit / 'machine/workflow-attempts/08-report.json',
+            audit / 'zh-CN/workflow-steps/08-report.md',
+            audit / 'en-US/workflow-steps/08-report.md',
+        ]
+        unrelated = audit / '02-tools/raw/tool.log'
+        for path in [*managed, unrelated]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('x')
+        reset_workflow_run_state(audit)
+        assert all(not path.exists() for path in managed)
+        assert unrelated.exists()
 
 
 def test_driver_executes_review_and_validation_semantics():
@@ -190,6 +234,62 @@ def test_resume_confirmation_accepts_matching_decision_token():
         assert not result.ok
         assert validate_resume_confirmation(audit, required['token'], 'degrade-required-tool').ok
         assert not validate_resume_confirmation(audit, 'wrong-token', 'degrade-required-tool').ok
+
+
+def test_tool_scan_decision_blocks_approved_resume_stale_tool_summary():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        summary = audit / '02-tools/tool-summary.json'
+        summary.parent.mkdir(parents=True)
+        summary.write_text(json.dumps({
+            'strict_decision': 'block',
+            'tools': [{
+                'name': 'semgrep',
+                'status': 'blocked-recovery-required',
+                'reason': 'not-installed',
+                'strict_decision': 'block',
+            }],
+        }))
+        result = request_confirmation(
+            audit,
+            'rerun-required-tools',
+            '03-tool-scan',
+            {'tool': 'semgrep'},
+            interactive=False,
+        )
+        required = json.loads((audit / 'machine/user-confirmations/confirmation-required.json').read_text())
+        (audit / 'machine/user-confirmations/confirmation-decisions.json').write_text(json.dumps({
+            'decisions': [{
+                'token': required['token'],
+                'action': 'rerun-required-tools',
+                'step_id': '03-tool-scan',
+                'decision': 'approved',
+                'decided_by': 'test',
+            }]
+        }))
+        assert not result.ok
+        assert validate_resume_confirmation(audit, action='rerun-required-tools').ok
+        blocked, limitations = tool_scan_decision(summary)
+        assert blocked
+        assert any('semgrep' in item for item in limitations)
+
+
+def test_tool_scan_decision_allows_completed_rerun_summary():
+    with temp_audit_dir() as td:
+        audit = pathlib.Path(td)
+        summary = audit / '02-tools/tool-summary.json'
+        summary.parent.mkdir(parents=True)
+        summary.write_text(json.dumps({
+            'strict_decision': 'continue',
+            'tools': [
+                {'name': 'semgrep', 'status': 'completed', 'strict_decision': 'continue'},
+                {'name': 'cppcheck', 'status': 'completed-with-findings', 'strict_decision': 'continue'},
+                {'name': 'npm', 'status': 'not-applicable', 'strict_decision': 'continue'},
+            ],
+        }))
+        blocked, limitations = tool_scan_decision(summary)
+        assert not blocked
+        assert limitations == []
 
 
 def test_run_stage_does_not_retry_pending_confirmation():
