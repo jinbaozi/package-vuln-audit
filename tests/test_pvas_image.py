@@ -293,6 +293,57 @@ def test_prompt_cleanup_always_keeps_image():
         assert 'rmi-images' not in cleanup_text, cleanup_text
 
 
+def test_prompt_cleanup_non_tty_default_keeps_images_and_lists_pending_delete():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        cleanup_log = td / 'sandbox-cleanup.jsonl'
+        calls = []
+        old_policy = os.environ.pop('PVAS_CLEANUP_IMAGES', None)
+        old_stdin = sys.stdin
+        old_list_containers = pvas_image.list_containers_by_audit
+        old_list_images = pvas_image.list_images_by_audit
+        old_remove_containers = pvas_image._remove_containers
+        old_remove_images = pvas_image._remove_images
+
+        class NonTty:
+            def isatty(self):
+                return False
+
+        try:
+            sys.stdin = NonTty()
+            pvas_image.list_containers_by_audit = lambda audit_id, backend, env_overrides=None: ['cid1']
+            pvas_image.list_images_by_audit = lambda audit_id, backend, env_overrides=None: [
+                'pvas-sandbox:v11-2503-imported',
+                'pvas-sandbox:v11-2503-runtime',
+            ]
+            def fake_remove_containers(containers, backend, action_log, env_overrides=None):
+                calls.append(('containers', list(containers)))
+                action_log.append({'action': 'rm-containers', 'items': list(containers)})
+            def fake_remove_images(images, backend, action_log, env_overrides=None):
+                calls.append(('images', list(images)))
+                action_log.append({'action': 'rmi-images', 'items': list(images)})
+            pvas_image._remove_containers = fake_remove_containers
+            pvas_image._remove_images = fake_remove_images
+
+            pvas_image.prompt_cleanup('audit-xyz', 'docker', log_path=cleanup_log)
+        finally:
+            sys.stdin = old_stdin
+            pvas_image.list_containers_by_audit = old_list_containers
+            pvas_image.list_images_by_audit = old_list_images
+            pvas_image._remove_containers = old_remove_containers
+            pvas_image._remove_images = old_remove_images
+            if old_policy is not None:
+                os.environ['PVAS_CLEANUP_IMAGES'] = old_policy
+
+        assert calls == [('containers', ['cid1'])]
+        record = json.loads(cleanup_log.read_text().splitlines()[0])
+        assert record['mode'] == 'auto-keep-images'
+        assert record['images_pending_delete'] == [
+            'pvas-sandbox:v11-2503-imported',
+            'pvas-sandbox:v11-2503-runtime',
+        ]
+
+
 def test_default_image_constant():
     assert pvas_image.DEFAULT_IMAGE_IMPORTED == 'pvas-sandbox:v11-2503-imported'
 
@@ -513,6 +564,7 @@ if __name__ == '__main__':
     test_prompt_cleanup_never_policy_logs_and_leaves()
     test_prompt_cleanup_always_policy_removes_containers_and_images()
     test_prompt_cleanup_always_keeps_image()
+    test_prompt_cleanup_non_tty_default_keeps_images_and_lists_pending_delete()
     test_default_image_constant()
     test_build_runtime_invokes_docker_build()
     test_ensure_runtime_image_skips_when_present()

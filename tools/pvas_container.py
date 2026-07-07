@@ -11,9 +11,9 @@
 - `compute_max_workers` 永远 `>= 1`。
 - `run_parallel` 内部用 `concurrent.futures.ThreadPoolExecutor`，单工具 OOM 时
   退避一次（`min(curr*2, MAX_TOOL_MEM_MB)`）。
-- `NetworkPolicyApplyFailed` 默认阻断容器运行；只有显式设置
-  `PVAS_ALLOW_NETPOLICY_DEGRADED=1` 才允许降级为 host 网络，并在结果中记录
-  `netpolicy_id="degraded-no-netpolicy"` 与 `executed_via="host-degraded-network-policy"`。
+- `NetworkPolicyApplyFailed` → 降级为 `network_policy="host"` 并把
+  `result.netpolicy_id` 写成 `degraded-no-netpolicy`；strict 且
+  allow_degraded=false 时阻断审计。
 """
 from __future__ import annotations
 
@@ -246,6 +246,12 @@ def _detect_oom(stderr: str) -> bool:
     return any(token.lower() in low for token in _OOM_TOKENS)
 
 
+def _strict_no_degrade() -> bool:
+    mode = os.environ.get("PVAS_STRICT_MODE") or os.environ.get("PVAS_ENV_PROFILE") or ""
+    allow = os.environ.get("PVAS_ALLOW_DEGRADED", "false").lower()
+    return mode.lower().startswith("strict") and allow not in {"1", "true", "yes", "on"}
+
+
 def _parse_container_id(stdout: str) -> str:
     """从 docker stdout 中挑出 12 位十六进制的容器 id（mock 自定义时也可）。"""
     for line in stdout.splitlines():
@@ -355,9 +361,9 @@ def run(spec: ContainerSpec, backend: Optional[str] = None) -> ContainerResult:
     try:
         npid = _apply_network_policy(spec)
     except NetworkPolicyApplyFailed:
-        if not allow_netpolicy_degraded():
+        if _strict_no_degrade():
             raise
-        # iptables 不可用 → 仅在显式授权时降级为 host
+        # iptables 不可用 → 兼容模式下降级为 host
         applied_policy = "host"
         npid = "degraded-no-netpolicy"
         executed_via = "host-degraded-network-policy"

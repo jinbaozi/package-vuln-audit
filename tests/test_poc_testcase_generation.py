@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for multi-language POC testcase generation."""
 import json, pathlib, tempfile, sys
-from tool_runner import ROOT, run_tool
+from tool_runner import ROOT, run_subprocess, run_tool
 
 
 def make_finding(status='Validated', fid='FINDING-001', lang_ext='.c', testcase=None):
@@ -318,6 +318,53 @@ def test_mixed_status_generation():
             'FINDING-004': 'status-not-eligible',
             'FINDING-005': 'status-not-eligible',
         }
+
+
+def test_generated_poc_missing_validation_command_fails_preflight_before_run():
+    with tempfile.TemporaryDirectory() as td:
+        t = pathlib.Path(td)
+        finding = make_finding('Validated', 'FINDING-001', '.c')
+        finding['validation']['command'] = ''
+        findings = t / 'findings.json'
+        findings.write_text(json.dumps({'findings': [finding]}))
+
+        out = t / 'poc'
+        result = run_subprocess('tools/generate_poc_testcase.py', [
+            '--findings', str(findings),
+            '--out', str(out),
+            '--generate-from-finding',
+            '--languages', 'python',
+        ], check=False)
+
+        assert result.returncode == 2
+        base = out / 'FINDING-001'
+        assert not (base / 'poc-run-result.json').exists()
+        preflight = json.loads((base / 'poc-preflight-result.json').read_text())
+        assert preflight['status'] == 'poc-preflight-failed'
+        assert any(item['code'] == 'missing-validation-command' for item in preflight['failures'])
+        summary = json.loads((out / 'poc-generation-summary.json').read_text())
+        assert summary['skipped'] == [{'id': 'FINDING-001', 'reason': 'poc-preflight-failed'}]
+
+
+def test_generated_poc_component_mismatch_fails_preflight_before_run():
+    with tempfile.TemporaryDirectory() as td:
+        t = pathlib.Path(td)
+        finding = make_finding('Validated', 'T-CAND-0025', '.c')
+        finding['affected_component']['component'] = 'semgrep'
+        findings = t / 'findings.json'
+        findings.write_text(json.dumps({'findings': [finding]}))
+
+        out = t / 'poc'
+        result = run_subprocess('tools/generate_poc_testcase.py', [
+            '--findings', str(findings),
+            '--out', str(out),
+            '--generate-from-finding',
+            '--languages', 'python',
+        ], check=False)
+
+        assert result.returncode == 2
+        preflight = json.loads((out / 'T-CAND-0025' / 'poc-preflight-result.json').read_text())
+        assert any(item['code'] == 'component-target-mismatch' for item in preflight['failures'])
 
 
 def test_all_five_languages():

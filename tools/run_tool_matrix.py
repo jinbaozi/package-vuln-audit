@@ -32,6 +32,9 @@ CPPCHECK_GCC_RE = re.compile(
 )
 DEFAULT_CPPCHECK_SHARD_SIZE = 100
 DEFAULT_RUNTIME_IMAGE = "pvas-sandbox:v11-2503-runtime"
+DEFAULT_CPPCHECK_MAX_SCOPE_FILES = 10000
+DEFAULT_CPPCHECK_MAX_SCOPE_BYTES = 256 * 1024 * 1024
+DEFAULT_CPPCHECK_MAX_FILE_BYTES = 16 * 1024 * 1024
 
 
 def terminal_summary_chars() -> int:
@@ -219,12 +222,82 @@ def block_required_status(tool: dict, status: str, reason: str) -> tuple[str, st
     return "blocked-recovery-required", reason or status, "block"
 
 
+def _blocked_preflight_row(tool: dict, reason: str, notes: str = "", extra: dict | None = None) -> dict:
+    status, reason, strict_decision = block_required_status(tool, "incomplete", reason)
+    row = {
+        "name": tool.get("name", "?"),
+        "status": status,
+        "output": "",
+        "reason": reason,
+        "notes": notes or tool.get("evidence", ""),
+        "strict_decision": strict_decision,
+        "coverage_impact": tool.get("evidence", ""),
+        "watchdog_events": [],
+        "network_used": False,
+        "result_count": 0,
+        "output_bytes": 0,
+        "raw_output_ref": "",
+        "terminal_summary_truncated": False,
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _path_writable(path: pathlib.Path, *, is_file: bool = False) -> bool:
+    target = path.parent if is_file else path
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".pvas-write-check"
+        probe.write_text("ok")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def command_mentions_remote_semgrep(command: list[str]) -> bool:
     return "--config" in command and "auto" in command
 
 
 def no_semgrep_config(command: list[str]) -> bool:
     return "semgrep" in pathlib.Path(command[0]).name and "--config" not in command
+
+
+def semgrep_preflight_row(tool: dict, raw: pathlib.Path, source: pathlib.Path | None) -> dict | None:
+    command = tool.get("command", [])
+    if not command or "semgrep" not in pathlib.Path(str(command[0])).name:
+        return None
+    if no_semgrep_config(command):
+        return _blocked_preflight_row(
+            tool,
+            "no-local-rules",
+            "No local Semgrep rules were available and network-backed --config auto is not approved.",
+        )
+    expanded = expand_command(command, source or pathlib.Path("."), raw)
+    if command_mentions_remote_semgrep(expanded) and not tool.get("network_required"):
+        return _blocked_preflight_row(tool, "semgrep-network-config-disallowed")
+    if "--config" in expanded:
+        idx = expanded.index("--config")
+        if idx + 1 >= len(expanded):
+            return _blocked_preflight_row(tool, "semgrep-config-missing")
+        config = expanded[idx + 1]
+        if config != "auto":
+            config_path = pathlib.Path(config)
+            if not config_path.exists():
+                return _blocked_preflight_row(tool, "semgrep-config-missing")
+    if "--output" in expanded:
+        idx = expanded.index("--output")
+        if idx + 1 < len(expanded) and not _path_writable(pathlib.Path(expanded[idx + 1]), is_file=True):
+            return _blocked_preflight_row(tool, "semgrep-output-not-writable")
+    env = expand_env(tool.get("env") or {}, source or pathlib.Path("."), raw)
+    for key in ("SEMGREP_SETTINGS_FILE", "SEMGREP_LOG_FILE", "SEMGREP_VERSION_CACHE_PATH"):
+        if env.get(key) and not _path_writable(pathlib.Path(env[key]), is_file=True):
+            return _blocked_preflight_row(tool, f"{key.lower()}-not-writable")
+    for key in ("TMPDIR", "XDG_CACHE_HOME"):
+        if env.get(key) and not _path_writable(pathlib.Path(env[key])):
+            return _blocked_preflight_row(tool, f"{key.lower()}-not-writable")
+    return None
 
 
 def classify_osv_output(output: pathlib.Path) -> tuple[str | None, str | None]:
@@ -290,6 +363,10 @@ def preflight_tool(tool: dict, raw: pathlib.Path, source: pathlib.Path | None = 
             "raw_output_ref": "",
             "terminal_summary_truncated": False,
         }, attempts
+    if name == "semgrep":
+        semgrep_row = semgrep_preflight_row(tool, raw, source)
+        if semgrep_row:
+            return semgrep_row, attempts
     if name == "osv-scanner" and source is not None:
         osv_status, osv_reason = _check_osv_applicable(source)
         if osv_status:
@@ -376,8 +453,30 @@ def build_container_spec(
     raw: pathlib.Path,
     file_list: list[pathlib.Path] | None = None,
 ) -> pvas_container.ContainerSpec:
-    command = expand_command(tool["command"], source, raw, file_list=file_list)
+    raw.mkdir(parents=True, exist_ok=True)
+    raw.chmod(0o1777)
+    if tool.get("name") == "cppcheck" and file_list:
+        file_list_path = write_cppcheck_file_list(raw, file_list)
+        command = expand_cppcheck_command_for_file_list(tool["command"], source, raw, file_list_path)
+        ensure_cppcheck_build_dirs(command)
+    else:
+        command = expand_command(tool["command"], source, raw, file_list=file_list)
     env = expand_env(tool.get("env") or {}, source, raw, file_list=file_list)
+    for key in ("TMPDIR", "XDG_CACHE_HOME"):
+        if env.get(key):
+            path = pathlib.Path(env[key])
+            path.mkdir(parents=True, exist_ok=True)
+            path.chmod(0o1777)
+    for key in ("SEMGREP_SETTINGS_FILE", "SEMGREP_LOG_FILE", "SEMGREP_VERSION_CACHE_PATH"):
+        if env.get(key):
+            path = pathlib.Path(env[key])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.chmod(0o1777)
+            if not path.exists():
+                path.touch()
+            if key == "SEMGREP_SETTINGS_FILE" and path.stat().st_size == 0:
+                path.write_text("{}\n")
+            path.chmod(0o666)
     timeout_seconds = int(parse_duration(tool.get("timeout"), 600.0))
     audit_id = os.environ.get("PVAS_AUDIT_ID", "pvas-unknown")
     labels = {
@@ -389,6 +488,13 @@ def build_container_spec(
         (str(source.resolve()), str(source.resolve()), "ro"),
         (str(raw.resolve()), str(raw.resolve()), "rw"),
     ]
+    if tool.get("name") == "semgrep":
+        for idx, part in enumerate(command):
+            if part == "--config" and idx + 1 < len(command):
+                config_path = pathlib.Path(command[idx + 1])
+                if config_path.is_absolute() and config_path.exists():
+                    mounts.append((str(config_path.resolve()), str(config_path.resolve()), "ro"))
+                break
     return pvas_container.ContainerSpec(
         image=os.environ.get("PVAS_RUNTIME_IMAGE", DEFAULT_RUNTIME_IMAGE),
         command=command,
@@ -419,7 +525,9 @@ def _container_result_to_row(
     command = expand_command(tool["command"], pathlib.Path(tool.get("_source_for_attempt", ".")), raw)
 
     if result.timed_out:
-        status, reason = "abnormal", "abnormal-timeout"
+        status, reason = "incomplete", "incomplete-timeout"
+    elif result.oom_killed:
+        status, reason = "incomplete", "incomplete-resource-failure"
     elif result.exit_code == 0:
         status, reason = "completed", ""
     elif result.exit_code < 0:
@@ -922,6 +1030,88 @@ def cppcheck_effective_files(tool: dict, source: pathlib.Path, file_list: list[p
     return cppcheck_file_scope(source, None), None, limitations, None
 
 
+def cppcheck_scope_estimate(files: list[pathlib.Path], tool: dict, scope: dict | None) -> dict:
+    sizes: list[int] = []
+    total = 0
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        sizes.append(size)
+        total += size
+    try:
+        shard_size = max(int(tool.get("shard_size") or DEFAULT_CPPCHECK_SHARD_SIZE), 1)
+    except (TypeError, ValueError):
+        shard_size = DEFAULT_CPPCHECK_SHARD_SIZE
+    return {
+        "file_count": len(files),
+        "total_bytes": total,
+        "max_file_bytes": max(sizes) if sizes else 0,
+        "include_path_count": len((scope or {}).get("include_paths") or tool.get("cppcheck_include_paths") or []),
+        "estimated_shards": len(chunks(files, shard_size)) if files else 0,
+        "shard_size": shard_size,
+    }
+
+
+def cppcheck_preflight_row(
+    tool: dict,
+    source: pathlib.Path,
+    raw: pathlib.Path,
+    files: list[pathlib.Path],
+    scope: dict | None,
+    compile_database: pathlib.Path | None,
+    file_list: list[pathlib.Path] | None,
+) -> dict | None:
+    if source.is_dir() and file_list is None and not scope and not compile_database:
+        return _blocked_preflight_row(
+            tool,
+            "cppcheck-directory-scan-disabled",
+            "cppcheck must use cppcheck-scope.json, compile_commands.json, or an explicit file list.",
+            {
+                "cppcheck_preflight": {
+                    "fix": "provide audit-output/01-profile/cppcheck-scope.json, compile_commands.json, or --file-list",
+                }
+            },
+        )
+    estimate = cppcheck_scope_estimate(files, tool, scope)
+    max_files = int(tool.get("max_scope_files") or os.environ.get("PVAS_CPPCHECK_MAX_SCOPE_FILES", DEFAULT_CPPCHECK_MAX_SCOPE_FILES))
+    max_total = int(tool.get("max_scope_bytes") or os.environ.get("PVAS_CPPCHECK_MAX_SCOPE_BYTES", DEFAULT_CPPCHECK_MAX_SCOPE_BYTES))
+    max_file = int(tool.get("max_file_bytes") or os.environ.get("PVAS_CPPCHECK_MAX_FILE_BYTES", DEFAULT_CPPCHECK_MAX_FILE_BYTES))
+    too_large = (
+        estimate["file_count"] > max_files
+        or estimate["total_bytes"] > max_total
+        or estimate["max_file_bytes"] > max_file
+    )
+    if too_large:
+        return _blocked_preflight_row(
+            tool,
+            "blocked-preflight-resource-risk",
+            "cppcheck scope exceeds configured preflight resource budget.",
+            {
+                "cppcheck_preflight": {
+                    **estimate,
+                    "max_scope_files": max_files,
+                    "max_scope_bytes": max_total,
+                    "max_file_bytes": max_file,
+                    "fix": "reduce scope, increase timeout/memory budget, or provide a compile database",
+                }
+            },
+        )
+    command = expand_cppcheck_command_for_file_list(tool["command"], source, raw, raw / "cppcheck.files.txt")
+    if source.is_dir() and str(source) in command and "--project" not in " ".join(command):
+        return _blocked_preflight_row(tool, "cppcheck-directory-scan-disabled")
+    for idx, part in enumerate(command):
+        build_dir = ""
+        if part == "--cppcheck-build-dir" and idx + 1 < len(command):
+            build_dir = command[idx + 1]
+        elif part.startswith("--cppcheck-build-dir="):
+            build_dir = part.split("=", 1)[1]
+        if build_dir and not _path_writable(pathlib.Path(build_dir)):
+            return _blocked_preflight_row(tool, "cppcheck-build-dir-not-writable")
+    return None
+
+
 def chunks(items: list[pathlib.Path], size: int) -> list[list[pathlib.Path]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
@@ -942,6 +1132,10 @@ def run_cppcheck_project(tool: dict, source: pathlib.Path, raw: pathlib.Path) ->
     name = tool["name"]
     binary = tool["binary"]
     scope, limitations = _load_cppcheck_scope(tool)
+    compile_db = pathlib.Path(str(tool.get("cppcheck_compile_database") or "")) if tool.get("cppcheck_compile_database") else None
+    preflight_row = cppcheck_preflight_row(tool, source, raw, [], scope, compile_db, [])
+    if preflight_row:
+        return apply_cppcheck_scope_metadata(preflight_row, tool, scope, limitations), []
     final_output = raw / "cppcheck.out"
     command = expand_command(tool["command"], source, raw)
     if shutil.which(binary) is None:
@@ -988,6 +1182,8 @@ def run_cppcheck_project(tool: dict, source: pathlib.Path, raw: pathlib.Path) ->
     abnormal = reason in {"spawn-failed", "abnormal-timeout"}
     if reason == "stalled" and is_blocking_tool(tool):
         status, status_reason = "blocked-pending-confirmation", "stalled"
+    elif reason == "hard-limit" or reason == "abnormal-timeout":
+        status, status_reason = "incomplete", "incomplete-timeout"
     elif abnormal:
         status, status_reason = "abnormal", reason
     elif rc == 0:
@@ -1112,6 +1308,17 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
     name = tool["name"]
     binary = tool["binary"]
     files, scope, scope_limitations, compile_database = cppcheck_effective_files(tool, source, file_list)
+    preflight_row = cppcheck_preflight_row(tool, source, raw, files, scope, compile_database, file_list)
+    if preflight_row:
+        file_list_path = raw / "cppcheck.files.txt"
+        row = {
+            **preflight_row,
+            "shards_total": 0,
+            "shards_completed": 0,
+            "partial_outputs": [],
+            "file_list": str(file_list_path),
+        }
+        return apply_cppcheck_scope_metadata(row, tool, scope, scope_limitations), []
     if compile_database and compile_database.exists():
         project_tool = dict(tool)
         project_tool["execution_mode"] = "project"
@@ -1298,7 +1505,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
                 "output_bytes": output_size(part_output),
             })
             if reason == "hard-limit":
-                return False, "hard-limit"
+                return False, "incomplete-timeout"
             if reason == "spawn-failed":
                 return False, "spawn-failed"
             return False, "nonzero-exit"
@@ -1339,7 +1546,7 @@ def run_cppcheck_sharded(tool: dict, source: pathlib.Path, raw: pathlib.Path, fi
     if reason == "partial-timeout" and final_output.exists():
         output_path = str(final_output)
     total_shards = effective_shards
-    output_paths = [str(path) for path in partial_outputs]
+    output_paths = [str(path) for path in partial_outputs] if completed_outputs or reason == "partial-timeout" else []
     if reason == "partial-timeout":
         coverage = {
             "impact": tool.get("evidence", ""),

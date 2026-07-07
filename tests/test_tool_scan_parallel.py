@@ -55,8 +55,10 @@ def test_semgrep_runs_before_parallel_batch_and_summary_preserves_blocked():
         source.mkdir()
         raw = td / "raw"
         raw.mkdir()
+        rules = td / "rules"
+        rules.mkdir()
         tools = [
-            _tool("semgrep", command=["semgrep", "scan", "--config", "p/c", "--json", "--output", "<raw>/semgrep.json", "<source>"], applicability="mandatory"),
+            _tool("semgrep", command=["semgrep", "scan", "--config", str(rules), "--json", "--output", "<raw>/semgrep.json", "<source>"], applicability="mandatory"),
             _tool("rg", command=["rg", "needle", "<source>"]),
             _tool("npm", command=["npm", "audit", "--json"]),
         ]

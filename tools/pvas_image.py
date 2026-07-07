@@ -168,7 +168,7 @@ def prompt_cleanup(audit_id: str, backend: str,
                    log_path: Optional[Path] = None) -> None:
     """审计完成后根据 PVAS_CLEANUP_IMAGES 决定行为：
     ask（默认，TTY 交互）/ always / always-prune-image / never。
-    非交互（无 TTY）时按 always 处理，保留镜像仅清容器。
+    非交互（无 TTY）时按 always 处理，保留镜像仅清容器，并记录待用户确认删除的镜像。
     """
     containers = list_containers_by_audit(audit_id, backend, env_overrides=env_overrides)
     images = list_images_by_audit(audit_id, backend, env_overrides=env_overrides)
@@ -184,7 +184,8 @@ def prompt_cleanup(audit_id: str, backend: str,
         keep_image = policy != "always-prune-image"
         _do_cleanup(containers, images, backend, keep_image, action_log,
                     env_overrides=env_overrides)
-        _log_cleanup(log_path, audit_id, "auto", action_log)
+        mode = "auto-keep-images" if keep_image else "auto"
+        _log_cleanup(log_path, audit_id, mode, action_log, images_pending_delete=images if keep_image else [])
         return
 
     print(f"\n[pvas] audit {audit_id} complete.")
@@ -222,11 +223,13 @@ def _do_cleanup(containers: list[str], images: list[str], backend: str,
 
 
 def _log_cleanup(log_path: Optional[Path], audit_id: str, mode: str,
-                 actions: list[dict]) -> None:
+                 actions: list[dict], images_pending_delete: Optional[list[str]] = None) -> None:
     if not log_path:
         return
     log_path.parent.mkdir(parents=True, exist_ok=True)
     record = {"ts": time.time(), "audit_id": audit_id, "mode": mode, "actions": actions}
+    if images_pending_delete is not None:
+        record["images_pending_delete"] = images_pending_delete
     with log_path.open("a") as f:
         f.write(json.dumps(record) + "\n")
 

@@ -113,10 +113,10 @@ def command_template(
         return ["rg", "-n", "strcpy|strcat|sprintf|vsprintf|memcpy|memmove|malloc|calloc|realloc|free|system\\(|popen\\(|mktemp|tmpnam|open\\(|unlink\\(", "<source>"]
     if name == "semgrep":
         local_config = local_semgrep_config()
-        if local_config:
-            return ["semgrep", "scan", "--config", str(local_config), "--json", "--output", "<raw>/semgrep.json", "<source>"]
         if network_policy == "online-approved" and allow_network:
             return ["semgrep", "scan", "--config", "auto", "--json", "--output", "<raw>/semgrep.json", "<source>"]
+        if local_config:
+            return ["semgrep", "scan", "--config", str(local_config), "--json", "--output", "<raw>/semgrep.json", "<source>"]
         # Do not synthesize registry-backed configs such as p/c in offline or
         # restricted mode. The runner will classify this as no-local-rules and
         # block strict workflows instead of silently attempting network-backed rules.
@@ -134,6 +134,9 @@ def command_template(
         if cppcheck_scope:
             for include_path in cppcheck_scope.get("include_paths") or []:
                 base.append(f"-I{include_path}")
+            included = [str(path) for path in (cppcheck_scope.get("included_files") or [])]
+            if included and cppcheck_scope.get("scope_mode") == "file-list":
+                return [*base, *included]
         return [*base, "<source>"]
     if name == "osv-scanner":
         return ["osv-scanner", "scan", "--format", "json", "<source>"]
@@ -177,10 +180,12 @@ def build_matrix(
         )
         env = {}
         if name == "semgrep":
-            env_base = out_root / "00-environment" if out_root else pathlib.Path("<raw>").parent / "00-environment"
             env = {
-                "SEMGREP_SETTINGS_FILE": str(env_base / "semgrep-settings.yml"),
-                "SEMGREP_LOG_FILE": str(env_base / "semgrep.log"),
+                "TMPDIR": "<raw>/tmp",
+                "XDG_CACHE_HOME": "<raw>/tmp/cache",
+                "SEMGREP_SETTINGS_FILE": "<raw>/semgrep-settings.yml",
+                "SEMGREP_LOG_FILE": "<raw>/semgrep.log",
+                "SEMGREP_VERSION_CACHE_PATH": "<raw>/semgrep-version-cache",
             }
         network_required = bool(meta.get("network_required")) or (name == "semgrep" and semgrep_config_requires_network(command))
         tool_row = {

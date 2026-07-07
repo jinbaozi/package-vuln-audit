@@ -5,7 +5,7 @@ Supports multi-language POC generation (Python, C, C++, Java, Go, Perl, Shell).
 Each finding gets POC variants in multiple languages under language-specific subdirectories.
 """
 from __future__ import annotations
-import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time, shlex
+import argparse, json, pathlib, shutil, os, platform, stat, sys, subprocess, time, shlex, tempfile
 
 from pvas_io import load_findings, sha256_file
 import pvas_container
@@ -1060,6 +1060,143 @@ This will attempt to run each language variant. At least one must pass for the P
     (outdir / 'README.md').write_text(readme)
 
 
+def _poc_failure(code: str, message: str, fix: str) -> dict:
+    return {"code": code, "message": message, "fix": fix}
+
+
+def lint_generated_poc_package(f: dict, outdir: pathlib.Path, languages: list[str]) -> dict:
+    """Fail predictable PoC package errors before build/run retries."""
+    failures: list[dict] = []
+    fid = f.get('id', 'FINDING-UNKNOWN')
+    component = str((f.get('affected_component') or {}).get('component') or '').strip()
+    validation = f.get('validation') if isinstance(f.get('validation'), dict) else {}
+    command = str(validation.get('command') or '').strip()
+
+    if not component or component.lower() in {'target', 'semgrep'}:
+        failures.append(_poc_failure(
+            'component-target-mismatch',
+            'PoC component must identify the real package target, not a tool or placeholder.',
+            'Set affected_component.component to the BCC target binary/source component under validation.',
+        ))
+    if fid == 'T-CAND-0025' and 'semgrep' in component.lower():
+        failures.append(_poc_failure(
+            'component-target-mismatch',
+            'T-CAND-0025 must target the BCC ELF/build-id path, not semgrep.',
+            'Replace component metadata with the BCC ELF/build-id or build artifact path.',
+        ))
+    if not command:
+        failures.append(_poc_failure(
+            'missing-validation-command',
+            'validation.command is required for generated PoC trigger steps.',
+            'Provide the local validation command for the affected target.',
+        ))
+    if command in {'false', 'true', 'echo', 'placeholder'} or 'system("false")' in command:
+        failures.append(_poc_failure(
+            'placeholder-command',
+            'PoC command is a placeholder and would not validate the target.',
+            'Replace the placeholder with a target-specific local validation command.',
+        ))
+
+    main_script = outdir / 'reproduce.sh'
+    if not main_script.exists():
+        failures.append(_poc_failure(
+            'missing-reproduce-script',
+            'reproduce.sh is missing.',
+            'Regenerate the PoC package and ensure artifacts.reproduce_script is written.',
+        ))
+    elif not os.access(main_script, os.X_OK):
+        failures.append(_poc_failure(
+            'reproduce-not-executable',
+            'reproduce.sh must be executable.',
+            'chmod +x reproduce.sh before PoC execution.',
+        ))
+
+    manifest_path = outdir / 'poc-manifest.json'
+    manifest = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except json.JSONDecodeError:
+            failures.append(_poc_failure(
+                'manifest-malformed',
+                'poc-manifest.json is not valid JSON.',
+                'Regenerate the manifest from structured finding data.',
+            ))
+    else:
+        failures.append(_poc_failure(
+            'manifest-missing',
+            'poc-manifest.json is missing.',
+            'Write a PoC manifest before execution.',
+        ))
+    if manifest and manifest.get('safety_class') != 'local-validation-only':
+        failures.append(_poc_failure(
+            'safety-class-mismatch',
+            'PoC safety_class must be local-validation-only.',
+            'Set safety_class=local-validation-only and keep execution local/offline.',
+        ))
+    if manifest:
+        commands = manifest.get('commands') if isinstance(manifest.get('commands'), dict) else {}
+        reproduce = str(commands.get('reproduce') or '').strip()
+        if not reproduce:
+            failures.append(_poc_failure(
+                'empty-reproduce-command',
+                'PoC manifest reproduce command is empty.',
+                'Set commands.reproduce to ./reproduce.sh.',
+            ))
+
+    for lang in languages:
+        variant_manifest_path = outdir / lang / 'poc-manifest.json'
+        if not variant_manifest_path.exists():
+            continue
+        try:
+            variant_manifest = json.loads(variant_manifest_path.read_text())
+        except json.JSONDecodeError:
+            failures.append(_poc_failure('variant-manifest-malformed', f'{lang} manifest is malformed.', 'Regenerate variant manifest.'))
+            continue
+        commands = variant_manifest.get('commands') if isinstance(variant_manifest.get('commands'), dict) else {}
+        build_cmd = str(commands.get('build') or '').strip()
+        run_cmd = str(commands.get('reproduce') or '').strip()
+        if lang in {'c', 'cpp', 'java', 'go', 'rust'} and not build_cmd:
+            failures.append(_poc_failure(
+                'missing-build-command',
+                f'{lang} variant requires a build command.',
+                'Add a build command that creates the expected ./reproduce path or runtime artifact.',
+            ))
+        if not run_cmd:
+            failures.append(_poc_failure(
+                'empty-command',
+                f'{lang} variant reproduce command is empty.',
+                'Set commands.reproduce to the local variant runner.',
+            ))
+        if lang == 'python':
+            env_tmp = os.environ.get('TMPDIR') or os.environ.get('TMP') or os.environ.get('TEMP') or tempfile.gettempdir()
+            tmp_path = pathlib.Path(env_tmp)
+            if not tmp_path.exists() or not os.access(tmp_path, os.W_OK):
+                failures.append(_poc_failure(
+                    'tmpdir-not-writable',
+                    'Python PoC requires a writable TMPDIR/TMP/TEMP.',
+                    'Set TMPDIR, TMP, or TEMP to a writable local directory.',
+                ))
+        script = outdir / lang / str(variant_manifest.get('artifacts', {}).get('reproduce_script') or '')
+        if script.name and script.exists():
+            text = script.read_text(errors='ignore')
+            if 'system("false")' in text or '\nfalse\n' in text or 'cmd = []' in text:
+                failures.append(_poc_failure(
+                    'placeholder-command',
+                    f'{lang} variant contains a placeholder trigger command.',
+                    'Provide a real validation.command before generating the PoC.',
+                ))
+
+    result = {
+        'finding_id': fid,
+        'status': 'poc-preflight-failed' if failures else 'passed',
+        'failures': failures,
+        'checked_languages': languages,
+    }
+    (outdir / 'poc-preflight-result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Run reproducer for a multi-language POC
 # ---------------------------------------------------------------------------
@@ -1326,6 +1463,11 @@ def main():
 
             gen_result = generate_multilang_poc(f, languages, d, is_draft=is_draft)
 
+            preflight_result = lint_generated_poc_package(f, d, languages)
+            if preflight_result['status'] != 'passed':
+                skipped.append({'id': fid, 'reason': 'poc-preflight-failed'})
+                continue
+
             # Run the reproducer. Draft PoCs must execute successfully, but
             # passing execution does not upgrade a finding to Validated.
             run_result = run_multilang_reproducer(d, timeout_seconds=args.timeout)
@@ -1375,7 +1517,7 @@ def main():
     summary = {'generated': generated, 'skipped': skipped}
     (outroot / 'poc-generation-summary.json').write_text(json.dumps(summary, indent=2))
     print(f'[PVAS-POC] generated {len(generated)} PoC testcase package(s)')
-    if any(s.get('reason') == 'poc-execution-failed' for s in skipped):
+    if any(s.get('reason') in {'poc-preflight-failed', 'poc-execution-failed'} for s in skipped):
         return 2
     if not generated and not skipped and not findings:
         return 0  # no findings at all, not an error

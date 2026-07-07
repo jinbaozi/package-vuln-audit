@@ -247,6 +247,30 @@ def test_run_netpolicy_failure_degrades_to_host():
         assert '--network host' in text, f"expected host network fallback, log: {text!r}"
 
 
+def test_strict_mode_netpolicy_failure_blocks_instead_of_degrading():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bin_dir, log, _ = _mock_docker(td, run_stdout='hi', run_exit=0,
+                                       with_iptables=False)
+        old_environ = os.environ.copy()
+        os.environ['PATH'] = str(bin_dir)
+        os.environ['PVAS_STRICT_MODE'] = 'strict'
+        os.environ['PVAS_ALLOW_DEGRADED'] = 'false'
+        try:
+            spec = C(image='img', command=['echo', 'hi'], mounts=[],
+                     network_policy='bridge-deny', timeout_seconds=30)
+            try:
+                pc.run(spec, backend='docker')
+            except pc.NetworkPolicyApplyFailed:
+                pass
+            else:
+                raise AssertionError('strict mode must block netpolicy degradation')
+        finally:
+            os.environ.clear()
+            os.environ.update(old_environ)
+        assert 'docker run' not in log.read_text()
+
+
 def test_run_parallel_returns_results_for_all_specs():
     """run_parallel must return one ContainerResult per spec, never raise."""
     with tempfile.TemporaryDirectory() as td:

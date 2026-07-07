@@ -16,6 +16,7 @@ def write_executable(path: pathlib.Path, content: str):
 
 
 def base_matrix(td: pathlib.Path, semgrep_binary="semgrep"):
+    (td / "local-rules").mkdir(exist_ok=True)
     matrix = {
         "schema_version": "1.0",
         "environment_profile": "standard",
@@ -26,7 +27,7 @@ def base_matrix(td: pathlib.Path, semgrep_binary="semgrep"):
                 "binary": semgrep_binary,
                 "applicability": "mandatory",
                 "evidence": "complete-audit baseline",
-                "command": [semgrep_binary, "scan", "--config", "local-rules", "--json", "--output", "<raw>/semgrep.json", "<source>"],
+                "command": [semgrep_binary, "scan", "--config", str(td / "local-rules"), "--json", "--output", "<raw>/semgrep.json", "<source>"],
                 "timeout": "5s",
                 "watchdog": {"strategy": "adaptive", "idle_timeout": "1s"},
                 "retry_policy": {"max_attempts": 1},
@@ -229,6 +230,32 @@ def test_no_local_semgrep_rules_blocks_mandatory_tool():
         assert semgrep["status"] == "blocked-recovery-required"
         assert semgrep["reason"] == "no-local-rules"
         assert semgrep["strict_decision"] == "block"
+
+
+def test_semgrep_preflight_blocks_unwritable_settings_path():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake_semgrep = bindir / "semgrep"
+        write_executable(fake_semgrep, "#!/usr/bin/env bash\nexit 99\n")
+        matrix_data = json.loads(base_matrix(td, semgrep_binary="semgrep").read_text())
+        blocking_parent = td / "not-a-dir"
+        blocking_parent.write_text("file blocks mkdir\n")
+        matrix_data["tools"][0]["env"] = {
+            "SEMGREP_SETTINGS_FILE": str(blocking_parent / "semgrep-settings.yml"),
+        }
+        matrix = td / "matrix.json"
+        matrix.write_text(json.dumps(matrix_data))
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        out = td / "tools"
+        p = run_tool_matrix(matrix, td, out, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "semgrep_settings_file-not-writable"
+        assert row["strict_decision"] == "block"
 
 
 def test_mandatory_nonzero_exit_blocks_recovery():
@@ -610,6 +637,124 @@ for arg in args:
         attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
         assert attempts[0]["file_list"] == str(shard_file_list)
         assert not any(str(td / "src" / "file0.c") == arg for arg in attempts[0]["command"])
+
+
+def test_cppcheck_directory_scan_is_blocked_in_preflight():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\necho should-not-run >&2\nexit 99\n")
+        (td / "src").mkdir()
+        (td / "src" / "one.c").write_text("int main(void) { return 0; }\n")
+        matrix_data = json.loads(cppcheck_matrix(td, shard_size=4).read_text())
+        matrix_data["tools"][0].pop("cppcheck_scope_file", None)
+        matrix_data["tools"][0]["command"] = ["cppcheck", "--enable=warning", "--template=gcc", "<source>"]
+        matrix = td / "matrix.json"
+        matrix.write_text(json.dumps(matrix_data))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_tool_matrix(matrix, td / "src", out, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "cppcheck-directory-scan-disabled"
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        assert attempts == []
+
+
+def test_cppcheck_scope_over_budget_blocks_before_execution():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\necho should-not-run >&2\nexit 99\n")
+        file_list = write_source_files(td, ["one.c", "two.c"])
+        matrix_data = json.loads(cppcheck_matrix(td, shard_size=2).read_text())
+        matrix_data["tools"][0]["max_scope_files"] = 1
+        matrix = td / "matrix.json"
+        matrix.write_text(json.dumps(matrix_data))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "blocked-preflight-resource-risk"
+        assert row["cppcheck_preflight"]["file_count"] == 2
+        assert row["cppcheck_preflight"]["max_scope_files"] == 1
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        assert attempts == []
+
+
+def test_cppcheck_hard_limit_is_incomplete_timeout_not_completed():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        bindir = td / "bin"
+        bindir.mkdir()
+        fake = bindir / "cppcheck"
+        write_executable(fake, "#!/usr/bin/env bash\nsleep 0.5\n")
+        file_list = write_source_files(td, ["one.c"])
+        matrix = cppcheck_matrix(td, shard_size=1, timeout="5s")
+        matrix_data = json.loads(matrix.read_text())
+        matrix_data["tools"][0]["watchdog"] = {"idle_timeout": "5s", "hard_timeout": "0.1s"}
+        matrix.write_text(json.dumps(matrix_data))
+        out = td / "tools"
+        env = os.environ.copy()
+        env["PATH"] = f"{bindir}:{env.get('PATH','')}"
+        p = run_cppcheck_matrix(matrix, td / "src", out, file_list, env=env)
+        assert p.returncode == 2
+        row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "incomplete-timeout"
+        assert row["coverage_profile"] == "unavailable"
+
+
+def test_container_timeout_and_oom_are_normalized_for_cppcheck():
+    sys.path.insert(0, str(ROOT / "tools"))
+    import pvas_container
+    import run_tool_matrix
+
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        raw = td / "raw"
+        raw.mkdir()
+        tool = {
+            "name": "cppcheck",
+            "binary": "cppcheck",
+            "applicability": "mandatory",
+            "evidence": "cppcheck coverage",
+            "command": ["cppcheck", "--template=gcc", "<source>"],
+        }
+        timeout_result = pvas_container.ContainerResult(
+            exit_code=-1,
+            stdout="",
+            stderr="timed out",
+            duration_seconds=1.0,
+            container_id="",
+            oom_killed=False,
+            timed_out=True,
+        )
+        row, _ = run_tool_matrix._container_result_to_row(tool, timeout_result, raw)
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "incomplete-timeout"
+
+        oom_result = pvas_container.ContainerResult(
+            exit_code=137,
+            stdout="",
+            stderr="Out of memory",
+            duration_seconds=1.0,
+            container_id="",
+            oom_killed=True,
+            timed_out=False,
+        )
+        row, _ = run_tool_matrix._container_result_to_row(tool, oom_result, raw)
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "incomplete-resource-failure"
 
 
 def test_cppcheck_partial_timeout_preserves_completed_output_and_degraded_can_continue():
