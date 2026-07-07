@@ -85,6 +85,7 @@ def test_restricted_network_does_not_use_semgrep_auto_config():
     }, "standard", "--network-policy", "restricted")
     semgrep = next(t for t in matrix["tools"] if t["name"] == "semgrep")
     assert "auto" not in semgrep["command"]
+    assert semgrep["command"][semgrep["command"].index("--config") + 1].endswith("offline-bundle/semgrep-rules")
     assert semgrep["network_required"] is False
     assert semgrep["mem_limit_mb"] <= 4096
     assert semgrep["allowed_cidrs"] == []

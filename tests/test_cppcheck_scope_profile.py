@@ -109,6 +109,36 @@ def test_binutils_profile_is_registry_plugin_not_hardcoded_scope():
         assert any("binutils high-risk module focus applied" in item for item in scope["limitations"])
 
 
+def test_bcc_profile_selects_bounded_core_cppcheck_scope():
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        src = td / "bcc-src"
+        (src / "src" / "cc" / "api").mkdir(parents=True)
+        (src / "src" / "cc" / "libbpf" / "src").mkdir(parents=True)
+        (src / "src" / "python" / "bcc").mkdir(parents=True)
+        (src / "libbpf-tools").mkdir()
+        (src / "examples").mkdir()
+        (src / "src" / "cc" / "bcc_elf.c").write_text("int elf(void) { return 0; }\n")
+        (src / "src" / "cc" / "api" / "BPF.cc").write_text("int bpf(void) { return 0; }\n")
+        (src / "src" / "cc" / "libbpf" / "src" / "libbpf.c").write_text("int libbpf(void) { return 0; }\n")
+        (src / "libbpf-tools" / "bulk.c").write_text("int bulk(void) { return 0; }\n")
+        (src / "examples" / "demo.c").write_text("int demo(void) { return 0; }\n")
+
+        out = td / "audit-output" / "01-profile"
+        run_profile(src, out)
+
+        scope = json.loads((out / "cppcheck-scope.json").read_text())
+        files = (out / "cppcheck.files.txt").read_text().splitlines()
+        rel_files = {pathlib.Path(p).relative_to(src).as_posix() for p in files}
+        assert "bcc" in scope["profile_ids"]
+        assert "src/cc/bcc_elf.c" in rel_files
+        assert "src/cc/api/BPF.cc" in rel_files
+        assert "src/cc/libbpf/src/libbpf.c" in rel_files
+        assert "libbpf-tools/bulk.c" not in rel_files
+        assert "examples/demo.c" not in rel_files
+        assert any("bcc core library/tooling focus applied" in item for item in scope["limitations"])
+
+
 def test_cppcheck_matrix_records_scope_contract_metadata():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -151,7 +181,7 @@ def test_cppcheck_matrix_records_scope_contract_metadata():
         assert "fixture limitation" in cppcheck["scope_limitations"]
 
 
-def test_cppcheck_runner_uses_project_scope_and_records_fallback_limitation():
+def test_cppcheck_runner_blocks_missing_scope_instead_of_directory_fallback():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         src = td / "src"
@@ -198,17 +228,20 @@ def test_cppcheck_runner_uses_project_scope_and_records_fallback_limitation():
             "--out",
             str(out),
         ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert p.returncode == 0, p.stderr
+        assert p.returncode == 2, p.stderr
         row = json.loads((out / "tool-summary.json").read_text())["tools"][0]
-        assert row["status"] == "completed"
-        assert row["cppcheck_scope_mode"] == "fallback-file-list"
+        assert row["status"] == "blocked-recovery-required"
+        assert row["reason"] == "cppcheck-directory-scan-disabled"
         assert row["scope_limitations"] == ["cppcheck scope artifact missing; used conservative fallback file discovery"]
+        attempts = json.loads((out / "tool-execution-attempts.json").read_text())["attempts"]
+        assert attempts == []
 
 
 if __name__ == "__main__":
     test_generic_c_cpp_profile_writes_conservative_cppcheck_scope()
     test_compile_database_profile_prefers_project_scope()
     test_binutils_profile_is_registry_plugin_not_hardcoded_scope()
+    test_bcc_profile_selects_bounded_core_cppcheck_scope()
     test_cppcheck_matrix_records_scope_contract_metadata()
-    test_cppcheck_runner_uses_project_scope_and_records_fallback_limitation()
+    test_cppcheck_runner_blocks_missing_scope_instead_of_directory_fallback()
     print("cppcheck scope profile tests passed")

@@ -1,0 +1,57 @@
+rules:
+  - id: pvas.c.dangerous-sprintf
+    languages: [c, cpp]
+    severity: WARNING
+    message: sprintf/vsprintf writes without an explicit destination bound; review attacker-controlled formatting or buffer size assumptions.
+    patterns:
+      - pattern-either:
+          - pattern: sprintf(...)
+          - pattern: vsprintf(...)
+    metadata:
+      category: security
+      cwe: "CWE-120"
+
+  - id: pvas.c.unsafe-temp-name
+    languages: [c, cpp]
+    severity: WARNING
+    message: mktemp/tmpnam style temporary name generation can be race-prone; review for privileged or shared-directory use.
+    patterns:
+      - pattern-either:
+          - pattern: mktemp(...)
+          - pattern: tmpnam(...)
+    metadata:
+      category: security
+      cwe: "CWE-377"
+
+  - id: pvas.c.shell-exec
+    languages: [c, cpp]
+    severity: WARNING
+    message: Shell command execution; review whether command, environment, or PATH can be influenced by untrusted input.
+    patterns:
+      - pattern-either:
+          - pattern: system(...)
+          - pattern: popen(...)
+    metadata:
+      category: security
+      cwe: "CWE-78"
+
+  - id: pvas.python.subprocess-shell-true
+    languages: [python]
+    severity: WARNING
+    message: subprocess invocation with shell=True; review command construction and user-controlled data flow.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: subprocess.$FUNC(..., shell = True, ...)
+    metadata:
+      category: security
+      cwe: "CWE-78"
+
+  - id: pvas.python-os-system
+    languages: [python]
+    severity: WARNING
+    message: os.system call; review command construction and privilege boundary.
+    pattern: os.system(...)
+    metadata:
+      category: security
+      cwe: "CWE-78"

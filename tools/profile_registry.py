@@ -282,9 +282,57 @@ def binutils_include_paths(src: pathlib.Path) -> list[pathlib.Path]:
     return unique_paths(paths)
 
 
+def detect_bcc(src: pathlib.Path, files: list[pathlib.Path]) -> bool:
+    return (
+        (src / "src" / "cc").is_dir()
+        and (src / "src" / "python" / "bcc").is_dir()
+        and any(path.name == "bcc_elf.c" for path in files)
+    )
+
+
+def bcc_scope_files(src: pathlib.Path, files: list[pathlib.Path], exclude_dirs: set[str]) -> list[pathlib.Path]:
+    selected: list[pathlib.Path] = []
+    focus_rels = {
+        "introspection/bps.c",
+        "src/cc/api/BPF.cc",
+        "src/cc/api/BPFTable.cc",
+        "src/cc/bcc_btf.cc",
+        "src/cc/bcc_elf.c",
+        "src/cc/bcc_perf_map.c",
+        "src/cc/bcc_proc.c",
+        "src/cc/bcc_zip.c",
+        "src/cc/bpf_module.cc",
+        "src/cc/bpffs_table.cc",
+        "src/cc/frontends/clang/kbuild_helper.cc",
+        "src/cc/frontends/clang/loader.cc",
+        "src/cc/libbpf/src/btf.c",
+        "src/cc/libbpf/src/libbpf.c",
+        "src/cc/libbpf/src/netlink.c",
+        "src/cc/libbpf/src/nlattr.c",
+        "src/cc/libbpf/src/ringbuf.c",
+        "src/cc/libbpf/src/usdt.c",
+        "src/cc/libbpf/src/zip.c",
+        "src/cc/libbpf.c",
+        "src/cc/perf_reader.c",
+        "src/cc/usdt/usdt.cc",
+        "src/cc/usdt/usdt_args.cc",
+        "src/lua/src/main.c",
+        "tools/deadlock.c",
+        "tools/netqtop.c",
+    }
+    for path in files:
+        if not path.exists() or not is_impl_file(path) or is_excluded(src, path, exclude_dirs):
+            continue
+        rel = "/".join(relative_parts(src, path))
+        if rel in focus_rels:
+            selected.append(path)
+    return unique_paths(sorted(selected))
+
+
 def detect_profiles(src: pathlib.Path, files: list[pathlib.Path]) -> list[ProfileRule]:
     rules = [
         ProfileRule("binutils", 80, detect_binutils),
+        ProfileRule("bcc", 50, detect_bcc),
         ProfileRule("generic-c-cpp", 10, detect_generic_c_cpp),
     ]
     return sorted([rule for rule in rules if rule.detector(src, files)], key=lambda r: r.priority, reverse=True)
@@ -337,6 +385,9 @@ def write_cppcheck_scope(src: pathlib.Path, out: pathlib.Path, *, max_files: int
     if "binutils" in profile_ids:
         selected = binutils_scope_files(src, files, exclude_dirs)
         limitations.append("binutils high-risk module focus applied")
+    elif "bcc" in profile_ids:
+        selected = bcc_scope_files(src, files, exclude_dirs)
+        limitations.append("bcc core library/tooling focus applied; bulk libbpf-tools examples excluded to keep cppcheck bounded")
     if compile_db:
         profile_ids = [*profile_ids, "compile-database"]
         compile_selected = compile_database_files(src, compile_db, exclude_dirs)
