@@ -109,6 +109,12 @@ The 200K window is a hard ceiling, not a recommended payload. Default target inp
 
 Run `tools/context_budget.py` after profiling and after packet generation to produce `context-budget.json`. The coordinator must use this artifact to decide whether to proceed, split candidate batches, truncate packets, or block a single oversized invocation.
 
+## Scope Coverage Policy
+
+Package profiling writes `audit-output/01-profile/scope-coverage.json` in addition to `cppcheck-scope.json`. Scope coverage must distinguish hard-excluded paths, direct-scan files, and evidence-only files.
+
+By default, generated/vendor/runtime directories remain hard-excluded. Tests, examples, docs, fuzz targets, corpus data, testdata, and regression directories are not silently discarded; they are indexed as evidence-only so agents can use them as input-surface, harness, and format examples without expanding the default cppcheck scan. Direct scanning can be explicitly enabled with `PVAS_SCOPE_INCLUDE_TESTS=1`, `PVAS_SCOPE_INCLUDE_EXAMPLES=1`, `PVAS_SCOPE_INCLUDE_DOCS=1`, or `PVAS_SCOPE_INCLUDE_FUZZ_CORPUS=1`.
+
 ## Tool Availability Advisor
 
 Before or during tool scanning, check whether traditional tools are available. Missing tools must be explicit, not silent.
