@@ -14,7 +14,8 @@ import context_budget
 import generate_tool_matrix
 import profile_manifest
 import pvas_container
-import run_tool_matrix_safe
+import run_tool_matrix as rtm
+import tool_matrix_hardening
 
 
 def test_context_budget_blocking_decision_returns_nonzero(tmp_path):
@@ -56,10 +57,10 @@ def test_semgrep_restricted_without_local_rules_does_not_use_remote_pack(monkeyp
 
 
 def test_semgrep_remote_config_detection():
-    assert run_tool_matrix_safe.semgrep_config_requires_network(["semgrep", "scan", "--config", "p/c", "."])
-    assert run_tool_matrix_safe.semgrep_config_requires_network(["semgrep", "scan", "--config", "auto", "."])
-    assert run_tool_matrix_safe.semgrep_config_requires_network(["semgrep", "scan", "--config", "https://example.invalid/r.yml", "."])
-    assert not run_tool_matrix_safe.semgrep_config_requires_network(["semgrep", "scan", "--config", "rules/semgrep", "."])
+    assert tool_matrix_hardening.semgrep_config_requires_network(["semgrep", "scan", "--config", "p/c", "."])
+    assert tool_matrix_hardening.semgrep_config_requires_network(["semgrep", "scan", "--config", "auto", "."])
+    assert tool_matrix_hardening.semgrep_config_requires_network(["semgrep", "scan", "--config", "https://example.invalid/r.yml", "."])
+    assert not tool_matrix_hardening.semgrep_config_requires_network(["semgrep", "scan", "--config", "rules/semgrep", "."])
 
 
 def test_pvas_container_blocks_netpolicy_failure_by_default(monkeypatch):
@@ -123,11 +124,12 @@ def test_hardened_watchdog_applies_hard_timeout_to_blocking_tools(tmp_path):
         "watchdog": {"hard_timeout": "0.6s"},
     }
     started = time.monotonic()
-    rc, elapsed_ms, events, reason = run_tool_matrix_safe.hardened_run_with_watchdog(
+    rc, elapsed_ms, events, reason = tool_matrix_hardening.hardened_run_with_watchdog(
         [sys.executable, "-c", "import time; time.sleep(10)"],
         {},
         output,
         tool,
+        runtime=rtm,
     )
     elapsed = time.monotonic() - started
 
