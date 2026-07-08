@@ -22,6 +22,41 @@ def test_default_driver_timeout_is_outer_safety_fuse(monkeypatch):
     assert driver_command_timeout.resolve_timeout_seconds() == 7200.0
 
 
+def test_route_driver_command_rewrites_final_report_only():
+    routed, changed = driver_command_timeout.route_driver_command([
+        sys.executable,
+        "tools/generate_final_report.py",
+        "--audit-root",
+        "audit-output",
+    ])
+
+    assert changed is True
+    assert routed[1] == "tools/generate_final_report_with_status.py"
+
+    unchanged, unchanged_flag = driver_command_timeout.route_driver_command([
+        sys.executable,
+        "tools/generate_tool_matrix.py",
+    ])
+
+    assert unchanged_flag is False
+    assert unchanged[1] == "tools/generate_tool_matrix.py"
+
+
+def test_timed_run_routed_final_report_command(monkeypatch):
+    monkeypatch.setenv("PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS", "2")
+    timed_run = driver_command_timeout.make_timed_run(original_run)
+
+    rc, output = timed_run([
+        sys.executable,
+        "tools/generate_final_report.py",
+        "--help",
+    ], allow_fail=True)
+
+    assert rc == 0
+    assert "[PVAS-REPORT-STATUS] routed generate_final_report.py to generate_final_report_with_status.py" in output
+    assert "generate_final_report_with_status.py" in output or "--audit-root" in output
+
+
 def test_timed_run_returns_124_when_allow_fail(monkeypatch):
     monkeypatch.setenv("PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS", "0.2")
     timed_run = driver_command_timeout.make_timed_run(original_run)
