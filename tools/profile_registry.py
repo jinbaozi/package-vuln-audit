@@ -230,7 +230,7 @@ def evidence_only_files(src: pathlib.Path, files: list[pathlib.Path], exclude_di
         for path in files
         if path.exists()
         and not is_excluded(src, path, exclude_dirs)
-        and evidence_category(src, path)
+        and is_evidence_only(src, path)
     ]
     return unique_paths(sorted(selected))[:max_files]
 
