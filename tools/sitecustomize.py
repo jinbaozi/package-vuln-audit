@@ -6,28 +6,20 @@ This file is imported automatically by Python when scripts are executed from the
 
 - `run_tool_matrix.py` receives the reusable P0 hardening layer so the canonical
   runner has hard timeouts and Semgrep network-policy guards.
-- `generate_final_report.py` outputs are post-processed with report status.
 - `enforced_audit_driver.py` receives a timeout-enforced `run()` helper and can
   recover one specific restricted/offline case: Validated findings without
   configured public records become an internal degraded report instead of
   stopping before report generation. Set
   `PVAS_REQUIRE_PUBLIC_CORRELATION_FOR_VALIDATED=1` to restore the hard gate.
+
+Final-report status generation is now explicit through
+`generate_final_report_with_status.py`, not a post-processing hook here.
 """
 from __future__ import annotations
 
-import atexit
 import inspect
 import pathlib
 import sys
-
-
-def _arg_value(argv: list[str], name: str, default: str | None = None) -> str | None:
-    if name not in argv:
-        return default
-    idx = argv.index(name)
-    if idx + 1 >= len(argv):
-        return default
-    return argv[idx + 1]
 
 
 def _register_tool_matrix_hardening() -> None:
@@ -69,39 +61,6 @@ def _register_tool_matrix_hardening() -> None:
         return None
 
     sys.settrace(_trace)
-
-
-def _register_final_report_postprocess() -> None:
-    script = pathlib.Path(sys.argv[0]).name
-    if script != 'generate_final_report.py':
-        return
-
-    argv = list(sys.argv[1:])
-    audit_root = pathlib.Path(_arg_value(argv, '--audit-root', 'audit-output') or 'audit-output')
-    out_root = pathlib.Path(_arg_value(argv, '--out', 'audit-output/06-report') or 'audit-output/06-report')
-    findings_arg = _arg_value(argv, '--findings')
-    correlation_arg = _arg_value(argv, '--correlation')
-    findings = pathlib.Path(findings_arg) if findings_arg else None
-    correlation = pathlib.Path(correlation_arg) if correlation_arg else None
-
-    def _postprocess() -> None:
-        try:
-            from report_status import postprocess_final_report
-            status = postprocess_final_report(
-                audit_root=audit_root,
-                out_root=out_root,
-                findings_path=findings,
-                correlation_path=correlation,
-            )
-            print(
-                '[PVAS-REPORT-STATUS] '
-                f"type={status.get('report_type')} "
-                f"negative_conclusion_allowed={status.get('negative_conclusion_allowed')}"
-            )
-        except Exception as exc:  # pragma: no cover - defensive startup hook
-            print(f'[PVAS-REPORT-STATUS-WARN] postprocess failed: {exc}', file=sys.stderr)
-
-    atexit.register(_postprocess)
 
 
 def _register_enforced_driver_hooks() -> None:
@@ -176,5 +135,4 @@ def _register_enforced_driver_hooks() -> None:
 
 
 _register_tool_matrix_hardening()
-_register_final_report_postprocess()
 _register_enforced_driver_hooks()
