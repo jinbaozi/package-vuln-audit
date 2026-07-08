@@ -117,6 +117,12 @@ By default, generated/vendor/runtime directories remain hard-excluded. Tests, ex
 
 Final report status consumes `scope-coverage.json`. If evidence-only files exist, the report records a coverage limitation and must not emit a complete no-vulnerability conclusion unless those paths are explicitly moved into the direct scan or otherwise addressed in the audit evidence.
 
+## Timeout Policy
+
+`PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS` is a coarse outer safety fuse for driver subprocesses, not the total budget for a large static-analysis run. The default is `7200` seconds. It prevents `enforced_audit_driver.py` child commands from hanging forever while leaving scanner-specific control to `PVAS_TOOL_TIMEOUT`, cppcheck shard `hard_timeout`, split-scope recovery, partial-timeout recording, and degraded report status.
+
+For large projects, raise the outer fuse and tune tool-level controls instead of relying on a single long-running cppcheck process. Typical large-project settings are `PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS=7200` or `14400`, `PVAS_TOOL_TIMEOUT=1800s` or `3600s`, `PVAS_CPPCHECK_MODE=fast`, and `PVAS_CPPCHECK_JOBS=1`. Set `PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS=0` only for legacy debugging.
+
 ## Tool Availability Advisor
 
 Before or during tool scanning, check whether traditional tools are available. Missing tools must be explicit, not silent.
