@@ -223,7 +223,7 @@ def test_run_netpolicy_failure_degrades_to_host():
     """When iptables is unavailable (no iptables on PATH), NetworkPolicyApplyFailed
     is raised by pvas_netpolicy.apply(); pvas_container.run() must catch this
     and degrade to network_policy='host' with netpolicy_id='degraded-no-netpolicy'
-    and executed_via='host-degraded-sandbox-disabled' (must NOT raise)."""
+    and executed_via='host-degraded-network-policy' (must NOT raise)."""
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         # Only mock docker — no iptables in PATH at all so apply() raises
@@ -240,7 +240,7 @@ def test_run_netpolicy_failure_degrades_to_host():
             os.environ['PATH'] = old_path
         assert result.exit_code == 0
         assert result.netpolicy_id == 'degraded-no-netpolicy', result.netpolicy_id
-        assert result.executed_via == 'host-degraded-sandbox-disabled', \
+        assert result.executed_via == 'host-degraded-network-policy', \
             result.executed_via
         # The actual docker invocation must use --network=host
         text = log.read_text()
