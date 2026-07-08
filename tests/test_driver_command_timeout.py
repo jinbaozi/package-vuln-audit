@@ -16,6 +16,12 @@ def original_run(_cmd, allow_fail=False):
     raise AssertionError("original run should be replaced")
 
 
+def test_default_driver_timeout_is_outer_safety_fuse(monkeypatch):
+    monkeypatch.delenv("PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS", raising=False)
+
+    assert driver_command_timeout.resolve_timeout_seconds() == 7200.0
+
+
 def test_timed_run_returns_124_when_allow_fail(monkeypatch):
     monkeypatch.setenv("PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS", "0.2")
     timed_run = driver_command_timeout.make_timed_run(original_run)
