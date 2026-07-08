@@ -9,6 +9,7 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
+import pvas_container
 import run_tool_matrix as rtm
 import tool_matrix_hardening
 
@@ -21,7 +22,10 @@ def test_run_tools_uses_canonical_runner_not_safe_wrapper():
 
 
 def test_tool_matrix_hardening_patches_runtime_once():
-    original = rtm.run_with_watchdog
+    original_watchdog = rtm.run_with_watchdog
+    original_run_one = rtm.run_one
+    original_run_one_container = rtm.run_one_container
+    original_container_run = pvas_container.run
     try:
         tool_matrix_hardening.apply_to_runtime(rtm)
         first = rtm.run_with_watchdog
@@ -32,7 +36,10 @@ def test_tool_matrix_hardening_patches_runtime_once():
         assert getattr(rtm, "_PVAS_TOOL_MATRIX_HARDENED") is True
     finally:
         # Keep module state deterministic for following tests in this process.
-        rtm.run_with_watchdog = original
+        rtm.run_with_watchdog = original_watchdog
+        rtm.run_one = original_run_one
+        rtm.run_one_container = original_run_one_container
+        pvas_container.run = original_container_run
         if hasattr(rtm, "_PVAS_TOOL_MATRIX_HARDENED"):
             delattr(rtm, "_PVAS_TOOL_MATRIX_HARDENED")
 
