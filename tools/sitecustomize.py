@@ -4,6 +4,8 @@
 This file is imported automatically by Python when scripts are executed from the
 `tools/` directory. Hooks are intentionally narrow:
 
+- `run_tool_matrix.py` receives the reusable P0 hardening layer so the canonical
+  runner has hard timeouts and Semgrep network-policy guards.
 - `generate_final_report.py` outputs are post-processed with report status.
 - `enforced_audit_driver.py` can recover one specific restricted/offline case:
   Validated findings without configured public records become an internal
@@ -25,6 +27,47 @@ def _arg_value(argv: list[str], name: str, default: str | None = None) -> str | 
     if idx + 1 >= len(argv):
         return default
     return argv[idx + 1]
+
+
+def _register_tool_matrix_hardening() -> None:
+    script = pathlib.Path(sys.argv[0]).name
+    if script != 'run_tool_matrix.py':
+        return
+
+    required = {
+        'run_with_watchdog',
+        'run_one',
+        'run_one_container',
+        'expand_command',
+        'block_required_status',
+        'parse_duration',
+        'output_size',
+        'proc_cpu_ticks',
+        'is_blocking_tool',
+        'terminate_process',
+    }
+
+    def _trace(frame, event, arg):
+        if event != 'line':
+            return _trace
+        if pathlib.Path(frame.f_code.co_filename).name != 'run_tool_matrix.py':
+            return _trace
+        glob = frame.f_globals
+        if glob.get('_PVAS_TOOL_MATRIX_HARDENED'):
+            sys.settrace(None)
+            return None
+        if not required.issubset(glob.keys()):
+            return _trace
+        try:
+            from tool_matrix_hardening import apply_to_globals
+            apply_to_globals(glob)
+            print('[PVAS-TOOL-MATRIX] canonical runner hardening enabled')
+        except Exception as exc:  # pragma: no cover - defensive startup hook
+            print(f'[PVAS-TOOL-MATRIX-WARN] hardening hook failed: {exc}', file=sys.stderr)
+        sys.settrace(None)
+        return None
+
+    sys.settrace(_trace)
 
 
 def _register_final_report_postprocess() -> None:
@@ -109,5 +152,6 @@ def _register_enforced_driver_public_correlation_soft_fail() -> None:
     sys.settrace(_trace)
 
 
+_register_tool_matrix_hardening()
 _register_final_report_postprocess()
 _register_enforced_driver_public_correlation_soft_fail()
