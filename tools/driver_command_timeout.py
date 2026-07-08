@@ -5,6 +5,11 @@ The driver executes many subprocess-based workflow stages. A stuck child command
 must not hang the whole audit indefinitely. This module patches the driver's
 `run(cmd, allow_fail=False)` helper while preserving its existing return/raise
 semantics.
+
+The default timeout is intentionally a coarse outer safety fuse for whole driver
+subcommands, not the per-tool budget for cppcheck, Semgrep, or other scanners.
+Tool-specific timeouts, cppcheck sharding, partial-timeout handling, and degraded
+report status remain responsible for large-codebase scan control.
 """
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ import pathlib
 import subprocess
 from typing import Any, Callable
 
-DEFAULT_TIMEOUT_SECONDS = 1800.0
+DEFAULT_TIMEOUT_SECONDS = 7200.0
 TIMEOUT_ENV = 'PVAS_DRIVER_COMMAND_TIMEOUT_SECONDS'
 TIMEOUT_EXIT_CODE = 124
 
