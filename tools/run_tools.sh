@@ -34,6 +34,6 @@ if [ ! -f "$MATRIX" ]; then
     --cppcheck-mode-source "$CPPCHECK_MODE_SOURCE" \
     --out "$MATRIX"
 fi
-python3 "$SCRIPT_DIR/run_tool_matrix.py" --matrix "$MATRIX" --source "$SRC" --out "$OUT"
+python3 "$SCRIPT_DIR/run_tool_matrix_safe.py" --matrix "$MATRIX" --source "$SRC" --out "$OUT"
 ENV_OUT="$(dirname "$OUT")/00-environment"
 python3 "$SCRIPT_DIR/generate_install_plan.py" --tool-summary "$OUT/tool-summary.json" --out "$ENV_OUT" || true

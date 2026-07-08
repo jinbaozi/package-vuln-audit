@@ -33,6 +33,8 @@ ROLE_TARGETS={
   'disclosure-coordinator': (70000, ['validated_finding','maintainer_private_summary','disclosure_policy'], ['raw_tool_log','raw_fuzz_log','raw_source_dump'])
 }
 
+BLOCKING_DECISIONS = {'blocked', 'truncate-required'}
+
 def count_tokens_file(path: pathlib.Path) -> int:
     try:
         return est_tokens(path.read_text(errors='ignore'))
@@ -215,5 +217,10 @@ def main():
     if budget.get('issues'):
         summary['issues'] = budget['issues']
     print(json.dumps(summary, indent=2))
+    if budget.get('decision') in BLOCKING_DECISIONS:
+        print(f"[PVAS-BUDGET] blocking decision={budget.get('decision')}; refusing to continue", file=sys.stderr)
+        return 2
+    return 0
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+    raise SystemExit(main())

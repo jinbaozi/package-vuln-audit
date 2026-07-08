@@ -9,14 +9,30 @@ import os
 import pathlib
 import sys
 
+SOURCE_NAMES = {
+    '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hxx', '.inc',
+    '.rs', '.go', '.py', '.sh', '.js', '.jsx', '.ts', '.tsx',
+    '.java', '.kt', '.rb', '.php', '.pl', '.pm',
+}
+SPECIAL_SOURCE_NAMES = {'Makefile', 'CMakeLists.txt'}
+BUILD_AND_DEPENDENCY_NAMES = {
+    'configure', 'configure.ac', 'Makefile', 'CMakeLists.txt', 'meson.build',
+    'Cargo.toml', 'Cargo.lock',
+    'go.mod', 'go.sum',
+    'package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'requirements.txt', 'pyproject.toml', 'poetry.lock', 'Pipfile', 'Pipfile.lock',
+    'Gemfile', 'Gemfile.lock',
+    'pom.xml', 'build.gradle', 'gradle.lockfile',
+    'composer.json', 'composer.lock',
+}
+LOCKFILE_NAMES = {
+    'Cargo.lock', 'go.sum', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'poetry.lock', 'Pipfile.lock', 'Gemfile.lock', 'gradle.lockfile', 'composer.lock',
+}
+DEPENDENCY_MANIFEST_NAMES = BUILD_AND_DEPENDENCY_NAMES - {'configure', 'configure.ac', 'Makefile', 'CMakeLists.txt', 'meson.build'}
+
 
 def classify_source_files(all_files: list[str], max_source: int, max_bytes: int) -> tuple[list[str], list[str], int]:
-    source_names = {'.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.rs', '.go', '.py', '.sh'}
-    special = {'Makefile', 'CMakeLists.txt'}
-    build_names = {
-        'configure', 'configure.ac', 'Makefile', 'CMakeLists.txt', 'meson.build',
-        'Cargo.toml', 'go.mod', 'package.json', 'requirements.txt', 'pyproject.toml',
-    }
     source: list[str] = []
     build: list[str] = []
     large = 0
@@ -31,10 +47,10 @@ def classify_source_files(all_files: list[str], max_source: int, max_bytes: int)
         if size > max_bytes:
             large += 1
             continue
-        if suff in source_names or name in special:
+        if suff in SOURCE_NAMES or name in SPECIAL_SOURCE_NAMES:
             if len(source) < max_source:
                 source.append(f)
-        if name in build_names:
+        if name in BUILD_AND_DEPENDENCY_NAMES:
             build.append(f)
     return source, build, large
 
@@ -67,9 +83,31 @@ def write_traversal_manifest(
     (out / manifest_name).write_text(json.dumps(manifest, indent=2))
 
 
+def ecosystem_for_file(name: str) -> str | None:
+    if name in {'package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml'}:
+        return 'npm'
+    if name in {'Cargo.toml', 'Cargo.lock'}:
+        return 'cargo'
+    if name in {'go.mod', 'go.sum'}:
+        return 'go'
+    if name in {'requirements.txt', 'pyproject.toml', 'poetry.lock', 'Pipfile', 'Pipfile.lock'}:
+        return 'python'
+    if name in {'Gemfile', 'Gemfile.lock'}:
+        return 'ruby'
+    if name in {'pom.xml', 'build.gradle', 'gradle.lockfile'}:
+        return 'jvm'
+    if name in {'composer.json', 'composer.lock'}:
+        return 'composer'
+    return None
+
+
 def write_generic_profile(src: pathlib.Path, out: pathlib.Path, source: list[str], build: list[str]) -> None:
     exts = collections.Counter(pathlib.Path(f).suffix.lower() or pathlib.Path(f).name for f in source)
     text = '\n'.join(source + build).lower()
+    dependency_manifests = [f for f in build if pathlib.Path(f).name in DEPENDENCY_MANIFEST_NAMES]
+    lockfiles = [f for f in build if pathlib.Path(f).name in LOCKFILE_NAMES]
+    ecosystems = sorted({eco for f in dependency_manifests for eco in [ecosystem_for_file(pathlib.Path(f).name)] if eco})
+
     profiles: list[str] = []
     if any(x in text for x in ['.c', '.h', '.cpp', '.cc', '.cxx']):
         profiles.append('cli-tool')
@@ -77,16 +115,30 @@ def write_generic_profile(src: pathlib.Path, out: pathlib.Path, source: list[str
         profiles.append('binary-parser')
     if any(x in text for x in ['makefile', 'cmakelists.txt', 'configure', 'meson.build']):
         profiles.append('build-system')
+    if dependency_manifests:
+        profiles.append('package-manager')
     if not profiles:
         profiles.append('unknown-conservative')
 
     langs: list[str] = []
-    if any(k in exts for k in ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp']):
+    if any(k in exts for k in ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hxx']):
         langs.append('C/C++')
     if '.py' in exts:
         langs.append('Python')
     if '.sh' in exts:
         langs.append('Shell')
+    if any(k in exts for k in ['.js', '.jsx', '.ts', '.tsx']):
+        langs.append('JavaScript/TypeScript')
+    if '.java' in exts:
+        langs.append('Java')
+    if '.go' in exts:
+        langs.append('Go')
+    if '.rs' in exts:
+        langs.append('Rust')
+    if '.rb' in exts:
+        langs.append('Ruby')
+    if '.php' in exts:
+        langs.append('PHP')
 
     build_system: list[str] = []
     for b in build:
@@ -99,13 +151,25 @@ def write_generic_profile(src: pathlib.Path, out: pathlib.Path, source: list[str
             build_system.append('autotools')
         elif name == 'meson.build':
             build_system.append('meson')
+        elif name == 'package.json':
+            build_system.append('npm')
+        elif name == 'cargo.toml':
+            build_system.append('cargo')
+        elif name == 'go.mod':
+            build_system.append('go')
+        elif name in {'pom.xml', 'build.gradle'}:
+            build_system.append('jvm')
 
     profile = {
         'package_name': src.resolve().name,
         'source_root': str(src),
         'primary_language': langs or ['unknown'],
+        'detected_languages': langs or ['unknown'],
         'profiles': sorted(set(profiles)),
         'build_system': sorted(set(build_system)) or ['unknown'],
+        'dependency_manifests': dependency_manifests,
+        'lockfiles': lockfiles,
+        'package_ecosystems': ecosystems,
         'source_file_count': len(source),
         'extension_counts': dict(exts.most_common(30)),
         'input_surfaces': ['files', 'command-line arguments'] if 'binary-parser' in profiles else ['unknown'],
@@ -114,7 +178,13 @@ def write_generic_profile(src: pathlib.Path, out: pathlib.Path, source: list[str
         'confidence': 'medium',
     }
     (out / 'package-profile-hints.json').write_text(
-        json.dumps({'source_file_count': len(source), 'extension_counts': dict(exts.most_common(30))}, indent=2)
+        json.dumps({
+            'source_file_count': len(source),
+            'extension_counts': dict(exts.most_common(30)),
+            'dependency_manifests': dependency_manifests,
+            'lockfiles': lockfiles,
+            'package_ecosystems': ecosystems,
+        }, indent=2)
     )
     (out / 'package-profile.json').write_text(json.dumps(profile, indent=2))
     (out / 'package-profile.md').write_text('# Package Profile\n\n```json\n' + json.dumps(profile, indent=2) + '\n```\n')
@@ -170,8 +240,12 @@ def cmd_binutils_profile(args: argparse.Namespace) -> int:
         'package_name': 'binutils' if (src / 'bfd').exists() or (src / 'binutils').exists() else src.resolve().name,
         'source_root': str(src),
         'primary_language': ['C'],
+        'detected_languages': ['C'],
         'profiles': ['binary-parser', 'compiler-toolchain', 'cli-tool'],
         'build_system': ['autotools', 'make'] if (src / 'configure').exists() else ['unknown'],
+        'dependency_manifests': [],
+        'lockfiles': [],
+        'package_ecosystems': [],
         'input_surfaces': [
             'ELF object files', 'archives', 'DWARF/debug sections', 'relocations',
             'symbol/string tables', 'command-line options',
