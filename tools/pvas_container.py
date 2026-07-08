@@ -11,8 +11,9 @@
 - `compute_max_workers` 永远 `>= 1`。
 - `run_parallel` 内部用 `concurrent.futures.ThreadPoolExecutor`，单工具 OOM 时
   退避一次（`min(curr*2, MAX_TOOL_MEM_MB)`）。
-- `NetworkPolicyApplyFailed` → 降级为 `network_policy="host"` 并把
-  `result.netpolicy_id` 写成 `degraded-no-netpolicy`，不阻断审计。
+- `NetworkPolicyApplyFailed` 默认阻断容器运行；只有显式设置
+  `PVAS_ALLOW_NETPOLICY_DEGRADED=1` 才允许降级为 host 网络，并在结果中记录
+  `netpolicy_id="degraded-no-netpolicy"` 与 `executed_via="host-degraded-network-policy"`。
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ class SandboxUnavailable(RuntimeError):
 
 
 class NetworkPolicyApplyFailed(RuntimeError):
-    """iptables rule could not be applied; container will run with host network."""
+    """iptables rule could not be applied; default behavior is to block execution."""
 
 
 class ConfigurationError(RuntimeError):
@@ -78,6 +79,14 @@ class ContainerResult:
 
 
 DEFAULT_RUNTIME_IMAGE = "pvas-sandbox:v11-2503-runtime"
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def allow_netpolicy_degraded() -> bool:
+    return _truthy(os.environ.get("PVAS_ALLOW_NETPOLICY_DEGRADED"))
 
 
 def _spec_to_dict(spec: ContainerSpec) -> dict:
@@ -256,9 +265,8 @@ def _apply_network_policy(spec: ContainerSpec) -> Optional[str]:
     """对需要 network policy 的 spec 应用 iptables 规则。
 
     Returns the netpolicy_id. Raises NetworkPolicyApplyFailed if iptables is
-    unavailable / rejected; callers fall back to host network in that case.
-    Returns None for policies that don't need an iptables chain (host or
-    bridge-allow without explicit CIDR scope).
+    unavailable / rejected. Returns None for policies that don't need an iptables
+    chain (host or bridge-allow without explicit CIDR scope).
     """
     if spec.network_policy == "host":
         return None
@@ -347,10 +355,12 @@ def run(spec: ContainerSpec, backend: Optional[str] = None) -> ContainerResult:
     try:
         npid = _apply_network_policy(spec)
     except NetworkPolicyApplyFailed:
-        # iptables 不可用 → 降级为 host
+        if not allow_netpolicy_degraded():
+            raise
+        # iptables 不可用 → 仅在显式授权时降级为 host
         applied_policy = "host"
         npid = "degraded-no-netpolicy"
-        executed_via = "host-degraded-sandbox-disabled"
+        executed_via = "host-degraded-network-policy"
 
     # 2. 容器运行；spec 不可变（dataclass），所以重建一个应用降级后的策略版本
     actual_spec = spec
