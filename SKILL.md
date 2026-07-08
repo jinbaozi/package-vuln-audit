@@ -115,6 +115,8 @@ Package profiling writes `audit-output/01-profile/scope-coverage.json` in additi
 
 By default, generated/vendor/runtime directories remain hard-excluded. Tests, examples, docs, fuzz targets, corpus data, testdata, and regression directories are not silently discarded; they are indexed as evidence-only so agents can use them as input-surface, harness, and format examples without expanding the default cppcheck scan. Direct scanning can be explicitly enabled with `PVAS_SCOPE_INCLUDE_TESTS=1`, `PVAS_SCOPE_INCLUDE_EXAMPLES=1`, `PVAS_SCOPE_INCLUDE_DOCS=1`, or `PVAS_SCOPE_INCLUDE_FUZZ_CORPUS=1`.
 
+Final report status consumes `scope-coverage.json`. If evidence-only files exist, the report records a coverage limitation and must not emit a complete no-vulnerability conclusion unless those paths are explicitly moved into the direct scan or otherwise addressed in the audit evidence.
+
 ## Tool Availability Advisor
 
 Before or during tool scanning, check whether traditional tools are available. Missing tools must be explicit, not silent.

@@ -125,6 +125,32 @@ def _correlation_reasons(correlation: dict, validated_count: int) -> tuple[list[
     return list(dict.fromkeys(limitations)), status, public_negative_allowed
 
 
+def _scope_coverage_summary(audit_root: pathlib.Path) -> tuple[dict, list[str]]:
+    """Return scope coverage artifact plus report-visible limitations.
+
+    Missing scope-coverage.json is tolerated for legacy outputs. When present,
+    evidence-only paths are surfaced as coverage limitations because they were
+    available to agents as evidence but were outside the default direct static
+    analysis file list.
+    """
+    coverage = _load_json(audit_root / '01-profile' / 'scope-coverage.json', {})
+    if not isinstance(coverage, dict) or not coverage:
+        return {}, []
+    counts = coverage.get('counts') if isinstance(coverage.get('counts'), dict) else {}
+    categories = coverage.get('evidence_only_categories') if isinstance(coverage.get('evidence_only_categories'), dict) else {}
+    limitations: list[str] = []
+    evidence_count = int(counts.get('evidence_only_files') or 0)
+    direct_count = int(counts.get('direct_scan_files') or 0)
+    if evidence_count:
+        category_text = ', '.join(f'{key}={value}' for key, value in sorted(categories.items())) or 'uncategorized'
+        limitations.append(
+            f'scope coverage: {evidence_count} evidence-only file(s) were indexed but excluded from default direct scan ({category_text})'
+        )
+    if direct_count == 0 and evidence_count:
+        limitations.append('scope coverage: no direct-scan implementation files selected while evidence-only files exist')
+    return coverage, limitations
+
+
 def compute_report_status(
     *,
     audit_root: pathlib.Path,
@@ -144,12 +170,14 @@ def compute_report_status(
     tool_blocking, tool_degraded, tool_negative_allowed = _tool_reasons(tool_summary or {})
     wf_blocking, wf_degraded = _workflow_reasons(audit_root)
     corr_limitations, corr_status, public_negative_allowed = _correlation_reasons(correlation or {}, len(validated))
+    scope_coverage, scope_limitations = _scope_coverage_summary(audit_root)
 
     blocking_reasons.extend(tool_blocking)
     blocking_reasons.extend(wf_blocking)
     degraded_reasons.extend(tool_degraded)
     degraded_reasons.extend(wf_degraded)
     coverage_limitations.extend(corr_limitations)
+    coverage_limitations.extend(scope_limitations)
 
     if manual:
         degraded_reasons.append(f'{len(manual)} finding(s) require manual review')
@@ -180,6 +208,7 @@ def compute_report_status(
         'public_correlation_status': corr_status,
         'validated_findings': len(validated),
         'needs_manual_review': len(manual),
+        'scope_coverage': scope_coverage,
         'blocking_reasons': list(dict.fromkeys(blocking_reasons)),
         'degraded_reasons': list(dict.fromkeys(degraded_reasons)),
         'coverage_limitations': list(dict.fromkeys(coverage_limitations)),
@@ -187,6 +216,8 @@ def compute_report_status(
 
 
 def render_status_markdown(status: dict, *, locale: str = 'en-US') -> str:
+    scope_coverage = status.get('scope_coverage') if isinstance(status.get('scope_coverage'), dict) else {}
+    scope_counts = scope_coverage.get('counts') if isinstance(scope_coverage.get('counts'), dict) else {}
     if locale == 'zh-CN':
         lines = [
             STATUS_MARKER,
@@ -198,6 +229,11 @@ def render_status_markdown(status: dict, *, locale: str = 'en-US') -> str:
             f"- 已验证发现数量：{status.get('validated_findings', 0)}",
             f"- 需人工复核数量：{status.get('needs_manual_review', 0)}",
         ]
+        if scope_counts:
+            lines.extend([
+                f"- 直扫文件数量：{scope_counts.get('direct_scan_files', 0)}",
+                f"- 证据-only 文件数量：{scope_counts.get('evidence_only_files', 0)}",
+            ])
         headings = [('阻断原因', 'blocking_reasons'), ('降级原因', 'degraded_reasons'), ('覆盖限制', 'coverage_limitations')]
     else:
         lines = [
@@ -210,6 +246,11 @@ def render_status_markdown(status: dict, *, locale: str = 'en-US') -> str:
             f"- Validated findings: {status.get('validated_findings', 0)}",
             f"- Needs manual review: {status.get('needs_manual_review', 0)}",
         ]
+        if scope_counts:
+            lines.extend([
+                f"- Direct-scan files: {scope_counts.get('direct_scan_files', 0)}",
+                f"- Evidence-only files: {scope_counts.get('evidence_only_files', 0)}",
+            ])
         headings = [('Blocking reasons', 'blocking_reasons'), ('Degraded reasons', 'degraded_reasons'), ('Coverage limitations', 'coverage_limitations')]
     for heading, key in headings:
         values = status.get(key) or []
@@ -250,6 +291,7 @@ def postprocess_final_report(
     if isinstance(machine_report, dict):
         machine_report['report_type'] = status['report_type']
         machine_report['negative_conclusion_allowed'] = status['negative_conclusion_allowed']
+        machine_report['scope_coverage'] = status.get('scope_coverage') or {}
         machine_report['report_status'] = status
         _write_json(final_report_path, machine_report)
     _write_json(machine_dir / 'report-status.json', status)
