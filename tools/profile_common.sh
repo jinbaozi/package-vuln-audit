@@ -12,5 +12,5 @@ run_context_budget() {
   python3 "$SCRIPT_DIR/context_budget.py" \
     --profile-dir "$out" \
     --packet-dir "${PVAS_PACKET_DIR:-audit-output/03-candidates/packets}" \
-    --out "$budget_file" >/dev/null || true
+    --out "$budget_file"
 }
