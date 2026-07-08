@@ -35,7 +35,12 @@ def is_node_project(profile: dict) -> bool:
 
 
 def has_node_lockfile(profile: dict) -> bool:
-    files = {pathlib.PurePosixPath(str(x).replace("\\", "/")).name.lower() for x in profile.get("build_files", [])}
+    values = []
+    for key in ("build_files", "lockfiles", "dependency_manifests"):
+        raw = profile.get(key, [])
+        if isinstance(raw, list):
+            values.extend(raw)
+    files = {pathlib.PurePosixPath(str(x).replace("\\", "/")).name.lower() for x in values}
     return bool(files & {"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"})
 
 
@@ -62,6 +67,18 @@ def local_semgrep_config() -> pathlib.Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def semgrep_config_requires_network(command: list[str]) -> bool:
+    for idx, part in enumerate(command):
+        if part != "--config" or idx + 1 >= len(command):
+            continue
+        value = str(command[idx + 1])
+        if value == "auto" or value.startswith("p/"):
+            return True
+        if value.startswith("http://") or value.startswith("https://"):
+            return True
+    return False
 
 
 def cppcheck_enable_arg(mode: str) -> str:
@@ -100,9 +117,9 @@ def command_template(
             return ["semgrep", "scan", "--config", str(local_config), "--json", "--output", "<raw>/semgrep.json", "<source>"]
         if network_policy == "online-approved" and allow_network:
             return ["semgrep", "scan", "--config", "auto", "--json", "--output", "<raw>/semgrep.json", "<source>"]
-        is_c_cpp = package_profile is not None and is_c_cpp_project(package_profile)
-        if is_c_cpp:
-            return ["semgrep", "scan", "--config", "p/c", "--json", "--output", "<raw>/semgrep.json", "<source>"]
+        # Do not synthesize registry-backed configs such as p/c in offline or
+        # restricted mode. The runner will classify this as no-local-rules and
+        # block strict workflows instead of silently attempting network-backed rules.
         return ["semgrep", "scan", "--json", "--output", "<raw>/semgrep.json", "<source>"]
     if name == "cppcheck":
         base = [
@@ -165,7 +182,7 @@ def build_matrix(
                 "SEMGREP_SETTINGS_FILE": str(env_base / "semgrep-settings.yml"),
                 "SEMGREP_LOG_FILE": str(env_base / "semgrep.log"),
             }
-        network_required = bool(meta.get("network_required")) or (name == "semgrep" and "--config" in command and "auto" in command)
+        network_required = bool(meta.get("network_required")) or (name == "semgrep" and semgrep_config_requires_network(command))
         tool_row = {
             "name": name,
             "binary": meta["binary"],
@@ -190,7 +207,7 @@ def build_matrix(
             },
             "runtime_tool_check": str((out_root / "00-environment" / "runtime-tool-check.json") if out_root else pathlib.Path("<out>") / "00-environment" / "runtime-tool-check.json"),
             "offline_fallback": "local-rules-or-incomplete" if name == "semgrep" else "local-db-or-incomplete" if name in {"codeql", "grype", "trivy", "syft"} else "",
-            "watchdog": {"strategy": "adaptive", "idle_timeout": "15s"},
+            "watchdog": {"strategy": "adaptive", "idle_timeout": "15s", "hard_timeout": timeout},
             "output_validator": "semgrep-json" if name == "semgrep" else "",
             "not_applicable_when": "no package source manifests" if name == "osv-scanner" else "",
             "retry_policy": {"max_attempts": retries + 1},
