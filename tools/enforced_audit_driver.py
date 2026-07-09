@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -152,6 +153,75 @@ def _sandbox_cleanup(audit_id: str, backend: str, out: pathlib.Path) -> None:
         try:
             pvas_image.prompt_cleanup(audit_id, backend, log_path=out / 'machine/sandbox-cleanup.jsonl')
         except Exception:
+            pass
+
+
+def run_image_preflight(out: pathlib.Path) -> tuple[bool, str]:
+    """Pre-flight gate before any audit work. Returns (ok, message).
+
+    Strict mode requires the pvas-sandbox:v11-2503-runtime image to exist
+    locally and pass all verify_commands. If preflight fails, the caller
+    should either run sandbox/scripts/build-runtime.sh or set
+    PVAS_SKIP_IMAGE_PREFLIGHT=1 to bypass.
+    """
+    if os.environ.get('PVAS_SKIP_IMAGE_PREFLIGHT') == '1':
+        return True, 'preflight skipped (PVAS_SKIP_IMAGE_PREFLIGHT=1)'
+    skill_root = pathlib.Path(__file__).resolve().parents[1]
+    prereqs_script = skill_root / 'sandbox' / 'scripts' / 'audit-image-prereqs.py'
+    verify_script = skill_root / 'sandbox' / 'scripts' / 'audit-image-verify.py'
+
+    if not prereqs_script.is_file():
+        return True, f'preflight script not found: {prereqs_script}; skipping'
+    try:
+        rc = subprocess.run(
+            [sys.executable, str(prereqs_script), '--strict'],
+            capture_output=True, text=True, timeout=60,
+        )
+        if rc.returncode != 0:
+            return False, (
+                f'preflight FAILED ({rc.returncode}). Run: '
+                f'bash {skill_root}/sandbox/scripts/build-runtime.sh'
+            )
+    except subprocess.TimeoutExpired:
+        return False, 'preflight timeout'
+
+    if not verify_script.is_file():
+        return True, 'verify script not present; skipping'
+    try:
+        rc = subprocess.run(
+            [sys.executable, str(verify_script)],
+            capture_output=True, text=True, timeout=300,
+        )
+        if rc.returncode != 0:
+            return False, 'image verify FAILED; rebuild with build-runtime.sh'
+    except subprocess.TimeoutExpired:
+        return False, 'image verify timeout'
+
+    return True, 'preflight + verify passed'
+
+
+def register_cleanup_trap(audit_id: str, out: pathlib.Path) -> None:
+    """Install atexit + signal handlers so cleanup runs even on Ctrl-C or crash."""
+    skill_root = pathlib.Path(__file__).resolve().parents[1]
+    cleanup_script = skill_root / 'sandbox' / 'scripts' / 'cleanup-audit.sh'
+    log_dir = out / 'machine'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env['PVAS_AUDIT_ID'] = audit_id
+    env['PVAS_LOG_DIR'] = str(log_dir)
+
+    def _run_cleanup(*_args):
+        try:
+            subprocess.run([str(cleanup_script)], env=env, timeout=120)
+        except Exception:
+            pass
+
+    atexit.register(_run_cleanup)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(sig, lambda *_: (_run_cleanup(), sys.exit(1)))
+        except (ValueError, OSError):
+            # signal may fail in non-main threads
             pass
 
 
@@ -892,6 +962,18 @@ def main() -> int:
         reset_workflow_run_state(out)
     write_json(out / 'machine/invocation.json', invocation)
     initialize_sandbox_runtime(out)
+
+    # 00.5 Image preflight (strict mode only): ensure pvas-sandbox image exists
+    # and verify_commands pass. This is a hard gate before any audit work.
+    if args.mode == 'strict' or os.environ.get('PVAS_ENV_PROFILE', '').startswith('strict'):
+        audit_id_for_cleanup = os.environ.get('PVAS_AUDIT_ID') or f"pvas-driver-{secrets.token_hex(4)}"
+        os.environ['PVAS_AUDIT_ID'] = audit_id_for_cleanup
+        register_cleanup_trap(audit_id_for_cleanup, out)
+        ok, msg = run_image_preflight(out)
+        if not ok:
+            print(f'[PVAS-IMAGE-PREFLIGHT] {msg}', file=sys.stderr)
+            return 2
+        print(f'[PVAS-IMAGE-PREFLIGHT] {msg}')
     max_candidates = int(args.max_candidates)
     try:
         startup = resolve_startup_config(args, out, argv=sys.argv[1:])

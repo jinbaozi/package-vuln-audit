@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import pathlib
 import secrets
 import subprocess
 import uuid
@@ -68,7 +69,8 @@ def _run_iptables(args: list[str]) -> subprocess.CompletedProcess:
 
 
 def apply(container_id: str, allowed_cidrs: Optional[list[str]] = None,
-          purpose: str = "poc") -> str:
+          purpose: str = "poc",
+          policy_template: Optional[str] = None) -> str:
     """启动容器前：建 iptables 链、写 DROP 规则。返回 netpolicy_id。
 
     Parameters
@@ -79,6 +81,10 @@ def apply(container_id: str, allowed_cidrs: Optional[list[str]] = None,
         白名单 CIDR；空/None 表示仅放行 loopback + 已建立连接，其余 DROP。
     purpose : 'poc' | 'tool'
         决定 netpolicy_id 前缀 (`pvas-poc-` / `pvas-tool-`)。
+    policy_template : str | None
+        Optional path to a custom netpolicy template (e.g.
+        sandbox/netpolicy/bridge-deny.rules). If None, uses the built-in
+        default rules below.
     """
     if purpose not in ("poc", "tool"):
         raise ValueError(f"purpose must be 'poc' or 'tool', got {purpose!r}")
@@ -96,10 +102,31 @@ def apply(container_id: str, allowed_cidrs: Optional[list[str]] = None,
     for cidr in (allowed_cidrs or []):
         _run_iptables(["-A", chain, "-d", cidr, "-j", "RETURN"])
 
-    # 3. 兜底 drop
+    # 3. 加载可选的 policy_template 中的附加规则
+    if policy_template:
+        template_path = pathlib.Path(policy_template)
+        if template_path.is_file():
+            for raw_line in template_path.read_text().splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # 替换 <AUDIT_ID> 占位符为当前 npid 的简化版
+                if "<AUDIT_ID>" in line:
+                    line = line.replace("<AUDIT_ID>", npid.split("-")[-1][:8])
+                # 解析为 iptables 参数（按空格分割，但引号保留）
+                rule = line[2:].split() if line.startswith("-A") else line.split()
+                if rule:
+                    try:
+                        _run_iptables(rule)
+                    except NetworkPolicyApplyFailed:
+                        pass
+        else:
+            print(f"[pvas-netpolicy] WARN: policy_template not found: {template_path}")
+
+    # 4. 兜底 drop
     _run_iptables(["-A", chain, "-j", "DROP"])
 
-    # 4. 在 OUTPUT 链顶部插入 cgroup 匹配跳转（仅匹配 PVAS 自己的 cgroup）
+    # 5. 在 OUTPUT 链顶部插入 cgroup 匹配跳转（仅匹配 PVAS 自己的 cgroup）
     _run_iptables(["-I", "OUTPUT", "1", "-m", "cgroup", "--cgroup", container_id,
                    "-j", chain])
 

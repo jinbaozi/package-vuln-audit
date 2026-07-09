@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "audit_id_default": "default-audit-id",
+  "image": "pvas-sandbox:v11-2503-runtime",
+  "imported_image": "pvas-sandbox:v11-2503-imported",
+  "binary_stage": [
+    {"src": "offline-bundle/binaries/osv-scanner", "dst": "/opt/pvas/tools/bin/", "exec": true, "required": true},
+    {"src": "offline-bundle/binaries/rg",           "dst": "/opt/pvas/tools/bin/", "exec": true, "required": true},
+    {"src": "offline-bundle/binaries/cppcheck",    "dst": "/opt/pvas/tools/bin/", "exec": true, "required": true},
+    {"src": "offline-bundle/binaries/semgrep",     "dst": "/opt/pvas/tools/bin/", "exec": true, "required": true}
+  ],
+  "python_wheels_dir": "offline-bundle/python/wheels",
+  "python_wheels_required": [
+    "cppcheck",
+    "semgrep",
+    "importlib_metadata<8.8"
+  ],
+  "system_packages": {
+    "available_in_repo": [
+      "gcc", "gcc-c++", "make", "autoconf", "automake", "libtool",
+      "bison", "flex", "cmake", "ninja-build", "git", "patch",
+      "diffutils", "findutils", "file", "python3", "python3-pip",
+      "glibc-devel", "kernel-headers", "clang", "llvm", "compiler-rt"
+    ],
+    "unavailable_in_kylin_v11": [
+      {"name": "ripgrep",  "alternative": "offline-bundle/binaries/rg"},
+      {"name": "cppcheck", "alternative": "pip install cppcheck"},
+      {"name": "semgrep",  "alternative": "pip install semgrep"}
+    ]
+  },
+  "env": {
+    "PATH": "/opt/pvas/tools/bin:/opt/pvas/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "PYTHONPATH": "/opt/pvas/venv/lib64/python3.11/site-packages",
+    "HOME": "/root",
+    "TMPDIR": "/tmp",
+    "XDG_CACHE_HOME": "/tmp/cache",
+    "SEMGREP_SETTINGS_FILE": "/tmp/semgrep-settings.yml",
+    "SEMGREP_LOG_FILE": "/tmp/semgrep.log",
+    "SEMGREP_VERSION_CACHE_PATH": "/tmp/semgrep-version-cache",
+    "LC_ALL": "C.UTF-8",
+    "LANG": "C.UTF-8",
+    "ASAN_SYMBOLIZER_PATH": "/usr/bin/llvm-symbolizer",
+    "OSV_OFFLINE_DB_PATH": "/opt/pvas/offline-db"
+  },
+  "container_spec_defaults": {
+    "user": "root",
+    "read_only_rootfs": false,
+    "cap_drop": ["ALL"],
+    "cap_add": ["DAC_OVERRIDE", "CHOWN", "FOWNER", "SETUID", "SETGID"],
+    "mem_limit_mb": 4096,
+    "timeout_seconds": 1800,
+    "network_policy": "host"
+  },
+  "verify_commands": [
+    {"name": "gcc",                 "cmd": "gcc --version",                                              "expect_match": "gcc",                 "mem_limit_mb": 256},
+    {"name": "clang",               "cmd": "clang --version",                                            "expect_match": "clang",               "mem_limit_mb": 256},
+    {"name": "glibc-headers",       "cmd": "ls /usr/include/stdio.h /usr/include/stdlib.h",       "expect_match": "stdio.h",             "mem_limit_mb": 256},
+    {"name": "python3",             "cmd": "python3 --version",                                          "expect_match": "Python 3",            "mem_limit_mb": 256},
+    {"name": "osv-scanner",         "cmd": "/opt/pvas/tools/bin/osv-scanner --version",                  "expect_match": "osv-scanner version", "mem_limit_mb": 512},
+    {"name": "rg",                  "cmd": "/opt/pvas/tools/bin/rg --version",                           "expect_match": "ripgrep",             "mem_limit_mb": 256},
+    {"name": "cppcheck",            "cmd": "PYTHONPATH=/opt/pvas/venv/lib64/python3.11/site-packages /opt/pvas/tools/bin/cppcheck --version", "expect_match": "Cppcheck", "mem_limit_mb": 512},
+    {"name": "semgrep",             "cmd": "HOME=/root PYTHONPATH=/opt/pvas/venv/lib64/python3.11/site-packages /opt/pvas/tools/bin/semgrep --version", "expect_match": "1.168", "mem_limit_mb": 2048},
+    {"name": "make",                "cmd": "make --version",                                             "expect_match": "GNU Make",            "mem_limit_mb": 256},
+    {"name": "osv-offline-db",      "cmd": "ls /opt/pvas/offline-db/Go/all.zip 2>/dev/null || echo missing","expect_match": "missing", "mem_limit_mb": 256}
+  ]
+}

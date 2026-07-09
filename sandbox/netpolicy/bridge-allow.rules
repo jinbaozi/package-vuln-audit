@@ -1,0 +1,18 @@
+# PVAS sandbox netpolicy: bridge-allow
+#
+# Allow all outbound traffic from PVAS sandbox containers.
+# Use this for ad-hoc tool scans that need network access (e.g.,
+# osv-scanner querying api.osv.dev, or any tool that needs to fetch
+# fresh CVE data).
+#
+# For complete audits, prefer bridge-deny.
+# For the driver orchestrator, prefer host (which is what most
+# pvas_container.run() invocations use by default).
+#
+# Applied by tools/pvas_netpolicy.py when a container is launched with
+# network_policy="bridge-allow". Currently a no-op (bridge network is
+# already unrestricted), but the chain is set up so that future
+# CIDR allowlist can be added without changing the policy name.
+
+# Allow all
+-A PVAS_BRIDGE_ALLOW_<AUDIT_ID> -j ACCEPT

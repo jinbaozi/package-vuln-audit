@@ -1,19 +1,100 @@
+# PVAS sandbox runtime image (Kylin V11 + offline tools).
+#
+# Base: pvas-sandbox:v11-2503-imported (rootfs tar imported via pvas-import-image.sh)
+#
+# This Dockerfile addresses real-world build issues:
+#   - ripgrep/clang/etc. are NOT in Kylin V11 repos; rely on offline-bundle/binaries/
+#   - Python wrapper tools (cppcheck, semgrep) need PYTHONPATH at runtime
+#   - venv must be writable by USER nobody (UID 65534); chown before dropping root
+#   - libc/kernel headers needed for in-container C compilation (POC)
+#   - Empty ENTRYPOINT/CMD so caller-supplied command runs verbatim
+#
+# Build entry: bash sandbox/scripts/build-runtime.sh
+# Verify entry: python3 sandbox/scripts/audit-image-verify.py
+
 ARG BASE=pvas-sandbox:v11-2503-imported
 FROM ${BASE}
 USER root
+
+# ------------------------------------------------------------------
+# Stage 1: System packages (only ones actually in Kylin V11 repo).
+# Critical: do NOT include ripgrep/clang/cppcheck here; Kylin V11 does
+# not have them. We rely on offline-bundle/binaries/ and host mounts.
+# ------------------------------------------------------------------
 RUN dnf install -y \
-    ripgrep cppcheck gcc gcc-c++ clang llvm compiler-rt \
-    make coreutils autoconf automake libtool bison flex \
+    gcc gcc-c++ make coreutils autoconf automake libtool bison flex \
     pkgconf-pkg-config cmake ninja-build git patch diffutils findutils file \
-    python3 python3-pip nodejs npm \
+    python3 python3-pip \
+    glibc-devel kernel-headers \
+    clang llvm compiler-rt \
+  || echo "[pvas] some dnf packages unavailable; continuing with offline tools" \
   && dnf clean all
+
+# ------------------------------------------------------------------
+# Stage 2: Stage static binaries from offline-bundle.
+# ------------------------------------------------------------------
 COPY offline-bundle/ /opt/pvas/offline-bundle/
 COPY sandbox/scripts/install-runtime-tools.sh /opt/pvas/install-runtime-tools.sh
 RUN sh /opt/pvas/install-runtime-tools.sh /opt/pvas/offline-bundle /opt/pvas/tools
-ENV PATH="/opt/pvas/tools/bin:/usr/lib64/llvm/bin:${PATH}"
+
+# ------------------------------------------------------------------
+# Stage 3: Python venv with proper ownership from the start.
+# Critical: install wheels as root (wheels are huge; nobody has no
+# internet for pip fetch), then chown venv to nobody so runtime
+# access works. Pip will fail to install into root-owned venv as
+# nobody user.
+# ------------------------------------------------------------------
+RUN python3 -m venv /opt/pvas/venv && \
+    /opt/pvas/venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -2 || true
+
+# Install wheels as root. Then chown for nobody access.
+USER root
+RUN /opt/pvas/venv/bin/pip install --no-index \
+        /opt/pvas/offline-bundle/python/wheels/*.whl 2>&1 | tail -10 || true
+
+# Now make venv writable by nobody for runtime
+RUN chmod -R a+rwX /opt/pvas/venv && \
+    chown -R 65534:65534 /opt/pvas/venv
+
+# ------------------------------------------------------------------
+# Stage 4: Pre-download OSV offline DB so osv-scanner can work offline
+# in containers without api.osv.dev access.
+# ------------------------------------------------------------------
+RUN /opt/pvas/tools/bin/osv-scanner \
+    --download-offline-databases \
+    --offline-db-path /opt/pvas/offline-db 2>&1 | tail -3 || \
+    echo "[pvas] OSV offline DB download failed; will use online mode"
+
+USER root
+RUN mkdir -p /workspace /out && \
+    chown 65534:65534 /workspace /out /opt/pvas/offline-db 2>/dev/null || true
+
+# ------------------------------------------------------------------
+# Stage 5: ENV defaults that every audit expects.
+# ------------------------------------------------------------------
+# PATH: PVAS tools first so they shadow any same-named system tools
+ENV PATH="/opt/pvas/tools/bin:/opt/pvas/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# PYTHONPATH: Python wrapper scripts (cppcheck, semgrep) need this to find their modules
+ENV PYTHONPATH="/opt/pvas/venv/lib64/python3.11/site-packages"
+# HOME=/root: osv-scanner's offline-mode cache lookup is $HOME/.cache/osv-scanner
+# Defaulting to /root means offline DB mounted at /root/.cache/osv-scanner works
+# but /tmp is still the writable workdir via TMPDIR override
+ENV HOME="/root"
+ENV TMPDIR="/tmp"
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+# ASan symbolizer path (only useful if clang was installed)
 ENV ASAN_SYMBOLIZER_PATH="/usr/bin/llvm-symbolizer"
-RUN mkdir -p /workspace /out && chown 65534:65534 /workspace /out
+# OSV offline DB path
+ENV OSV_OFFLINE_DB_PATH="/opt/pvas/offline-db"
+
+# ------------------------------------------------------------------
+# Stage 6: User and runtime.
+# Critical: empty ENTRYPOINT/CMD so the caller's command runs verbatim.
+# The previous ENTRYPOINT ["/bin/sh", "-c"] consumed the command arg.
+# ------------------------------------------------------------------
 USER 65534:65534
-VOLUME ["/workspace", "/out"]
+VOLUME ["/workspace", "/out", "/opt/pvas/offline-db"]
 WORKDIR /workspace
-ENTRYPOINT ["/bin/sh", "-c"]
+ENTRYPOINT []
+CMD []

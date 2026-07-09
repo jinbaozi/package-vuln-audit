@@ -1,0 +1,27 @@
+# PVAS sandbox netpolicy: bridge-deny
+# 
+# Drop all outbound traffic from PVAS sandbox containers by default.
+# Only ESTABLISHED/RELATED connections are allowed back (for the duration
+# of the connection) so that responses to in-container requests work.
+#
+# This is the strictest policy and is the default for complete audits.
+# Use bridge-allow for ad-hoc tool scans that need network (e.g.,
+# pulling fresh OSV data); use host for the driver orchestrator.
+#
+# Applied by tools/pvas_netpolicy.py when a container is launched with
+# network_policy="bridge-deny". The iptables chain is named
+# PVAS_BRIDGE_DENY_<audit_id>.
+
+# Allow established connections (response to in-container request)
+-A PVAS_BRIDGE_DENY_<AUDIT_ID> -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow loopback (in-container communication)
+-A PVAS_BRIDGE_DENY_<AUDIT_ID> -i lo -j ACCEPT
+
+# Allow DNS to public resolvers (otherwise even acme.sh would fail)
+# Comment out if you want zero DNS resolution
+-A PVAS_BRIDGE_DENY_<AUDIT_ID> -p udp --dport 53 -j ACCEPT
+-A PVAS_BRIDGE_DENY_<AUDIT_ID> -p tcp --dport 53 -j ACCEPT
+
+# Drop everything else
+-A PVAS_BRIDGE_DENY_<AUDIT_ID> -j DROP

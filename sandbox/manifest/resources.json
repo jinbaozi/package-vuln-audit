@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "description": "Resource registry and cleanup policy for PVAS audits. cleanup-audit.sh reads this to know what to preserve.",
+  "audit_id_default": "default-audit-id",
+  "created_resources": {
+    "images": [
+      {"tag": "pvas-sandbox:v11-2503-imported", "owner": "skill-import", "cleanup_policy": "preserve",
+       "rationale": "Base image; re-import requires rootfs tarball"},
+      {"tag": "pvas-sandbox:v11-2503-runtime", "owner": "audit-build", "cleanup_policy": "delete-on-exit"}
+    ],
+    "container_labels": ["pvas-audit-id=${AUDIT_ID}"]
+  },
+  "preserve_resources": [
+    "pvas-sandbox:v11-2503-imported",
+    "bbh-poc",
+    "bbh-base",
+    "fkiecad/cwe_checker"
+  ],
+  "cleanup_strategy": {
+    "containers": {"action": "rm -f", "filter": "label=pvas-audit-id=${AUDIT_ID}"},
+    "images":     {"action": "rmi",   "filter": "tag=pvas-sandbox:v11-2503-runtime"},
+    "dangling":   {"action": "prune", "filter": "none"},
+    "build_cache":{"action": "prune", "filter": "until=24h", "keep_storage_gb": 10}
+  },
+  "exit_codes": {
+    "cleanup_success": 0,
+    "partial_cleanup": 1,
+    "cleanup_failed": 2
+  },
+  "log_path_pattern": "${PVAS_LOG_DIR}/cleanup-${AUDIT_ID}.log"
+}

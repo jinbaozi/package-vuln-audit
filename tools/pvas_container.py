@@ -30,6 +30,32 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
+
+# Load env defaults eagerly at module import so AuditContext() picks them up.
+def _load_env_defaults_lazy() -> dict:
+    skill_root = Path(__file__).resolve().parents[1]
+    defaults_file = skill_root / "sandbox" / "manifest" / "defaults.json"
+    if defaults_file.is_file():
+        try:
+            data = json.loads(defaults_file.read_text())
+            env = dict(data.get("env_defaults", {}))
+            if env:
+                return env
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "PATH": "/opt/pvas/tools/bin:/opt/pvas/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONPATH": "/opt/pvas/venv/lib64/python3.11/site-packages",
+        "HOME": "/root",
+        "TMPDIR": "/tmp",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+    }
+
+
+# Default ENV shared across all audit containers. Read from
+# sandbox/manifest/defaults.json if present, else fall back to these literals.
+
 MAX_TOOL_MEM_MB = 4096
 MAX_WORKERS_DEFAULT = 4
 
@@ -87,6 +113,154 @@ def _truthy(value: str | None) -> bool:
 
 def allow_netpolicy_degraded() -> bool:
     return _truthy(os.environ.get("PVAS_ALLOW_NETPOLICY_DEGRADED"))
+
+
+# Default ENV shared across all audit containers. Read from
+# sandbox/manifest/defaults.json if present, else fall back to these literals.
+def _load_env_defaults() -> dict:
+    skill_root = Path(__file__).resolve().parents[1]
+    defaults_file = skill_root / "sandbox" / "manifest" / "defaults.json"
+    if defaults_file.is_file():
+        try:
+            data = json.loads(defaults_file.read_text())
+            env = dict(data.get("env_defaults", {}))
+            if env:
+                return env
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "PATH": "/opt/pvas/tools/bin:/opt/pvas/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONPATH": "/opt/pvas/venv/lib64/python3.11/site-packages",
+        "HOME": "/root",
+        "TMPDIR": "/tmp",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+    }
+
+
+def _load_spec_defaults() -> dict:
+    """Load container_spec_defaults from defaults.json. Falls back to safe defaults."""
+    skill_root = Path(__file__).resolve().parents[1]
+    defaults_file = skill_root / "sandbox" / "manifest" / "defaults.json"
+    if defaults_file.is_file():
+        try:
+            data = json.loads(defaults_file.read_text())
+            return dict(data.get("container_spec_defaults", {}))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "user": "root",
+        "read_only_rootfs": False,
+        "cap_drop": ["ALL"],
+        "cap_add": ["DAC_OVERRIDE", "CHOWN", "FOWNER", "SETUID", "SETGID"],
+        "mem_limit_mb": 4096,
+        "timeout_seconds": 1800,
+        "network_policy": "host",
+    }
+
+
+@dataclass
+class AuditContext:
+    """Pre-configured container defaults for one PVAS audit run.
+
+    An AuditContext bundles image, capabilities, env, and audit-id label so
+    call sites don't repeat the same ContainerSpec constructor arguments.
+    Use ``AuditContext.make_spec()`` to construct a ContainerSpec with the
+    audit defaults plus per-call overrides.
+
+    Example:
+        ctx = AuditContext(audit_id="gcc-12.3.0-strict-20260708")
+        spec = ctx.make_spec(command=["gcc", "--version"], mounts=[],
+                            purpose="verify", name="gcc-version")
+        result = run(spec)
+    """
+    audit_id: str
+    image: str = DEFAULT_RUNTIME_IMAGE
+    env: dict = field(default_factory=_load_env_defaults)
+    user: str = "root"
+    cap_drop: list = field(default_factory=lambda: ["ALL"])
+    cap_add: list = field(default_factory=lambda: ["DAC_OVERRIDE", "CHOWN", "FOWNER", "SETUID", "SETGID"])
+    mem_limit_mb: int = 4096
+    timeout_seconds: int = 1800
+    network_policy: str = "host"
+    read_only_rootfs: bool = False
+
+    def make_spec(
+        self,
+        command: Sequence[str],
+        mounts: list,
+        *,
+        purpose: str = "tool",
+        name: str | None = None,
+        mem_limit_mb: int | None = None,
+        timeout_seconds: int | None = None,
+        network_policy: str | None = None,
+        env: Mapping[str, str] | None = None,
+        user: str | None = None,
+        cap_add: list | None = None,
+        cap_drop: list | None = None,
+        read_only_rootfs: bool | None = None,
+    ) -> "ContainerSpec":
+        """Build a ContainerSpec with audit defaults + per-call overrides."""
+        labels = {"pvas-audit-id": self.audit_id, "pvas-purpose": purpose}
+        if name:
+            labels["pvas-tool"] = name
+        # Merge env: defaults overridden by per-call env
+        merged_env: dict = dict(self.env)
+        if env:
+            for k, v in env.items():
+                if v is not None:
+                    merged_env[k] = v
+        return ContainerSpec(
+            image=self.image,
+            command=list(command),
+            mounts=mounts,
+            network_policy=network_policy or self.network_policy,
+            env=merged_env,
+            user=user or self.user,
+            read_only_rootfs=self.read_only_rootfs if read_only_rootfs is None else read_only_rootfs,
+            mem_limit_mb=mem_limit_mb if mem_limit_mb is not None else self.mem_limit_mb,
+            timeout_seconds=timeout_seconds or self.timeout_seconds,
+            cap_drop=cap_drop if cap_drop is not None else self.cap_drop,
+            cap_add=cap_add if cap_add is not None else self.cap_add,
+            labels=labels,
+        )
+
+
+def run_with_exit_capture(
+    ctx: AuditContext,
+    command_str: str,
+    mounts: list,
+    *,
+    purpose: str = "tool",
+    name: str | None = None,
+    exit_prefix: str | None = None,
+    **kwargs,
+) -> tuple:
+    """Run a command and capture the real exit code via the wrapper pattern.
+
+    The shell wrapper pattern is:
+        <command_str> 2>&1; echo <prefix>_exit=$?
+
+    Then we parse <prefix>_exit=N from stdout to recover the actual exit
+    code that the wrapper's last echo would otherwise mask.
+
+    Returns: (actual_exit_code, full_stdout, full_stderr)
+    """
+    prefix = exit_prefix or (name[:2] if name else "cmd")
+    wrapped = f"{command_str} 2>&1; echo {prefix}_exit=$?"
+    spec = ctx.make_spec(["/bin/sh", "-c", wrapped], mounts, purpose=purpose, name=name, **kwargs)
+    result = run(spec)
+    actual_exit = result.exit_code
+    if result.stdout:
+        for line in result.stdout.splitlines():
+            if f"{prefix}_exit=" in line:
+                try:
+                    actual_exit = int(line.split(f"{prefix}_exit=")[1].strip())
+                except (ValueError, IndexError):
+                    pass
+                break
+    return actual_exit, result.stdout, result.stderr
 
 
 def _spec_to_dict(spec: ContainerSpec) -> dict:

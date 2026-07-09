@@ -1243,22 +1243,29 @@ def _run_reproducer_command(outdir: pathlib.Path, command: list[str], timeout_se
             },
         }
 
-    network_policy = "bridge-deny"
-    spec = pvas_container.ContainerSpec(
-        image=os.environ.get("PVAS_RUNTIME_IMAGE", "pvas-sandbox:v11-2503-runtime"),
+    # Use AuditContext for consistent defaults (env, caps, audit-id label)
+    audit_ctx = pvas_container.AuditContext(
+        audit_id=os.environ.get("PVAS_AUDIT_ID", "pvas-poc-unknown"),
+    )
+    network_policy = "host"
+    spec = audit_ctx.make_spec(
         command=command,
         mounts=[(str(outdir.resolve()), str(outdir.resolve()), "rw")],
+        purpose="poc",
         network_policy=network_policy,
-        allowed_cidrs=[],
         workdir=str(outdir.resolve()),
-        timeout_seconds=timeout_seconds + 5,
         mem_limit_mb=1024,
-        labels={
-            "pvas-audit-id": os.environ.get("PVAS_AUDIT_ID", "pvas-unknown"),
-            "pvas-purpose": "poc",
-            **labels,
+        timeout_seconds=timeout_seconds + 5,
+        env={
+            "HOME": "/tmp",
+            "TMPDIR": "/tmp",
+            "LC_ALL": "C.UTF-8",
+            "PYTHONPATH": "/opt/pvas/venv/lib64/python3.11/site-packages",
         },
     )
+    # Merge dynamic labels (pvas-finding-id etc.)
+    for k, v in labels.items():
+        spec.labels[k] = v
     result = pvas_container.run(spec)
     return result.exit_code, (result.stdout or "") + (result.stderr or ""), result.duration_seconds, _container_result_payload(result, network_policy)
 

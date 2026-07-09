@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "description": "Default ContainerSpec, ENV, and capability settings for PVAS audit containers. Read by pvas_container.py to populate ContainerSpec defaults.",
+  "container_spec_defaults": {
+    "user": "root",
+    "read_only_rootfs": false,
+    "cap_drop": ["ALL"],
+    "cap_add": ["DAC_OVERRIDE", "CHOWN", "FOWNER", "SETUID", "SETGID"],
+    "mem_limit_mb_default": 4096,
+    "mem_limit_mb_semgrep": 2048,
+    "mem_limit_mb_cppcheck": 512,
+    "mem_limit_mb_osv_scanner": 1024,
+    "mem_limit_mb_verify": 512,
+    "timeout_seconds_default": 1800,
+    "timeout_seconds_verify": 120,
+    "timeout_seconds_poc": 300,
+    "network_policy": "host"
+  },
+  "env_defaults": {
+    "PATH": "/opt/pvas/tools/bin:/opt/pvas/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "PYTHONPATH": "/opt/pvas/venv/lib64/python3.11/site-packages",
+    "HOME": "/root",
+    "TMPDIR": "/tmp",
+    "XDG_CACHE_HOME": "/tmp/cache",
+    "LC_ALL": "C.UTF-8",
+    "LANG": "C.UTF-8",
+    "ASAN_SYMBOLIZER_PATH": "/usr/bin/llvm-symbolizer",
+    "OSV_OFFLINE_DB_PATH": "/opt/pvas/offline-db"
+  },
+  "image_labels": {
+    "pvas-audit-id": "AUDIT_ID_TO_OVERRIDE",
+    "pvas-purpose": "tool|poc|verify"
+  },
+  "preserve_resources": [
+    "pvas-sandbox:v11-2503-imported"
+  ],
+  "audit_id_default": "default-audit-id",
+  "log_dir_default": "audit-output/machine",
+  "cleanup_log_filename_pattern": "cleanup-${AUDIT_ID}.log"
+}

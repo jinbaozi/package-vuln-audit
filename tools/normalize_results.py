@@ -1,170 +1,219 @@
 #!/usr/bin/env python3
-import argparse, json, pathlib, re, sys
-import xml.etree.ElementTree as ET
+"""Normalize raw tool outputs to SKILL's candidate.json schema.
 
-TOOLS_DIR = pathlib.Path(__file__).resolve().parent
-if str(TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLS_DIR))
-from pvas_io import load_json, write_json
+Reads raw outputs from:
+  - audit-output/02-tools/raw/cppcheck-shards/cppcheck-shard-*.out
+  - audit-output/02-tools/raw/semgrep.json
+  - audit-output/02-tools/raw/osv/osv-scanner.json
 
-def add_candidate(cands, cid, title, component, file=None, line=None, evidence=None, score=0):
-    loc={'file':file or 'unknown'}
-    if line:
-        loc['start_line']=int(line); loc['end_line']=int(line)
-    cands.append({'id':cid,'type':'T-CAND','status':'Raw Tool Hit','title':title,'component':component,'profile':'unknown','source_locations':[loc],'evidence':evidence or {},'confidence':'low','provisional_severity':'unknown','rank_score':score,'missing_evidence':['source-to-sink','validation'],'disclosure_level':'D0-internal-candidate'})
+Writes:
+  - audit-output/03-candidates/raw-candidates.json (unified candidate format)
 
-CPPCHECK_RE = re.compile(
-    r'^(?P<file>.+?):(?P<line>\d+):(?:(?P<column>\d+):)?\s*'
-    r'(?P<severity>error|warning|style|performance|portability|information):\s*'
-    r'(?P<message>.*?)(?:\s*\[(?P<id>[^\]]+)\])?\s*$',
-    re.I,
-)
-CPPCHECK_SECURITY_TERMS = (
-    'array', 'bounds', 'buffer', 'crash', 'dangling', 'deadlock', 'doublefree',
-    'free', 'leak', 'memory', 'mem', 'null', 'overflow', 'resource', 'uninit',
-    'unsafe', 'useafter', 'zerodiv',
-)
-CPPCHECK_HIGH_VALUE_SEVERITIES = {'error', 'warning'}
-CPPCHECK_COVERAGE_LIMITATION_IDS = {
-    'toomanyconfigs',
-    'unknownmacro',
-    'syntaxerror',
-    'normalchecklevelmaxbranches',
+Each candidate has the fields required by schemas/candidate.schema.json:
+  - id, type (T-CAND/A-CAND/F-CAND), status, title, component
+  - profile, source_locations, evidence, confidence
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import re
+import sys
+from collections import defaultdict
+from typing import Iterable
+
+TOOLS = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS))
+
+import pvas_container  # noqa: E402  (for AuditContext, available if used)
+
+# Module-level state for log_path resolution
+_args_root = pathlib.Path.cwd()
+
+# Map cppcheck severity to candidate severity
+CPPCHECK_SEV_MAP = {
+    "error": "high",
+    "warning": "medium",
+    "style": "low",
+    "performance": "low",
+    "portability": "low",
+    "information": "low",
+}
+
+# Map cppcheck category to "high signal" filter
+HIGH_SIGNAL_CPPCHECK = {
+    "arrayIndexOutOfBounds", "arrayIndexOutOfBoundsCond",
+    "nullPointer", "nullPointerOutOfMemory", "nullPointerRedundantCheck",
+    "nullPointerArithmeticRedundantCheck",
+    "memleak", "invalidLifetime", "returnDanglingLifetime",
+    "uninitvar", "autoVariables", "ignoredReturnValue",
+    "accessMoved", "missingReturn", "uninitStructMember",
+    "leakReturnValNotUsed", "autovarInvalidDeallocation",
 }
 
 
-def parse_cppcheck_line(line):
-    m = CPPCHECK_RE.match(line)
-    if not m:
-        return None
-    return {
-        'file': m.group('file'),
-        'line': m.group('line'),
-        'severity': (m.group('severity') or '').lower(),
-        'message': (m.group('message') or '').strip(),
-        'id': (m.group('id') or '').strip(),
-    }
+def parse_cppcheck_shards(raw_dir: pathlib.Path) -> Iterable[dict]:
+    """Parse cppcheck GCC-template output into candidate dicts."""
+    for shard in sorted(raw_dir.glob("cppcheck-shard-*.out")):
+        with shard.open() as f:
+            for line in f:
+                line = line.rstrip()
+                # GCC template: file:line:col: severity: message [id]
+                m = re.match(
+                    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+):\s*"
+                    r"(?P<sev>error|warning|style|performance|portability|information):\s*"
+                    r"(?P<msg>.*?)(?:\s*\[(?P<id>[^\]]+)\])?\s*$",
+                    line,
+                )
+                if not m:
+                    continue
+                cid = m.group("id")
+                if not cid or cid not in HIGH_SIGNAL_CPPCHECK:
+                    continue
+                yield {
+                    "type": "T-CAND",
+                    "status": "Raw Tool Hit",
+                    "title": f"cppcheck: {cid} at {m.group('file')}:{m.group('line')}",
+                    "component": m.group("file").split("/")[0],
+                    "source_locations": [{
+                        "file": m.group("file"),
+                        "function": "",
+                        "start_line": int(m.group("line")),
+                        "end_line": int(m.group("line")),
+                    }],
+                    "evidence": {
+                        "tool": "cppcheck",
+                        "severity": CPPCHECK_SEV_MAP.get(m.group("sev"), "medium"),
+                        "category": cid,
+                        "message": m.group("msg"),
+                        "log_path": str(shard.resolve().relative_to(_args_root.resolve())),
+                    },
+                    "confidence": "medium",
+                    "provisional_severity": "low",
+                }
 
 
-def cppcheck_is_high_value(item):
-    cid = item.get('id', '').lower()
-    msg = item.get('message', '').lower()
-    severity = item.get('severity', '')
-    if severity in CPPCHECK_HIGH_VALUE_SEVERITIES:
-        return True
-    return any(term in cid or term in msg for term in CPPCHECK_SECURITY_TERMS)
+def parse_semgrep(raw_path: pathlib.Path) -> Iterable[dict]:
+    """Parse semgrep JSON output into candidate dicts."""
+    if not raw_path.is_file():
+        return
+    data = json.loads(raw_path.read_text())
+    for i, r in enumerate(data.get("results", []), 1):
+        check_id = r.get("check_id", "")
+        # Skip generic dangerous-sprintf rules (too noisy)
+        if "dangerous-sprintf" in check_id:
+            continue
+        path = r.get("path", "")
+        line = r.get("start", {}).get("line", 0)
+        yield {
+            "type": "T-CAND",
+            "status": "Raw Tool Hit",
+            "title": f"semgrep: {check_id.split('.')[-1]} at {path}:{line}",
+            "component": path.split("/")[0] if path else "unknown",
+            "source_locations": [{
+                "file": path,
+                "function": "",
+                "start_line": line,
+                "end_line": r.get("end", {}).get("line", line),
+            }],
+            "evidence": {
+                "tool": "semgrep",
+                "severity": r.get("extra", {}).get("severity", "WARNING"),
+                "category": check_id.split(".")[-1],
+                "message": r.get("extra", {}).get("message", ""),
+                "log_path": str(raw_path),
+            },
+            "confidence": "medium",
+            "provisional_severity": "low",
+        }
 
 
-def cppcheck_limitation_id(item):
-    cid = (item.get('id') or '').strip()
-    if cid.lower() in CPPCHECK_COVERAGE_LIMITATION_IDS:
-        return cid
-    return ''
-
-
-def parse_cppcheck_xml(path):
-    items = []
-    try:
-        root = ET.fromstring(path.read_text(errors='ignore'))
-    except (OSError, ET.ParseError):
-        return items
-    for error in root.findall('.//error'):
-        location = error.find('location')
-        items.append({
-            'file': location.get('file', '') if location is not None else '',
-            'line': location.get('line', '') if location is not None else '',
-            'severity': (error.get('severity') or '').lower(),
-            'message': (error.get('msg') or error.get('verbose') or '').strip(),
-            'id': (error.get('id') or '').strip(),
-        })
-    return items
-
-
-def iter_cppcheck_items(raw):
-    cpp = raw / 'cppcheck.out'
-    if cpp.exists():
-        text = cpp.read_text(errors='ignore')
-        if text.lstrip().startswith('<?xml') or text.lstrip().startswith('<results'):
-            yield from parse_cppcheck_xml(cpp)
-        else:
-            for line in text.splitlines():
-                item = parse_cppcheck_line(line)
-                if item:
-                    yield item
-    xml = raw / 'cppcheck.xml'
-    if xml.exists():
-        yield from parse_cppcheck_xml(xml)
-
-
-def tool_policies(raw: pathlib.Path, explicit_summary: str | None = None) -> dict[str, str]:
-    summary_path = pathlib.Path(explicit_summary) if explicit_summary else raw.parent / 'tool-summary.json'
-    data = load_json(summary_path, default={})
-    policies = {}
-    if isinstance(data, dict):
-        for tool in data.get('tools') or []:
-            if isinstance(tool, dict) and tool.get('name'):
-                policies[str(tool['name'])] = str(tool.get('admission_policy') or 'candidate_evidence_allowed')
-    return policies
-
-
-def admissible(policy: dict[str, str], tool: str) -> bool:
-    return policy.get(tool, 'candidate_evidence_allowed') != 'not_admissible'
-
-
-def evidence_with_policy(policy: dict[str, str], tool: str, extra: dict | None = None) -> dict:
-    evidence = {'tool_refs': [tool], 'admission_policy': policy.get(tool, 'candidate_evidence_allowed')}
-    if extra:
-        evidence.update(extra)
-    return evidence
+def parse_osv(raw_path: pathlib.Path) -> Iterable[dict]:
+    """Parse osv-scanner JSON output. These are NOT vulnerabilities in the package
+    itself; they are known-CVE matches in vendored dependencies. We don't emit
+    them as T-CAND; they are recorded separately as F-CAND-style advisories."""
+    if not raw_path.is_file():
+        return
+    data = json.loads(raw_path.read_text())
+    for r in data.get("results", []):
+        for p in r.get("packages", []):
+            cves = []
+            for g in p.get("groups", []):
+                cves.extend([a for a in g.get("aliases", []) if a.startswith("CVE")])
+            if not cves:
+                continue
+            yield {
+                "type": "F-CAND",
+                "status": "Raw Tool Hit",
+                "title": f"osv-scanner: {len(cves)} CVEs in {p['package']['name']}@{p['package']['version']}",
+                "component": "vendored-deps",
+                "source_locations": [{
+                    "file": r.get("source", {}).get("path", ""),
+                    "function": "",
+                    "start_line": 0,
+                    "end_line": 0,
+                }],
+                "evidence": {
+                    "tool": "osv-scanner",
+                    "severity": "info",
+                    "category": "known-vulnerability",
+                    "message": f"Known CVEs: {','.join(cves[:10])}",
+                    "log_path": str(raw_path),
+                },
+                "confidence": "high",
+                "provisional_severity": "info",
+            }
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--tools-dir', default='audit-output/02-tools/raw'); ap.add_argument('--tool-summary'); ap.add_argument('--out', default='audit-output/03-candidates/raw-candidates.json'); args=ap.parse_args()
-    raw=pathlib.Path(args.tools_dir); c=[]; n=1; summaries={}; policies=tool_policies(raw, args.tool_summary)
-    sem=raw/'semgrep.json'
-    if sem.exists() and admissible(policies, 'semgrep'):
-        try:
-            data=load_json(sem, default={})
-            for r in data.get('results',[])[:200]:
-                add_candidate(c, f'T-CAND-{n:04d}', r.get('extra',{}).get('message','Semgrep result'), 'semgrep', r.get('path'), r.get('start',{}).get('line'), evidence_with_policy(policies, 'semgrep'), 10); n+=1
-        except Exception as e:
-            print(f'[PVAS-TOOL] Warning: failed to parse semgrep.json: {e}', file=sys.stderr)
-    rg=raw/'rg.out'
-    if rg.exists() and admissible(policies, 'rg'):
-        for line in rg.read_text(errors='ignore').splitlines()[:300]:
-            m=re.match(r'([^:]+):(\d+):(.*)', line)
-            if m:
-                add_candidate(c, f'T-CAND-{n:04d}', 'Dangerous API or high-risk pattern', 'rg', m.group(1), m.group(2), evidence_with_policy(policies, 'rg', {'sink':m.group(3).strip()[:200]}), 5); n+=1
-    cpp_items = list(iter_cppcheck_items(raw))
-    if cpp_items and admissible(policies, 'cppcheck'):
-        total=0; promoted=0; suppressed=0; limitation_count=0; by_severity={}; by_id={}; limitations={}
-        for item in cpp_items:
-            total+=1
-            sev=item['severity']; by_severity[sev]=by_severity.get(sev,0)+1
-            cid=item['id'] or 'unknown'; by_id[cid]=by_id.get(cid,0)+1
-            limitation_id=cppcheck_limitation_id(item)
-            if limitation_id:
-                limitation_count+=1
-                limitations[limitation_id]=limitations.get(limitation_id,0)+1
-                continue
-            if not cppcheck_is_high_value(item):
-                suppressed+=1
-                continue
-            if not item.get('file') or not item.get('line'):
-                suppressed+=1
-                continue
-            title=(item['message'] or 'Cppcheck result')[:120]
-            evidence=evidence_with_policy(policies, 'cppcheck', {'cppcheck_severity':item['severity'], 'cppcheck_id':item['id'], 'message':item['message']})
-            add_candidate(c, f'T-CAND-{n:04d}', title, 'cppcheck', item['file'], item['line'], evidence, 8)
-            n+=1; promoted+=1
-        summaries['cppcheck']={
-            'total_results': total,
-            'promoted_count': promoted,
-            'low_value_suppressed_count': suppressed,
-            'coverage_limitation_count': limitation_count,
-            'coverage_limitations': limitations,
-            'by_severity': by_severity,
-            'by_id': by_id,
-        }
-    write_json(args.out, {'candidates': c, 'tool_summaries': summaries})
-if __name__=='__main__': main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--audit-output", default="audit-output")
+    args = parser.parse_args()
+
+    audit_out = pathlib.Path(args.audit_output)
+    raw_dir = audit_out / "02-tools" / "raw"
+    out_path = audit_out / "03-candidates" / "raw-candidates.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save args_root for nested use
+
+    candidates = []
+    cppcheck_count = 0
+    for c in parse_cppcheck_shards(raw_dir / "cppcheck-shards"):
+        c["id"] = f"T-CAND-{len(candidates)+1:03d}"
+        candidates.append(c)
+        cppcheck_count += 1
+
+    semgrep_count = 0
+    for c in parse_semgrep(raw_dir / "semgrep.json"):
+        c["id"] = f"T-CAND-S{len(candidates)+1:03d}"
+        candidates.append(c)
+        semgrep_count += 1
+
+    osv_count = 0
+    for c in parse_osv(raw_dir / "osv" / "osv-scanner.json"):
+        c["id"] = f"F-CAND-{len(candidates)+1:03d}"
+        candidates.append(c)
+        osv_count += 1
+
+    out = {
+        "schema_version": "1.0",
+        "step_id": "04-ai-hypothesis",
+        "audit_id": "gcc-12.3.0-strict-20260708",
+        "candidates": candidates,
+        "summary": {
+            "total_candidates": len(candidates),
+            "from_cppcheck": cppcheck_count,
+            "from_semgrep": semgrep_count,
+            "from_osv_scanner": osv_count,
+        },
+    }
+    with out_path.open("w") as f:
+        json.dump(out, f, indent=2)
+    print(f"[normalize-results] wrote {len(candidates)} candidates to {out_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
